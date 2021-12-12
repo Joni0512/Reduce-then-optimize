@@ -5,6 +5,7 @@ import pickle
 import pandas as pd
 from shapely.geometry import Point
 import sys
+import networkx as nx
 
 DROPOFF_LAT = 'dropoff_latitude'
 DROPOFF_LONG = 'dropoff_longitude'
@@ -14,7 +15,6 @@ PICKUP_TIME = 'tpep_pickup_datetime'
 TRIP_DISTANCE = 'trip_distance'
 ORIGIN = 'origin'
 DEST = 'dest'
-
 
 start = sys.argv[1]
 end = sys.argv[2]
@@ -26,6 +26,7 @@ city = ox.geocode_to_gdf('Manhattan, New York City, New York, USA')
 geom = city.loc[0, 'geometry']
 
 Manhattan_network = pickle.load(open("manhatton/Manhattan_network.p", "rb"))
+shortest_path_length=dict(nx.all_pairs_dijkstra_path_length(Manhattan_network, weight='length'))
 data = getData('yellow_tripdata_2015-01.csv')
 data = data.loc[(data[PICKUP_TIME] >= start) & 
                                 (data[PICKUP_TIME] < end)]
@@ -55,7 +56,7 @@ for index, row in data.iterrows():
                 
             data.at[index,ORIGIN] = origin
             data.at[index,DEST] = destination
-            if origin != destination:
+            if origin != destination and (origin in shortest_path_length and destination in shortest_path_length[origin]):
                 selected_trips.append(index)
 
 data.loc[selected_trips].to_csv("manhatton/input.csv")
