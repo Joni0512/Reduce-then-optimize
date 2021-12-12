@@ -1,12 +1,12 @@
 import networkx as nx
 import pickle
-import osmnx as ox
 import pandas as pd
 import numpy as np
 import math
 from dateutil import parser
 import datetime
 import mosek
+import time 
 
 DROPOFF_LAT = 'dropoff_latitude'
 DROPOFF_LONG = 'dropoff_longitude'
@@ -17,10 +17,10 @@ TRIP_DISTANCE = 'trip_distance'
 ORIGIN = 'origin'
 DEST = 'dest'
 
-Manhattan_network = pickle.load(open("Manhattan_network.p", "rb"))
+Manhattan_network = pickle.load(open("manhatton/Manhattan_network.p", "rb"))
 shortest_path_length=dict(nx.all_pairs_dijkstra_path_length(Manhattan_network, weight='length'))
 shortest_paths = nx.shortest_path(Manhattan_network)
-selected = pd.read_csv("manhatton_demand_filtered_distinct_0_1000000.csv",parse_dates=True).sort_values(by = [PICKUP_TIME])
+selected = pd.read_csv("manhatton/input.csv",parse_dates=True).sort_values(by = [PICKUP_TIME])
 
 TRIP_ID = "trip_id"
 ARRIVAL_TIME = "arrival_time"
@@ -841,14 +841,19 @@ def assignTrips(vehicles,shortest_paths,shortest_path_lengths,taxi_speed,additio
                 rbvs = RBV[trip_no][rb_index]
                 for rbv in rbvs:
                     if x[j] == 1:
-                        RBcombination = RBcombinations[trip_no][rbv[0]]
-                        veh_no = rbv[1]
-                        if veh_no != -1:
-#                             print(trip_no,rbv,RBcombination)
-                            vehicle,taxi = getLTaxiInTrip(addition_trip_time_factor,bus_speed,wait_time,shortest_paths,shortest_path_lengths,taxi_speed,current_time,trip_no,trip,RBcombination,vehicles[veh_no])
-                            trip_assignment[i][A_LTAXI] = taxi
-                            vehicles[veh_no] = vehicle
-                            stats[S_taxi_miles] = stats[S_taxi_miles] +rbv[2]
+                        if i not in trip_assignment:
+                            with open("results/error.txt", 'a') as file:
+                                file.write(str(trip_no)+"\n")
+                            print("error ",trip_no)
+                        else:
+                            RBcombination = RBcombinations[trip_no][rbv[0]]
+                            veh_no = rbv[1]
+                            if veh_no != -1:
+    #                             print(trip_no,rbv,RBcombination)
+                                vehicle,taxi = getLTaxiInTrip(addition_trip_time_factor,bus_speed,wait_time,shortest_paths,shortest_path_lengths,taxi_speed,current_time,trip_no,trip,RBcombination,vehicles[veh_no])
+                                trip_assignment[i][A_LTAXI] = taxi
+                                vehicles[veh_no] = vehicle
+                                stats[S_taxi_miles] = stats[S_taxi_miles] +rbv[2]
                     j+=1
 
 
@@ -892,7 +897,7 @@ def writeStat(stat,filename):
 
 def writeTimeEx(time_dif,filename):
     with open(filename, 'a') as file:
-        file.write(formatStat(time_dif)+"\n")
+        file.write(time_dif+"\n")
 
 
 ipmSolverTimeOut = 1200
@@ -908,6 +913,7 @@ while starting_sample < total_sample_size:
     sample = selected.iloc[starting_sample:starting_sample+batch_size]
     start_at = parser.parse(sample.iloc[batch_size-1]["tpep_pickup_datetime"])
     combinations = generateRBCombinations(Manhattan_network,buslines,shortest_paths,shortest_path_length,servable_routes,closest_to_stop,closest_from_stop,10,20,1/12,0.25,start_at,sample)
+    # combinations = {}
     VRB,RBV,VR,no_combns,no_vars = getVRBCombinations(sample,combinations,vehicles,0.25,1/12,shortest_paths,shortest_path_length,bus_speed,taxi_speed,start_at)
     x = solveTheProblem(vehicles,sample,VRB,RBV,VR,no_vars,no_combns,1000000,ipmSolverTimeOut)
     trip_assignment,stat = assignTrips(vehicles,shortest_paths,shortest_path_length,taxi_speed,addition_trip_time_factor,bus_speed,wait_time,start_at,sample,x,VRB,RBV,VR,combinations)
@@ -916,5 +922,5 @@ while starting_sample < total_sample_size:
     writeStat(stat,"results/stats.csv")
     starting_sample += batch_size
     iteration+=1
-    writeTimeEx(time.time()-exe_start_time,"results/times.txt")
+    writeTimeEx(str(time.time()-exe_start_time),"results/times.txt")
     exe_start_time = time.time()
