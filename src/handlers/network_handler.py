@@ -6,6 +6,7 @@ class NetworkHandler:
     def __init__(self, base_directory):
         self.times = np.genfromtxt(base_directory+'times.csv', delimiter=',', dtype=np.int16)
         self.predecessors = np.genfromtxt(base_directory+'pred.csv', delimiter=',', dtype=np.int16)
+        self.distances = np.genfromtxt(base_directory+'distance.csv', delimiter=',', dtype=np.int16)
         self.nodes = self.times.shape[0]
         
         print(self.predecessors[0,0])
@@ -13,6 +14,9 @@ class NetworkHandler:
 
     def travel_time(self,source,destination):
         return self.times[source-1,destination-1]
+
+    def travel_distance(self,source,destination):
+        return self.distances[source-1,destination-1]
 
     def predecessor(self,source,destination):
         return self.predecessors[source-1,destination-1]

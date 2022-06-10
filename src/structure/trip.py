@@ -1,12 +1,12 @@
 class Trip:
-    def __init__(self, id, request_id, number, pick_up_time, arrival_time, origin, destination, cost, bus_combination = None, vehicle=None):
+    def __init__(self, request_id, number, pick_up_time, arrival_time, origin, destination, cost, bus_combination = None, first_last_mile_type = 0, vehicle=None):
         self.origin = origin
         self.destination = destination
         self.pick_up_time = pick_up_time
-        self.id = id
         self.number = number
         self.arrival_time = arrival_time
         self.bus_combination = bus_combination
+        self.first_last_mile_type = first_last_mile_type
         self.vehicle = vehicle
         self.picked = False
         self.shared_trips = {}

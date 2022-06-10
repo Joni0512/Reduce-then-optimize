@@ -30,15 +30,16 @@ class TripHandler:
     def get_new_trip_no(self):
         return len(self.trips)
 
-    def get_trip_cost(self,network_handler,vehicle_handler,origin,destination):
-        return vehicle_handler.get_cost_of_travel(network_handler.travel_time(origin,destination))
+    def get_trip_cost(self,network_handler,origin,destination):
+        return network_handler.travel_distance(origin,destination)
     
     def generate_vehicle_only_trips(self,requests,network_handler,vehicle_handler):
         for request in requests:
-            trip_no = self.get_new_trip_no()
-            self.vehicle_only_trip_map[request.id] = trip_no
-            cost = self.get_trip_cost(network_handler,vehicle_handler,request.origin, request.destination)
-            self.trips.append(Trip(request.id,request.id,trip_no,request.pick_up_time, request.arrival_time, request.origin, request.destination, cost))
+            origin = request.origin
+            destination = request.destination
+            trip = self.create_trip(network_handler,request,origin,destination,request.pick_up_time, request.arrival_time,allow_walk=False)
+            self.trips.append(trip)
+            self.vehicle_only_trip_map[request.id] = trip.number
 
     def generate_trips_with_bus(self,network_handler,vehicle_handler,requests,request_bus_combinations):
         self.bus_combinations = 0
@@ -48,7 +49,7 @@ class TripHandler:
                     combination = request_bus_combinations[request.id][bus_combination]
                     for bus_trip in combination:
                         self.bus_combinations+=1
-                        first_mile_trip = self.get_first_mile_trip(network_handler,vehicle_handler,request,bus_trip)
+                        first_mile_trip = self.get_first_mile_trip(network_handler,request,bus_trip)
                         if first_mile_trip == None:
                             bus_trip.first_mile_trip = len(self.empty_trips)
                             self.empty_trips.append(first_mile_trip)
@@ -57,7 +58,7 @@ class TripHandler:
                             bus_trip.first_mile_trip = first_mile_trip.number
                             self.trips.append(first_mile_trip)
 
-                        last_mile_trip = self.get_last_mile_trip(network_handler,vehicle_handler,request,bus_trip)
+                        last_mile_trip = self.get_last_mile_trip(network_handler,request,bus_trip)
                         if last_mile_trip == None:
                             bus_trip.last_mile_trip = len(self.empty_trips)
                             self.empty_trips.append(last_mile_trip)
@@ -65,27 +66,26 @@ class TripHandler:
                         else:
                             bus_trip.last_mile_trip = last_mile_trip.number
                             self.trips.append(last_mile_trip)
+
+    def create_trip(self,network_handler,request,origin,destination,pick_up_time,arrival_time,bus_combination=None,first_last_mile_type=None,allow_walk=True):
+        if allow_walk and self.can_walk(network_handler,origin,destination):
+            return None
+        trip_no = self.get_new_trip_no()
+        cost = self.get_trip_cost(network_handler,origin,destination)
+        return Trip(request.id,trip_no,pick_up_time, arrival_time, origin, destination,cost,bus_combination=bus_combination,first_last_mile_type=first_last_mile_type)
     
-    def get_first_mile_trip(self,network_handler,vehicle_handler,request,bustrip):
+    def get_first_mile_trip(self,network_handler,request,bustrip):
         origin = request.origin
         destination = bustrip.pick_up_stop
-        trip_no = self.get_new_trip_no()
-        cost = self.get_trip_cost(network_handler,vehicle_handler,origin,destination)
-        if self.can_walk(network_handler,origin,destination):
-            return None
-        return Trip("{0}:{1}:F".format(request.id,bustrip.id),request.id,trip_no,request.pick_up_time, bustrip.leaving_time, origin, destination,cost)
+        return self.create_trip(network_handler,request,origin,destination,request.pick_up_time, bustrip.leaving_time,bus_combination=bustrip.id,first_last_mile_type=0)
 
-    def get_last_mile_trip(self,network_handler,vehicle_handler,request,bustrip):
+    def get_last_mile_trip(self,network_handler,request,bustrip):
         destination = request.destination
         origin = bustrip.destination_stop
-        trip_no = self.get_new_trip_no()
-        cost = self.get_trip_cost(network_handler,vehicle_handler,origin,destination)
-        if self.can_walk(network_handler,origin,destination):
-            return None
-        return Trip("{0}:{1}:L".format(request.id,bustrip.id),request.id,trip_no,bustrip.arrival_time, request.arrival_time, origin, destination, cost)
+        return self.create_trip(network_handler,request,origin,destination,bustrip.arrival_time, request.arrival_time,bus_combination=bustrip.id,first_last_mile_type=1)
     
     def can_walk(self,network_handler,origin,destination):
-        distance = network_handler.travel_time(origin,destination)
+        distance = network_handler.travel_distance(origin,destination)
         return distance <= self.walk_distance_cutoff
 
     def generate_trip_costs(self,network_handler,vehicle_handler,current_time):
@@ -123,11 +123,22 @@ class TripHandler:
         trips = {}
         for trip_no in trip_nos:
             trip = self.trips[trip_no]
-            trips[trip.id] = trip
+            trips[trip.number] = trip
         feasible, cost = vehicle_handler.can_serve_trips(network_handler,current_time,trips)
         if feasible and cost <= self.SHAREABLE_COST_FACTOR*current_cost:
             return feasible, cost
         return False, cost
+
+    def do_trips_conflict(self,trip_nos):
+        for trip_no1 in trip_nos:
+            trip1 = self.trips[trip_no1]
+            for trip_no2 in trip_nos:
+                if trip_no1 != trip_no2:
+                    trip2 = self.trips[trip_no2]
+                    if trip1.request_id == trip2.request_id:
+                        if trip1.bus_combination != trip2.bus_combination or trip1.first_last_mile_type == trip2.first_last_mile_type:
+                            return True
+        return False
 
     def generate_shared_trips(self,network_handler,vehicle_handler,current_time,max_cardinality):
         cardinality = 2
@@ -137,7 +148,7 @@ class TripHandler:
                 for trip_nos in itertools.combinations(list(range(len(self.trips))),cardinality):
                     trip1 = self.trips[trip_nos[0]]
                     trip2 = self.trips[trip_nos[1]]
-                    if trip1.number != trip2.number and trip1.request_id != trip2.request_id:
+                    if trip1.number != trip2.number and (not self.do_trips_conflict(trip_nos)):
                         current_cost = trip1.cost+trip2.cost
                         shareable, cost = self.can_share_trips(network_handler,vehicle_handler,current_time,trip_nos,current_cost)
                         if shareable:
@@ -152,27 +163,28 @@ class TripHandler:
                         if trip.number not in shared_trip.trips:
                             current_cost = trip.cost+shared_trip.cost
                             trips = shared_trip.trips.copy().append(trip.number)
-                            combination_already_tested = False
-                            for tried_combination in tried_combinations:
-                                if tried_combination == set(trips):
-                                    combination_already_tested = True
-                                    break
-                            if not combination_already_tested:
-                                tried_combinations.append(set(trips))
-                                sub_combination_found = False
-                                for combination in itertools.combinations(trips,cardinality-1):
-                                    sub_combination_found = True
-                                    for sub_shared_trip_no in self.shared_trips_map[cardinality-1]:
-                                        sub_shared_trip = self.trips[sub_shared_trip_no]
-                                        if set(sub_shared_trip.trips) == set(combination):
-                                            sub_combination_found = True
-                                    if not sub_combination_found:
+                            if not self.do_trips_conflict(trips):
+                                combination_already_tested = False
+                                for tried_combination in tried_combinations:
+                                    if tried_combination == set(trips):
+                                        combination_already_tested = True
                                         break
-                                shareabile, cost= self.can_share_trips(network_handler,vehicle_handler,current_time,trips,current_cost)
-                                if sub_combination_found and shareabile:
-                                    new_shared_trip_no = self.get_new_trip_no()
-                                    self.trips.append(SharedTrip(new_shared_trip_no,trips,cost))
-                                    self.shared_trips_map[cardinality].append(new_shared_trip_no)
+                                if not combination_already_tested:
+                                    tried_combinations.append(set(trips))
+                                    sub_combination_found = False
+                                    for combination in itertools.combinations(trips,cardinality-1):
+                                        sub_combination_found = True
+                                        for sub_shared_trip_no in self.shared_trips_map[cardinality-1]:
+                                            sub_shared_trip = self.trips[sub_shared_trip_no]
+                                            if set(sub_shared_trip.trips) == set(combination):
+                                                sub_combination_found = True
+                                        if not sub_combination_found:
+                                            break
+                                    shareabile, cost= self.can_share_trips(network_handler,vehicle_handler,current_time,trips,current_cost)
+                                    if sub_combination_found and shareabile:
+                                        new_shared_trip_no = self.get_new_trip_no()
+                                        self.trips.append(SharedTrip(new_shared_trip_no,trips,cost))
+                                        self.shared_trips_map[cardinality].append(new_shared_trip_no)
             cardinality+=1
     
     def log_with_timestamp(self,timestamp,message):
@@ -301,11 +313,15 @@ class TripHandler:
         self.request_assignment = {}
         self.unassigned_trip_count = 0
         self.taxi_only_trip_count = 0
-        self.with_bus_trip_count = 0
+        self.with_one_bus_trip_count = 0
+        self.with_two_bus_trip_count = 0
+        self.added_distance = 0
+        self.trip_sizes = []
 
         for vehicle_id in self.vehicle_to_trips_cost_map:
             for i in self.vehicle_to_trips_cost_map[vehicle_id]:
                 if x[i] == 1:
+                    self.added_distance+=c[i]
                     trip_no = self.reverse_trip_to_trips_cost_map[i]
                     trip = self.trips[trip_no]
                     trips = []
@@ -314,6 +330,7 @@ class TripHandler:
                     else:
                         for sub_trip_no in trip.trips:
                             trips.append(self.trips[sub_trip_no])
+                    self.trip_sizes.append(len(trips))
                     self.vehicle_assignment[vehicle_id] = trips
 
         for request in requests:
@@ -373,9 +390,12 @@ class TripHandler:
                             # self.vehicle_assignment[vehicle_id] = self.trips[last_mile_trip_id]
                             self.request_assignment[request.id].last_mile_vehicle = vehicle_id
                         found_assignment = True
-                        self.with_bus_trip_count+=1
+                        if bus_trip.bus_count() == 1:
+                            self.with_one_bus_trip_count += 1
+                        else:
+                            self.with_two_bus_trip_count += 1
                         break
             if not found_assignment:
                 self.unassigned_trip_count+=1
 
-        logging.info('{0}: No of requests: {1}, unassigned requests: {2}, taxi only requests: {3}, requests served by busses: {4}'.format(current_time,request_count,self.unassigned_trip_count,self.taxi_only_trip_count,self.with_bus_trip_count))
+        logging.info('{0}: No of requests: {1}, unassigned requests: {2}, taxi only requests: {3}, requests served by busses: {4}'.format(current_time,request_count,self.unassigned_trip_count,self.taxi_only_trip_count,self.with_one_bus_trip_count+self.with_two_bus_trip_count))

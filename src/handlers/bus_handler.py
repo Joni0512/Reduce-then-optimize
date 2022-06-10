@@ -133,58 +133,60 @@ class BusHandler:
             bus_arrival_time_at_transfer = bus_leave_time_line1 + self.get_time_delta(travel_time1)
         return trips
 
-    def generate_bus_trips(self,network_handler,request):
+    def generate_bus_trips(self,network_handler,request,allow_busses,allow_bus_transfers):
         trips = {}
-        origin = request.origin
-        destination = request.destination
-        pick_up_time = request.pick_up_time
-        arrival_time = request.arrival_time
-        travel_time = network_handler.travel_time(origin, destination)
-        if origin == destination:
-            return trips
+        if allow_busses:
+            origin = request.origin
+            destination = request.destination
+            pick_up_time = request.pick_up_time
+            arrival_time = request.arrival_time
+            trip_distance = network_handler.travel_distance(origin, destination)
+            if origin == destination:
+                return trips
 
-        bus_line_close_to_origin = []
-        for bus_line in self.eligible_bus_lines[origin-1]:
-            bus_line_close_to_origin.append(bus_line)
-        
-        bus_line_close_to_destination = []
-        for bus_line in self.eligible_bus_lines[destination-1]:
-            bus_line_close_to_destination.append(bus_line)
-        
-        for bus_line in bus_line_close_to_origin:
-            if bus_line in bus_line_close_to_destination:
-                source_stop = self.eligible_bus_lines[origin-1][bus_line]
-                destination_stop = self.eligible_bus_lines[destination-1][bus_line]
-                added_travel_time = network_handler.travel_time(origin, source_stop)+network_handler.travel_time(destination_stop, destination)-travel_time
-                if source_stop == destination_stop or added_travel_time > 0:
-                    continue
-                earliest_pick_up_time = pick_up_time + self.get_time_delta(network_handler.travel_time(origin,source_stop))
-                latest_arrival_time = arrival_time - self.get_time_delta(network_handler.travel_time(destination_stop,destination))
-                trips_from_line = self.bus_trips(network_handler,bus_line,source_stop, destination_stop, earliest_pick_up_time,latest_arrival_time)
-                if len(trips_from_line) > 0:
-                    trips[bus_line] = trips_from_line
-        
-        for bus_line1 in bus_line_close_to_origin:
-            bus1 = self.busses[bus_line1]
-            for bus_line2 in self.eligible_bus_lines[destination-1]:
-                if bus_line1 != bus_line2:
-                    bus2 = self.busses[bus_line2]
-                    transfer_stop = -1
-                    for stop in bus1.stops:
-                        if stop in bus2.stops:
-                            transfer_stop = stop
-                            break
-                    if transfer_stop != -1:
-                        source_stop = self.eligible_bus_lines[origin-1][bus_line1]
-                        destination_stop = self.eligible_bus_lines[destination-1][bus_line2]
-                        added_travel_time = network_handler.travel_time(origin, source_stop)+network_handler.travel_time(destination_stop, destination)-travel_time
-                        if (source_stop == destination_stop or (source_stop == transfer_stop or destination_stop == transfer_stop)) or added_travel_time > 0:
-                            continue
-                        earliest_pick_up_time = pick_up_time + self.get_time_delta(network_handler.travel_time(origin,source_stop))
-                        latest_arrival_time = arrival_time - self.get_time_delta(network_handler.travel_time(destination_stop,destination))
-                        trips_from_line = self.bus_trips_with_transfer(network_handler,bus_line1,bus_line2,source_stop,transfer_stop, destination_stop, earliest_pick_up_time,latest_arrival_time)
-                        if len(trips_from_line) > 0:
-                            trips["{0},{1}".format(bus_line1,bus_line2)] = trips_from_line
+            bus_line_close_to_origin = []
+            for bus_line in self.eligible_bus_lines[origin-1]:
+                bus_line_close_to_origin.append(bus_line)
+            
+            bus_line_close_to_destination = []
+            for bus_line in self.eligible_bus_lines[destination-1]:
+                bus_line_close_to_destination.append(bus_line)
+            
+            for bus_line in bus_line_close_to_origin:
+                if bus_line in bus_line_close_to_destination:
+                    source_stop = self.eligible_bus_lines[origin-1][bus_line]
+                    destination_stop = self.eligible_bus_lines[destination-1][bus_line]
+                    added_cost = network_handler.travel_distance(origin, source_stop)+network_handler.travel_distance(destination_stop, destination)-trip_distance
+                    if source_stop == destination_stop or added_cost > 0:
+                        continue
+                    earliest_pick_up_time = pick_up_time + self.get_time_delta(network_handler.travel_time(origin,source_stop))
+                    latest_arrival_time = arrival_time - self.get_time_delta(network_handler.travel_time(destination_stop,destination))
+                    trips_from_line = self.bus_trips(network_handler,bus_line,source_stop, destination_stop, earliest_pick_up_time,latest_arrival_time)
+                    if len(trips_from_line) > 0:
+                        trips[bus_line] = trips_from_line
+            
+            if allow_bus_transfers:
+                for bus_line1 in bus_line_close_to_origin:
+                    bus1 = self.busses[bus_line1]
+                    for bus_line2 in self.eligible_bus_lines[destination-1]:
+                        if bus_line1 != bus_line2:
+                            bus2 = self.busses[bus_line2]
+                            transfer_stop = -1
+                            for stop in bus1.stops:
+                                if stop in bus2.stops:
+                                    transfer_stop = stop
+                                    break
+                            if transfer_stop != -1:
+                                source_stop = self.eligible_bus_lines[origin-1][bus_line1]
+                                destination_stop = self.eligible_bus_lines[destination-1][bus_line2]
+                                added_cost = network_handler.travel_distance(origin, source_stop)+network_handler.travel_distance(destination_stop, destination)-trip_distance
+                                if (source_stop == destination_stop or (source_stop == transfer_stop or destination_stop == transfer_stop)) or added_cost > 0:
+                                    continue
+                                earliest_pick_up_time = pick_up_time + self.get_time_delta(network_handler.travel_time(origin,source_stop))
+                                latest_arrival_time = arrival_time - self.get_time_delta(network_handler.travel_time(destination_stop,destination))
+                                trips_from_line = self.bus_trips_with_transfer(network_handler,bus_line1,bus_line2,source_stop,transfer_stop, destination_stop, earliest_pick_up_time,latest_arrival_time)
+                                if len(trips_from_line) > 0:
+                                    trips["{0},{1}".format(bus_line1,bus_line2)] = trips_from_line
 
         return trips
     

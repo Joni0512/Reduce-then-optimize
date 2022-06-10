@@ -16,3 +16,6 @@ class BusTrip:
 
     # def __str__(self):
     #     return "{{Bus line: {0}, frequency: {1}, travel time: {2} mins, fleet size: {3}, wait time: {4} mins}}".format(self.bus_line,self.frequency,self.travel_time/60, self.no_of_busses, self.bus_waiting_time/60)
+
+    def bus_count(self):
+        return len(self.bus_lines)
