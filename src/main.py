@@ -8,6 +8,8 @@ from handlers.vehicle_handler import VehicleHandler
 from handlers.trip_handler import TripHandler
 from handlers.output_handler import OutputHandler
 import argparse
+import multiprocessing
+import numpy as np
 
 BASE_DATA_DIR = "../data/"
 BATCH_INTERVAL = timedelta(0,seconds=30)
@@ -18,8 +20,10 @@ BUS_DISTANCE_CUT_OFF = 1000 #meters
 IPM_SOLVER_TIMEOUT = 1200
 PENALTY = 1000000
 MAX_WAIT_TIME = 300 # 5 minutes
-ADDITIONAL_TRIP_TIME_FACTOR = 1.5 #we allow trips to have 2 x shortest path travel distance
+ADDITIONAL_TRIP_TIME_FACTOR = 3 #we allow trips to have 3 x shortest path travel distance
 SHAREABLE_COST_FACTOR = 1
+MAX_CARDINALITY = 2
+MAX_THREAD_CNT = 10
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Simulator arguments')
@@ -38,31 +42,46 @@ if __name__=="__main__":
 
     logging.basicConfig(filename=OUTPUT_DIR+'main.log', level=logging.DEBUG)
     logging.info('Starting the simulator with: max_number_of_vehicles {0}, max_capacity {1}'.format(args.max_number_of_vehicles, args.max_capacity))
-    exe_start_time=time.time()
     iteration = 0
-    network_handler = NetworkHandler(BASE_DATA_DIR+"new_map/")
+    NetworkHandler.init(BASE_DATA_DIR+"new_map/")
 
     request_handler = RequestHandler(BASE_DATA_DIR+"requests/requests.csv",MAX_WAIT_TIME,ADDITIONAL_TRIP_TIME_FACTOR)
-    starting_time = request_handler.earliest_start_time(network_handler)
-    latest_time = request_handler.latest_start_time(network_handler)
+    starting_time = request_handler.earliest_start_time()
+    latest_time = request_handler.latest_start_time()
     start_of_the_day = starting_time.replace(hour=0, minute=0, second=0, microsecond=0)
-    bus_handler = BusHandler(BASE_DATA_DIR+"bus/", start_of_the_day, BUS_DWELL, network_handler, AVERAGE_EDGE_SPEED, BUS_DISTANCE_CUT_OFF)
-    vehicle_handler = VehicleHandler(BASE_DATA_DIR+"vehicles/vehicles.csv",start_of_the_day,AVERAGE_EDGE_SPEED,args.max_number_of_vehicles, args.max_capacity)
+    bus_handler = BusHandler(BASE_DATA_DIR+"bus/", start_of_the_day, BUS_DWELL, BUS_DISTANCE_CUT_OFF)
+    vehicle_handler = VehicleHandler(BASE_DATA_DIR+"vehicles/vehicles.csv",OUTPUT_DIR,start_of_the_day,args.max_number_of_vehicles, args.max_capacity)
 
     # OUTPUT_DIR = "../output/"
     output_handler = OutputHandler(OUTPUT_DIR)
 
-    while starting_time <= latest_time:
-        end_time = starting_time + BATCH_INTERVAL
-        batch = request_handler.get_batch(network_handler,starting_time,end_time)
-        request_bus_combinations = {}
-        for request in batch:
-            request_bus_combinations[request.id] = bus_handler.generate_bus_trips(network_handler, request, args.allow_bus, args.allow_bus_transfer)
+    def get_bus_trips(request_no):
+        return bus_handler.generate_bus_trips(batch[request_no], args.allow_bus, args.allow_bus_transfer)
 
-        trip_handler = TripHandler(end_time,network_handler,vehicle_handler,batch,request_bus_combinations,AVERAGE_EDGE_SPEED, WALK_DISTANCE_CUT_OFF,IPM_SOLVER_TIMEOUT,PENALTY,2,SHAREABLE_COST_FACTOR)
-        output_handler.record_output(end_time,trip_handler)
+    while starting_time <= latest_time:
+        iteration_exe_start_time = time.time()
+
+        end_time = starting_time + BATCH_INTERVAL
+        vehicle_handler.simulate_vehicles(end_time)
+        batch = request_handler.get_batch(starting_time,end_time)
+
+        request_bus_combinations = {}
+        pool = multiprocessing.Pool(processes=MAX_THREAD_CNT)
+        request_numbers = np.arange(len(batch))
+        combinations = pool.map(get_bus_trips,request_numbers)
+        request_no = 0
+        for request in batch:
+            request_bus_combinations[request.id] = combinations[request_no]
+            request_no+=1
+        combinations = None
+
+        trip_handler = TripHandler(end_time,vehicle_handler.vehicles,batch,request_bus_combinations, WALK_DISTANCE_CUT_OFF,IPM_SOLVER_TIMEOUT,PENALTY,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR)
+        output_handler.record_output(end_time,batch,trip_handler,time.time()-iteration_exe_start_time)
+        if trip_handler.unassigned_trip_count > 0:
+            vehicle_handler.save_snapshot()
+            break
         for vehicle_id in trip_handler.vehicle_assignment:
             vehicle = vehicle_handler.vehicles[vehicle_id]
             trips = trip_handler.vehicle_assignment[vehicle_id]
-            vehicle_handler.add_new_trips(network_handler,end_time, vehicle, trips, add=True)
+            VehicleHandler.add_new_trips(end_time, vehicle, trips, add=True)
         starting_time = end_time
