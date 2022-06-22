@@ -24,7 +24,7 @@ class TripHandler:
         self.SHAREABLE_COST_FACTOR = SHAREABLE_COST_FACTOR
         self.generate_vehicle_only_trips(requests,current_time)
         self.generate_trips_with_bus(requests,request_bus_combinations)
-        self.generate_shared_trips(current_time,MAX_CARDINALITY)
+        # self.generate_shared_trips(current_time,MAX_CARDINALITY)
         self.generate_trip_costs(vehicles,current_time,MAX_THREAD_CNT)
         self.assign_trips(vehicles,requests,request_bus_combinations,penalty,current_time)
 
@@ -161,7 +161,8 @@ class TripHandler:
         while cardinality <= max_cardinality:
             self.shared_trips_map[cardinality] = []
             if cardinality == 2:
-                for trip_nos in itertools.combinations(list(range(len(self.trips))),cardinality):
+                no_of_trips = len(self.trips)
+                for trip_nos in itertools.combinations(list(range(no_of_trips)),cardinality):
                     trip1 = self.trips[trip_nos[0]]
                     trip2 = self.trips[trip_nos[1]]
                     if trip1.number != trip2.number and (not self.do_trips_conflict(trip_nos)):

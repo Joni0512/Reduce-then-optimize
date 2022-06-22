@@ -19,6 +19,7 @@ class RequestHandler:
         dateparse = lambda x: datetime.strptime(x, '%Y-%m-%d %H:%M:%S')
         self.requests = pd.read_csv(filename,parse_dates=[PICKUP_TIME],date_parser=dateparse).sort_values(by = [PICKUP_TIME])
         self.count = self.requests.shape[0]
+        self.next_index = 0
         logging.info('Total No of requests: {0}'.format(self.count))
 
     def earliest_start_time(self):
@@ -46,10 +47,17 @@ class RequestHandler:
         request_data = self.requests.iloc[iloc]
         return self.get_request(request_data)
 
-    def get_batch(self,start_time,end_time):
+    def get_batch(self,end_time,max_batch_size):
         batch = []
-        for _, row in self.requests[(self.requests[PICKUP_TIME]>=start_time) & (self.requests[PICKUP_TIME]<end_time)].iterrows():
-            # print(type(row))
+        current_index = 0
+        for index, row in self.requests.iloc[self.next_index:self.next_index+max_batch_size].iterrows():
             request = self.get_request(row)
+            if request.pick_up_time > end_time:
+                break
             batch.append(request)
-        return batch
+            current_index = index
+        self.next_index = current_index+1
+        time_of_next_request = self.requests.iloc[self.next_index][PICKUP_TIME]
+        if time_of_next_request <= end_time:
+            end_time = min(end_time,batch[-1].pick_up_time)
+        return batch,end_time

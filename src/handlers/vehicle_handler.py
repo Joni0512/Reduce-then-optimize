@@ -86,7 +86,7 @@ class VehicleHandler:
     def add_new_trips(current_time, vehicle, new_trips, add=False):
         feasible = False
         added_cost = -1
-        if vehicle.started:
+        if vehicle.started and len(vehicle.trips) < 4:
             next_immediate_node = vehicle.last_node
             time_at_next_immediate_node = vehicle.time_at_last
             if len(vehicle.stop_sequence)>0:
@@ -115,8 +115,8 @@ class VehicleHandler:
                 vehicle.time_at_last = time_at_next_immediate_node
                 for trip in new_trips:
                     vehicle.trips[trip.id] = trip
-                vehicle.sequence = sequence
-                next_stop = vehicle.sequence[0]
+                vehicle.stop_sequence = sequence
+                next_stop = vehicle.stop_sequence[0]
                 vehicle.time_at_next = vehicle.time_at_last + VehicleHandler.get_time_delta(NetworkHandler.travel_time(vehicle.last_node,next_stop.node))
                 if next_stop.type == TYPE_DROP_OFF and vehicle.time_at_next < vehicle.trips[next_stop.trip_id].pick_up_time:
                     vehicle.time_at_next = vehicle.trips[next_stop.trip_id].pick_up_time

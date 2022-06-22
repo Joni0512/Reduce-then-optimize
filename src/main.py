@@ -11,6 +11,10 @@ import argparse
 import multiprocessing
 import numpy as np
 
+# import datetime
+
+# ending_time = datetime.datetime(2015,1,1,0,12,0)
+
 BASE_DATA_DIR = "../data/"
 BATCH_INTERVAL = timedelta(0,seconds=30)
 BUS_DWELL = 25 # second
@@ -24,6 +28,7 @@ ADDITIONAL_TRIP_TIME_FACTOR = 3 #we allow trips to have 3 x shortest path travel
 SHAREABLE_COST_FACTOR = 1
 MAX_CARDINALITY = 2
 MAX_THREAD_CNT = 10
+MAX_BATCH_SIZE = 100
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Simulator arguments')
@@ -31,6 +36,8 @@ if __name__=="__main__":
                     help='maximum number of MoD vehicles')
     parser.add_argument('--max_capacity', type=int,
                     help='maximum capacity of a MoD vehicle')
+    parser.add_argument('--max_cardinality', type=int,
+                    help='maximum trips to be shared')
     parser.add_argument('--allow_bus_transfer', action=argparse.BooleanOptionalAction,
                     help='allow bus transfers')
     parser.add_argument('--allow_bus', action=argparse.BooleanOptionalAction,
@@ -39,6 +46,7 @@ if __name__=="__main__":
                     help='output directory')
     args = parser.parse_args()
     OUTPUT_DIR = args.out_put_dir
+    MAX_CARDINALITY = args.max_cardinality
 
     logging.basicConfig(filename=OUTPUT_DIR+'main.log', level=logging.DEBUG)
     logging.info('Starting the simulator with: max_number_of_vehicles {0}, max_capacity {1}'.format(args.max_number_of_vehicles, args.max_capacity))
@@ -62,8 +70,8 @@ if __name__=="__main__":
         iteration_exe_start_time = time.time()
 
         end_time = starting_time + BATCH_INTERVAL
+        batch,end_time = request_handler.get_batch(end_time,MAX_BATCH_SIZE)
         vehicle_handler.simulate_vehicles(end_time)
-        batch = request_handler.get_batch(starting_time,end_time)
 
         request_bus_combinations = {}
         pool = multiprocessing.Pool(processes=MAX_THREAD_CNT)
@@ -77,9 +85,10 @@ if __name__=="__main__":
 
         trip_handler = TripHandler(end_time,vehicle_handler.vehicles,batch,request_bus_combinations, WALK_DISTANCE_CUT_OFF,IPM_SOLVER_TIMEOUT,PENALTY,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR)
         output_handler.record_output(end_time,batch,trip_handler,time.time()-iteration_exe_start_time)
-        if trip_handler.unassigned_trip_count > 0:
-            vehicle_handler.save_snapshot()
-            break
+        # if trip_handler.unassigned_trip_count > 0:
+        # if end_time > ending_time:
+        #     vehicle_handler.save_snapshot()
+        #     break
         for vehicle_id in trip_handler.vehicle_assignment:
             vehicle = vehicle_handler.vehicles[vehicle_id]
             trips = trip_handler.vehicle_assignment[vehicle_id]
