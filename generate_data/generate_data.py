@@ -73,47 +73,47 @@ def osmnx_routing_graph(addr='Manhattan, New York City, New York, USA',
 
 
 def generateMap(G,nodes,edges):
-    OUTPUT_DIR = BASE_OUTPUT_DIR+"new_new_map/"
+    OUTPUT_DIR = BASE_OUTPUT_DIR+"map/"
 
-    # with open(OUTPUT_DIR+"pred.csv", 'a+') as pred_file:
-    #     with open(OUTPUT_DIR+"times.csv", 'a+') as times_file:
-    #         for origin in range(len(nodes)):
-    #             travel_times = []
-    #             predecessors = []
-    #             origin_osmid = nodes.loc[nodes['node_id']==origin,'osmid'].iloc[0]
-    #             pred,travel_time=nx.dijkstra_predecessor_and_distance(G, origin_osmid,weight='travel_time')
-    #             for destination in range(len(nodes)):
-    #                 destination_osmid = nodes.loc[nodes['node_id']==destination,'osmid'].iloc[0]
-    #                 travel_times.append(travel_time[destination_osmid])
-    #                 if destination == origin:
-    #                     predecessor = 0
-    #                 else:
-    #                     predecessor = nodes.loc[nodes['osmid']==pred[destination_osmid][0],'node_id'].iloc[0]+1
-    #                 predecessors.append(predecessor)
-    #             pred_file.write(",".join([str(i) for i in predecessors])+"\n")
-    #             times_file.write(",".join([str(i) for i in travel_times])+"\n")
+    with open(OUTPUT_DIR+"pred.csv", 'a+') as pred_file:
+        with open(OUTPUT_DIR+"times.csv", 'a+') as times_file:
+            for origin in range(len(nodes)):
+                travel_times = []
+                predecessors = []
+                origin_osmid = nodes.loc[nodes['node_id']==origin,'osmid'].iloc[0]
+                pred,travel_time=nx.dijkstra_predecessor_and_distance(G, origin_osmid,weight='travel_time')
+                for destination in range(len(nodes)):
+                    destination_osmid = nodes.loc[nodes['node_id']==destination,'osmid'].iloc[0]
+                    travel_times.append(travel_time[destination_osmid])
+                    if destination == origin:
+                        predecessor = 0
+                    else:
+                        predecessor = nodes.loc[nodes['osmid']==pred[destination_osmid][0],'node_id'].iloc[0]+1
+                    predecessors.append(predecessor)
+                pred_file.write(",".join([str(i) for i in predecessors])+"\n")
+                times_file.write(",".join([str(i) for i in travel_times])+"\n")
 
-    # predecessors = np.genfromtxt(OUTPUT_DIR+'pred.csv', delimiter=',', dtype=np.int16)
-    # with open(OUTPUT_DIR+"distance.csv", 'a+') as dist_file:
-    #     for origin in range(len(nodes)):
-    #         print(origin, end='\r')
-    #         distances = []
-    #         for destination in range(len(nodes)):
-    #             distance = 0
-    #             if destination != origin:
-    #                 current_target = destination
-    #                 current_target_osmid = nodes.loc[nodes['node_id']==destination,'osmid'].iloc[0]
-    #                 while True:
-    #                     next_target = predecessors[origin,current_target] - 1
-    #                     next_target_osmid = nodes.loc[nodes['node_id']==next_target,'osmid'].iloc[0]
-    #                     print(origin,destination,current_target,next_target)
-    #                     distance += G[next_target_osmid][current_target_osmid][0]['length']
-    #                     if origin == next_target:
-    #                         break
-    #                     current_target = next_target
-    #                     current_target_osmid = next_target_osmid
-    #             distances.append(distance)
-    #         dist_file.write(",".join([str(i) for i in distances])+"\n")
+    predecessors = np.genfromtxt(OUTPUT_DIR+'pred.csv', delimiter=',', dtype=np.int16)
+    with open(OUTPUT_DIR+"distance.csv", 'a+') as dist_file:
+        for origin in range(len(nodes)):
+            print(origin, end='\r')
+            distances = []
+            for destination in range(len(nodes)):
+                distance = 0
+                if destination != origin:
+                    current_target = destination
+                    current_target_osmid = nodes.loc[nodes['node_id']==destination,'osmid'].iloc[0]
+                    while True:
+                        next_target = predecessors[origin,current_target] - 1
+                        next_target_osmid = nodes.loc[nodes['node_id']==next_target,'osmid'].iloc[0]
+                        print(origin,destination,current_target,next_target)
+                        distance += G[next_target_osmid][current_target_osmid][0]['length']
+                        if origin == next_target:
+                            break
+                        current_target = next_target
+                        current_target_osmid = next_target_osmid
+                distances.append(distance)
+            dist_file.write(",".join([str(i) for i in distances])+"\n")
 
     nodes['node_id'] = nodes['node_id'].apply(lambda x: x + 1)
     nodes = nodes[['node_id', 'lat', 'lon']]
@@ -168,9 +168,6 @@ def generateRequests(G,nodes,address,filename,start,end):
     ORIGIN = 'origin'
     DEST = 'dest'
 
-    # def getData(filename):
-    #     return pd.read_csv(filename,parse_dates=True, usecols=[PICKUP_TIME, PICKUP_LONG, PICKUP_LAT, DROPOFF_LONG, DROPOFF_LAT, TRIP_DISTANCE]).sort_values(by = [PICKUP_TIME])
-
     city = ox.geocode_to_gdf(address)
     geom = city.loc[0, 'geometry']
 
@@ -212,8 +209,7 @@ def generateRequests(G,nodes,address,filename,start,end):
                     selected_trips.append(index)
 
     print("Trips after filtering: {0}".format(len(selected_trips)))
-    data.loc[selected_trips].to_csv(BASE_OUTPUT_DIR+"requests/requests.csv")
-#  getData('yellow_tripdata_2015-01.csv')
+    data.loc[selected_trips].to_csv(BASE_OUTPUT_DIR+"requests/requests_{0}.csv".format(start))
 
 
 def generateVehicles(nodes,vehicle_num,vehicle_capacity):
@@ -296,12 +292,9 @@ def generateBusLines(G,node,edges):
 
 G, nodes, edges = osmnx_routing_graph(addr='Manhattan, New York City, New York, USA', 
                         buffer_dist=500)
-# ox.plot_graph(G, node_color='b', node_size=2, node_edgecolor='grey', bgcolor = 'white')
 
-# generateRequests(G,nodes,'Manhattan, New York City, New York, USA','yellow_tripdata_2015-01.csv',"2015-01-01 00:00:00","2015-01-02 00:00:00")
 
 generateMap(G,nodes,edges)
+generateVehicles(nodes,10000,4)
 generateBusLines(G,nodes,edges)
-
-# generateMapWithLength(G,nodes,edges)
-# generateVehicles(nodes,10000,4)
+generateRequests(G,nodes,'Manhattan, New York City, New York, USA','../taxi_data_sample_sorted.csv',"2015-01-01 00:00:00","2015-01-02 00:00:00")
