@@ -36,10 +36,10 @@ class RequestHandler:
         origin = int(request_data[ORIGIN])
         destination = int(request_data[DEST])
         id = request_data[ID]
-        # pick_up_time = parser.parse(request_data[PICKUP_TIME])
         pick_up_time = request_data[PICKUP_TIME]
         travel_time = NetworkHandler.travel_time(origin,destination)
         duration = int((1+self.trip_lenghen_factor*(max(0.5/self.trip_lenghen_factor,1-travel_time/3600)))*travel_time)
+        # duration = 2*self.max_wait_time+int(travel_time)
         latest_arrival_time = pick_up_time + timedelta(seconds=self.max_wait_time+duration)
         return Request(id,pick_up_time,latest_arrival_time,origin,destination)
 

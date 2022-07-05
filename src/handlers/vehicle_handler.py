@@ -17,12 +17,12 @@ TYPE_DROP_OFF = 1
 
 class VehicleHandler:
     MAX_CAPACITY = 0
+    LARGEST_TSP = 4
     def __init__(self, filename, output_directory, starting_date, max_number_of_vehicles, max_capacity):
         self.vehicles = {}
         self.count = 0
         VehicleHandler.MAX_CAPACITY = max_capacity
         self.read_vehicles(filename, starting_date, max_number_of_vehicles)
-        # self.speed = speed
         self.output_directory = output_directory
         logging.info('Total No of vehicles: {0}'.format(self.count))
 
@@ -64,9 +64,6 @@ class VehicleHandler:
             next_stop = vehicle.stop_sequence.pop(0)
             vehicle.last_node = next_stop.node
             vehicle.time_at_last = vehicle.time_at_next
-            # if next_stop.type == TYPE_PICK_UP and vehicle.trips[next_stop.trip_id].pick_up_time > current_time:
-            #     break
-            # vehicle.stop_sequence.pop(0)
             if next_stop.type == TYPE_PICK_UP:
                 vehicle.picked.append(next_stop.trip_id)
                 vehicle.trips[next_stop.trip_id].picked = True
@@ -86,7 +83,7 @@ class VehicleHandler:
     def add_new_trips(current_time, vehicle, new_trips, add=False):
         feasible = False
         added_cost = -1
-        if vehicle.started and len(vehicle.trips) < 4:
+        if vehicle.started and len(vehicle.trips) < VehicleHandler.LARGEST_TSP:
             next_immediate_node = vehicle.last_node
             time_at_next_immediate_node = vehicle.time_at_last
             if len(vehicle.stop_sequence)>0:

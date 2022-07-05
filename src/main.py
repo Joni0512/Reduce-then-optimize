@@ -51,7 +51,7 @@ if __name__=="__main__":
     logging.basicConfig(filename=OUTPUT_DIR+'main.log', level=logging.DEBUG)
     logging.info('Starting the simulator with: max_number_of_vehicles {0}, max_capacity {1}'.format(args.max_number_of_vehicles, args.max_capacity))
     iteration = 0
-    NetworkHandler.init(BASE_DATA_DIR+"new_map/")
+    NetworkHandler.init(BASE_DATA_DIR+"map/")
 
     request_handler = RequestHandler(BASE_DATA_DIR+"requests/requests.csv",MAX_WAIT_TIME,ADDITIONAL_TRIP_TIME_FACTOR)
     starting_time = request_handler.earliest_start_time()
