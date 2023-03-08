@@ -39,8 +39,9 @@ class RequestHandler:
         pick_up_time = request_data[PICKUP_TIME]
         travel_time = NetworkHandler.travel_time(origin,destination)
         duration = int((1+self.trip_lenghen_factor*(max(0.5/self.trip_lenghen_factor,1-travel_time/3600)))*travel_time)
+        duration = max(duration,900)
         # duration = 2*self.max_wait_time+int(travel_time)
-        latest_arrival_time = pick_up_time + timedelta(seconds=self.max_wait_time+duration)
+        latest_arrival_time = pick_up_time + timedelta(seconds=duration)
         return Request(id,pick_up_time,latest_arrival_time,origin,destination)
 
     def get_request_by_iloc(self,iloc):
@@ -49,15 +50,15 @@ class RequestHandler:
 
     def get_batch(self,end_time,max_batch_size):
         batch = []
-        current_index = 0
-        for index, row in self.requests.iloc[self.next_index:self.next_index+max_batch_size].iterrows():
+        ending_index = min(self.next_index+max_batch_size,self.requests.shape[0]-1)
+        for _, row in self.requests.iloc[self.next_index:ending_index].iterrows():
             request = self.get_request(row)
             if request.pick_up_time > end_time:
                 break
             batch.append(request)
-            current_index = index
-        self.next_index = current_index+1
+            self.next_index+=1
         time_of_next_request = self.requests.iloc[self.next_index][PICKUP_TIME]
-        if time_of_next_request <= end_time:
+        if time_of_next_request <= end_time and len(batch) > 0:
             end_time = min(end_time,batch[-1].pick_up_time)
+        print(end_time,len(batch))
         return batch,end_time

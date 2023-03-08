@@ -55,6 +55,7 @@ class VehicleHandler:
         return timedelta(seconds=int(seconds))
 
     def simulate_vehicle(self,current_time, vehicle):
+        completed_stops = []
         if current_time >= vehicle.start_time:
             if not vehicle.started:
                 vehicle.started = True
@@ -62,6 +63,12 @@ class VehicleHandler:
                 vehicle.time_at_last = current_time
         while len(vehicle.stop_sequence)>0 and current_time >= vehicle.time_at_next:
             next_stop = vehicle.stop_sequence.pop(0)
+            # logging the stop
+            next_stop.stop_time = vehicle.time_at_next
+            next_stop.request_id = vehicle.trips[next_stop.trip_id].request_id
+            next_stop.vehicle_id = vehicle.id
+            completed_stops.append(next_stop)
+
             vehicle.last_node = next_stop.node
             vehicle.time_at_last = vehicle.time_at_next
             if next_stop.type == TYPE_PICK_UP:
@@ -75,15 +82,39 @@ class VehicleHandler:
                 next_trip = vehicle.trips[next_stop.trip_id]
                 if next_stop.type == TYPE_PICK_UP and vehicle.time_at_next < next_trip.pick_up_time:
                     vehicle.time_at_next = next_trip.pick_up_time
+        return completed_stops
 
     def simulate_vehicles(self,current_time):
+        completed_stops = []
         for vehicle_id in self.vehicles:
-            self.simulate_vehicle(current_time, self.vehicles[vehicle_id])
+            veh_completed_stops = self.simulate_vehicle(current_time, self.vehicles[vehicle_id])
+            completed_stops.extend(veh_completed_stops)
+        return completed_stops
+
+    def get_vehicle_exact_location(self,vehicle_id,current_time):
+        vehicle = self.vehicles[vehicle_id]
+        next_immediate_node = vehicle.last_node
+        time_at_next_immediate_node = vehicle.time_at_last
+        if len(vehicle.stop_sequence)>0:
+            target_node = vehicle.stop_sequence[0].node
+            path = NetworkHandler.get_path(next_immediate_node,target_node)
+            path.pop(0)
+            while time_at_next_immediate_node < current_time and len(path)>0:
+                last_node = next_immediate_node
+                next_immediate_node = path.pop(0)
+                time_at_next_immediate_node = time_at_next_immediate_node + VehicleHandler.get_time_delta(NetworkHandler.travel_time(last_node,next_immediate_node))
+        return next_immediate_node
+
+    def get_vehicle_locations(self,current_time):
+        locations = {}
+        for vehicle_id in self.vehicles:
+            locations[int(vehicle_id)] = self.get_vehicle_exact_location(vehicle_id,current_time)
+        return locations
     
     def add_new_trips(current_time, vehicle, new_trips, add=False):
         feasible = False
         added_cost = -1
-        if vehicle.started and len(vehicle.trips) < VehicleHandler.LARGEST_TSP:
+        if vehicle.started:
             next_immediate_node = vehicle.last_node
             time_at_next_immediate_node = vehicle.time_at_last
             if len(vehicle.stop_sequence)>0:
@@ -95,16 +126,20 @@ class VehicleHandler:
                     next_immediate_node = path.pop(0)
                     time_at_next_immediate_node = time_at_next_immediate_node + VehicleHandler.get_time_delta(NetworkHandler.travel_time(last_node,next_immediate_node))
         
-            trips = vehicle.trips.copy()
-            for trip in new_trips:
-                trips[trip.id] = trip
-            trips_to_pick_up = []
-            trips_to_drop_off = []
-            for trip_id in trips:
-                trips_to_drop_off.append(trip_id)
-                if not trips[trip_id].picked:
-                    trips_to_pick_up.append(trip_id)
-            sequence, cost, feasible = VehicleHandler.get_optimal_stop_sequence(next_immediate_node,time_at_next_immediate_node,vehicle.capacity,trips,trips_to_pick_up,trips_to_drop_off,[],0)
+            sequence, cost = None, None
+            if len(vehicle.trips) < VehicleHandler.LARGEST_TSP:
+                trips = vehicle.trips.copy()
+                for trip in new_trips:
+                    trips[trip.id] = trip
+                trips_to_pick_up = []
+                trips_to_drop_off = []
+                for trip_id in trips:
+                    trips_to_drop_off.append(trip_id)
+                    if not trips[trip_id].picked:
+                        trips_to_pick_up.append(trip_id)
+                sequence, cost, feasible = VehicleHandler.get_optimal_stop_sequence(next_immediate_node,time_at_next_immediate_node,vehicle.capacity,trips,trips_to_pick_up,trips_to_drop_off,[],0)
+            else:
+                sequence, cost, feasible = VehicleHandler.get_heuristic_stop_sequence(next_immediate_node,time_at_next_immediate_node,vehicle.capacity,vehicle.trips.copy(),new_trips[0],vehicle.stop_sequence)
             added_cost = cost - VehicleHandler.cost_of_serving_sequence(next_immediate_node,vehicle)
             
             if feasible and add:
@@ -115,7 +150,7 @@ class VehicleHandler:
                 vehicle.stop_sequence = sequence
                 next_stop = vehicle.stop_sequence[0]
                 vehicle.time_at_next = vehicle.time_at_last + VehicleHandler.get_time_delta(NetworkHandler.travel_time(vehicle.last_node,next_stop.node))
-                if next_stop.type == TYPE_DROP_OFF and vehicle.time_at_next < vehicle.trips[next_stop.trip_id].pick_up_time:
+                if next_stop.type == TYPE_PICK_UP and vehicle.time_at_next < vehicle.trips[next_stop.trip_id].pick_up_time:
                     vehicle.time_at_next = vehicle.trips[next_stop.trip_id].pick_up_time
     
         return added_cost,feasible
@@ -172,6 +207,51 @@ class VehicleHandler:
                             feasible = new_feasible
                             best_sequence = new_sequence
 
+        return best_sequence, current_lowest_cost, feasible
+
+    def get_heuristic_stop_sequence(last_node,time_at_last_node,max_capacity,trips,new_trip,existing_sequence):
+        feasible = False
+        best_sequence = None
+        current_lowest_cost = -1
+        load = 2*len(trips) - len(existing_sequence)
+        for pick_up_index in range(len(existing_sequence)+1):
+            for drop_off_index in range(pick_up_index+1,len(existing_sequence)+2):
+                cost = 0
+                new_feasible = True
+                new_sequence = existing_sequence.copy()
+                trip_id = new_trip.id
+                new_sequence.insert(pick_up_index,VehicleStop(trip_id,new_trip.origin,TYPE_PICK_UP))
+                new_sequence.insert(drop_off_index,VehicleStop(trip_id,new_trip.destination,TYPE_DROP_OFF))
+                
+                current_time = time_at_last_node
+                current_node = last_node
+                current_load = load
+                for stop in new_sequence:
+                    trip = new_trip
+                    if stop.trip_id != trip_id:
+                        trip = trips[stop.trip_id]
+                    travel_time = VehicleHandler.get_time_delta(NetworkHandler.travel_time(current_node,stop.node))
+                    cost +=  NetworkHandler.travel_distance(current_node,stop.node)
+                    current_time = current_time + travel_time
+                    if stop.type == TYPE_PICK_UP:
+                        if current_time < trip.pick_up_time:
+                            current_time = trip.pick_up_time
+                        current_load+=1
+                        if current_load > max_capacity:
+                            new_feasible = False
+                            break
+                    else:
+                        current_load-=1
+                        if current_time > trip.arrival_time:
+                            new_feasible = False
+                            break
+                    current_node = stop.node
+                if new_feasible:
+                    if (not feasible) or (current_lowest_cost > cost):
+                        current_lowest_cost = cost
+                        feasible = new_feasible
+                        best_sequence = new_sequence
+                        
         return best_sequence, current_lowest_cost, feasible
 
     def can_serve_trips(current_time,trips):

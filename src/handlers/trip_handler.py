@@ -10,6 +10,7 @@ import mosek
 import logging
 import itertools
 import multiprocessing as mp
+from datetime import timedelta
 
 class TripHandler:
     def __init__(self,current_time,vehicles,requests,request_bus_combinations,distance_cutoff,ipm_solver_timeout,penalty,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR):
@@ -24,8 +25,10 @@ class TripHandler:
         self.SHAREABLE_COST_FACTOR = SHAREABLE_COST_FACTOR
         self.generate_vehicle_only_trips(requests,current_time)
         self.generate_trips_with_bus(requests,request_bus_combinations)
+        logging.debug("Generated first and last mile trips. Total trips {0}".format(len(self.trips)))
         # self.generate_shared_trips(current_time,MAX_CARDINALITY)
         self.generate_trip_costs(vehicles,current_time,MAX_THREAD_CNT)
+        logging.debug("Generated trip costs. Total combinations {0}".format(len(TripHandler.trip_costs)))
         self.assign_trips(vehicles,requests,request_bus_combinations,penalty,current_time)
 
     def get_new_trip_no(self):
@@ -78,6 +81,7 @@ class TripHandler:
     def get_first_mile_trip(self,request,bustrip):
         origin = request.origin
         destination = bustrip.pick_up_stop
+        # return self.create_trip(request,origin,destination,request.pick_up_time, bustrip.leaving_time+timedelta(minutes=5),bus_combination=bustrip.id,first_last_mile_type=0)
         return self.create_trip(request,origin,destination,request.pick_up_time, bustrip.leaving_time,bus_combination=bustrip.id,first_last_mile_type=0)
 
     def get_last_mile_trip(self,request,bustrip):
@@ -221,6 +225,8 @@ class TripHandler:
         numcon = self.bus_combinations+vehicle_count+request_count
         x = np.zeros(numvar)
 
+        logging.debug("Started building optimization problem")
+
         with mosek.Env() as env:
             with env.Task(0, 1) as task:
                 task.appendvars(numvar)
@@ -305,7 +311,11 @@ class TripHandler:
                             [mosek.variabletype.type_int]*numvar)
                 task.putdouparam(mosek.dparam.mio_max_time, self.ipm_solver_timeout)
 
+                logging.debug("Started optimization")
+
                 task.optimize()
+
+                logging.debug("Finished optimization")
                 task.getxx(mosek.soltype.itg, x)
 
                 task.writedata("data.opf")
@@ -422,4 +432,34 @@ class TripHandler:
             if not found_assignment:
                 self.unassigned_trip_count+=1
 
+        # Logging
+        for request in requests:
+            trip_no = self.vehicle_only_trip_map[request.id]
+            cost_map_indices = self.trip_to_vehicle_cost_map[trip_no]
+            no_bus_trips = 0
+            first_mile_trips = []
+            last_mile_trips = []
+            for combination_label in request_bus_combinations[request.id]:
+                combination = request_bus_combinations[request.id][combination_label]
+                no_bus_trips += len(combination)
+                for bus_trip in combination:
+                    first_mile_trip_id = bus_trip.first_mile_trip
+                    last_mile_trip_id = bus_trip.last_mile_trip
+
+                    first_mile_trip_cost_index = None
+                    last_mile_trip_cost_index = None
+                    
+                    if bus_trip.first_mile_trip_empty:
+                        first_mile_trips.append(-1)
+                    else:
+                        first_mile_trips.append(len(self.trip_to_vehicle_cost_map[first_mile_trip_id]))
+
+                    if bus_trip.last_mile_trip_empty:
+                        last_mile_trips.append(-1)
+                    else:
+                        last_mile_trips.append(len(self.trip_to_vehicle_cost_map[last_mile_trip_id]))
+
+            last_mile_trips_copy = [str(i) for i in last_mile_trips]
+            first_mile_trips_copy = [str(i) for i in first_mile_trips]
+            logging.info('Requests ID: {0}, direct vehicles: {1}, no of bus trips: {2}, first mile vehicles: {3}, last mile vehicles: {4}'.format(request.id,len(cost_map_indices),no_bus_trips,",".join(first_mile_trips_copy),",".join(last_mile_trips_copy)))
         logging.info('{0}: No of requests: {1}, unassigned requests: {2}, taxi only requests: {3}, requests served by busses: {4}'.format(current_time,request_count,self.unassigned_trip_count,self.taxi_only_trip_count,self.with_one_bus_trip_count+self.with_two_bus_trip_count))
