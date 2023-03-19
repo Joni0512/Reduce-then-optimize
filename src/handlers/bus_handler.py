@@ -144,7 +144,7 @@ class BusHandler:
             bus_arrival_time_at_transfer = bus_leave_time_line1 + self.get_time_delta(travel_time1)
         return trips
 
-    def generate_bus_trips(self,request,allow_busses,allow_bus_transfers,WALK_DISTANCE_CUT_OFF):
+    def generate_bus_trips(self,request,allow_busses,allow_bus_transfers):
         trips = {}
         if allow_busses:
             origin = request.origin
@@ -168,14 +168,21 @@ class BusHandler:
                 if bus_line in bus_line_close_to_destination:
                     source_stop = self.eligible_bus_lines[origin-1][bus_line]
                     destination_stop = self.eligible_bus_lines[destination-1][bus_line]
-                    added_cost = NetworkHandler.travel_distance(origin, source_stop)+NetworkHandler.travel_distance(destination_stop, destination)-trip_distance
+                    distance_to_source = NetworkHandler.travel_distance(origin, source_stop)
+                    distance_from_arrival = NetworkHandler.travel_distance(destination_stop, destination)
+                    added_cost = distance_to_source+distance_from_arrival-trip_distance
                     if source_stop == destination_stop or added_cost > 0:
                         continue
                     earliest_pick_up_time = pick_up_time + self.get_time_delta(NetworkHandler.travel_time(origin,source_stop))
                     latest_arrival_time = arrival_time - self.get_time_delta(NetworkHandler.travel_time(destination_stop,destination))
                     trips_from_line = self.bus_trips(bus_line,source_stop, destination_stop, earliest_pick_up_time,latest_arrival_time)
                     if len(trips_from_line) > 0:
-                        trips[bus_line] = trips_from_line
+                        # if distance_to_source <= self.walk_distance_cut_off:
+                        #     trips[bus_line] = trips_from_line[-1:]
+                        # elif distance_from_arrival <= self.walk_distance_cut_off:
+                        #     trips[bus_line] = trips_from_line[-1:]
+                        # else:
+                        trips[bus_line] = trips_from_line[-1:]
             
             if allow_bus_transfers:
                 for bus_line1 in bus_line_close_to_origin:
@@ -204,7 +211,7 @@ class BusHandler:
                                 #         latest_arrival_time = pick_up_time+self.get_time_delta(duration*(4/3))
                                 trips_from_line = self.bus_trips_with_transfer(bus_line1,bus_line2,source_stop,transfer_stop, destination_stop, earliest_pick_up_time,latest_arrival_time)
                                 if len(trips_from_line) > 0:
-                                    trips["{0},{1}".format(bus_line1,bus_line2)] = trips_from_line
+                                    trips["{0},{1}".format(bus_line1,bus_line2)] = trips_from_line[-1:]
 
         return trips
 

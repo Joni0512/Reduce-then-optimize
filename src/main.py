@@ -56,7 +56,7 @@ if __name__=="__main__":
     iteration = 0
     NetworkHandler.init(BASE_DATA_DIR+"map/",USE_REAL_DISTANCE)
 
-    request_handler = RequestHandler(BASE_DATA_DIR+"requests/requests_3_12_22.csv",MAX_WAIT_TIME,ADDITIONAL_TRIP_TIME_FACTOR)
+    request_handler = RequestHandler(BASE_DATA_DIR+"requests/requests_10_22_2_2023.csv",MAX_WAIT_TIME,ADDITIONAL_TRIP_TIME_FACTOR)
     starting_time = request_handler.earliest_start_time()
     latest_time = request_handler.latest_start_time()
     start_of_the_day = starting_time.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -67,7 +67,7 @@ if __name__=="__main__":
     output_handler = OutputHandler(OUTPUT_DIR)
 
     def get_bus_trips(request_no):
-        return bus_handler.generate_bus_trips(batch[request_no], args.allow_bus, args.allow_bus_transfer,WALK_DISTANCE_CUT_OFF)
+        return bus_handler.generate_bus_trips(batch[request_no], args.allow_bus, args.allow_bus_transfer)
 
     while starting_time <= latest_time:
         iteration_exe_start_time = time.time()

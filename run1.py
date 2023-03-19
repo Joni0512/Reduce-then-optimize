@@ -125,6 +125,7 @@ def getBusLines(G,bus_routes_meta,shortest_paths,shortest_path_lengths,bus_speed
         distances,distances_between_stops = getStopDetails(route_key,shortest_path_lengths,stops,bus_speed,freq)
         route_length = getRouteLength(shortest_path_lengths,stops)
         waiting_time = getNoOfBussesWaitTime(route_length,freq,bus_speed)
+        print("{0},{1},{2}".format(route_key,route_length,route_length/(bus_speed*1000)))
         bus_line = {WAITING_TIME:waiting_time,FREQUENCY:freq,STOPS:stops,TRAVEL_BETWEEN_STOPS:distances_between_stops}
         bus_lines[route_key] = bus_line
     return bus_lines
@@ -212,11 +213,13 @@ def generateRBCombinations(G,buslines,shortest_paths,shortest_path_lengths,serva
     combinations = {}
     taxi_speed_in_meters = taxi_speed*1000
     bus_speed_in_meters = bus_speed*1000
-    for index, row in requests.iterrows():
+    for _, row in requests.iterrows():
+        index = row[0]
         combinations[index] = []
         origin = row[ORIGIN]
         dest = row[DEST]
         max_trip_time = getMaximumTripTime(addition_trip_time_factor,shortest_path_lengths,bus_speed,wait_time,origin,dest)
+        print(index,max_trip_time)
         bus_lines_close_to_origin = servable_routes[origin]
         bus_lines_close_to_dest = servable_routes[dest]
         taxi_distance = shortest_path_lengths[origin][dest]
@@ -915,13 +918,15 @@ while starting_sample < total_sample_size:
     sample = selected.iloc[starting_sample:starting_sample+batch_size]
     start_at = parser.parse(sample.iloc[batch_size-1]["tpep_pickup_datetime"])
     combinations = generateRBCombinations(Manhattan_network,buslines,shortest_paths,shortest_path_length,servable_routes,closest_to_stop,closest_from_stop,10,20,1/12,0.25,start_at,sample)
-    VRB,RBV,VR,no_combns,no_vars = getVRBCombinations(sample,combinations,vehicles,0.25,1/12,shortest_paths,shortest_path_length,bus_speed,taxi_speed,start_at)
-    x = solveTheProblem(vehicles,sample,VRB,RBV,VR,no_vars,no_combns,1000000,ipmSolverTimeOut)
-    trip_assignment,stat = assignTrips(vehicles,shortest_paths,shortest_path_length,taxi_speed,addition_trip_time_factor,bus_speed,wait_time,start_at,sample,x,VRB,RBV,VR,combinations)
-    print(stat)
-    saveAssignment(RESULT_DIRECTORY+"assignment",iteration,trip_assignment)
-    writeStat(stat,RESULT_DIRECTORY+"stats.csv")
-    starting_sample += batch_size
-    iteration+=1
-    writeTimeEx(str(time.time()-exe_start_time),RESULT_DIRECTORY+"times.txt")
-    exe_start_time = time.time()
+    print(combinations)
+    break
+    # VRB,RBV,VR,no_combns,no_vars = getVRBCombinations(sample,combinations,vehicles,0.25,1/12,shortest_paths,shortest_path_length,bus_speed,taxi_speed,start_at)
+    # x = solveTheProblem(vehicles,sample,VRB,RBV,VR,no_vars,no_combns,1000000,ipmSolverTimeOut)
+    # trip_assignment,stat = assignTrips(vehicles,shortest_paths,shortest_path_length,taxi_speed,addition_trip_time_factor,bus_speed,wait_time,start_at,sample,x,VRB,RBV,VR,combinations)
+    # print(stat)
+    # saveAssignment(RESULT_DIRECTORY+"assignment",iteration,trip_assignment)
+    # writeStat(stat,RESULT_DIRECTORY+"stats.csv")
+    # starting_sample += batch_size
+    # iteration+=1
+    # writeTimeEx(str(time.time()-exe_start_time),RESULT_DIRECTORY+"times.txt")
+    # exe_start_time = time.time()
