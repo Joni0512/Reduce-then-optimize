@@ -12,9 +12,9 @@ DEST = 'dest'
 ID = 'id'
 
 class RequestHandler:
-    def __init__(self, filename, max_wait_time, trip_lenghen_factor):
+    def __init__(self, filename, minimum_trip_duration, trip_lenghen_factor):
         self.filename = filename
-        self.max_wait_time = max_wait_time
+        self.minimum_trip_duration = minimum_trip_duration
         self.trip_lenghen_factor = trip_lenghen_factor
         dateparse = lambda x: datetime.strptime(x, '%Y-%m-%d %H:%M:%S')
         self.requests = pd.read_csv(filename,parse_dates=[PICKUP_TIME],date_parser=dateparse).sort_values(by = [PICKUP_TIME])
@@ -39,8 +39,7 @@ class RequestHandler:
         pick_up_time = request_data[PICKUP_TIME]
         travel_time = NetworkHandler.travel_time(origin,destination)
         duration = int((1+self.trip_lenghen_factor*(max(0.5/self.trip_lenghen_factor,1-travel_time/3600)))*travel_time)
-        duration = max(duration,900)
-        # duration = 2*self.max_wait_time+int(travel_time)
+        duration = max(duration,self.minimum_trip_duration)
         latest_arrival_time = pick_up_time + timedelta(seconds=duration)
         return Request(id,pick_up_time,latest_arrival_time,origin,destination)
 
@@ -62,3 +61,6 @@ class RequestHandler:
             end_time = min(end_time,batch[-1].pick_up_time)
         print(end_time,len(batch))
         return batch,end_time
+    
+    def unique_nodes(self):
+        return self.requests.origin.unique()

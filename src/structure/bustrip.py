@@ -1,12 +1,14 @@
 class BusTrip:
-    def __init__(self, bus_line, pick_up_stop, destination_stop, leaving_time, arrival_time, transfer_point = -1, bus_line2= None, arrival_at_transfer = None, departure_at_transfer=None):
+    def __init__(self, bus_line, bus_run, pick_up_stop, destination_stop, leaving_time, arrival_time, transfer_point = -1, bus_line2= None, bus_run2 = None, arrival_at_transfer = None, departure_at_transfer=None):
         self.bus_lines = [bus_line]
         self.pick_up_stop = pick_up_stop
         self.destination_stop = destination_stop
         self.leaving_time = leaving_time
         self.arrival_time = arrival_time
+        self.bus_run = [bus_run]
         if bus_line2 != None:
             self.bus_lines.append(bus_line2)
+            self.bus_run.append(bus_run2)
         self.transfer_point = transfer_point
         self.first_mile_trip = 0
         self.first_mile_trip_empty = False

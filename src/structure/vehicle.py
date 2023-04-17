@@ -11,6 +11,7 @@ class Vehicle:
         self.last_node = start_node
         self.stop_sequence = []
         self.started = False
+        self.rebalancing = False
 
     def __str__(self):
         return "{{Vehicle ID: {0}, capacity: {1}, start node: {2}, start time: {3}}}".format(self.id, self.capacity, self.next_node, self.start_time)

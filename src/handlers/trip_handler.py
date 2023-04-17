@@ -24,6 +24,7 @@ class TripHandler:
         self.walk_distance_cutoff = distance_cutoff
         self.vehicle_to_trips_cost_map = {}
         self.trip_to_vehicle_cost_map = {}
+        self.rebalancing_assignment = {}
         self.SHAREABLE_COST_FACTOR = SHAREABLE_COST_FACTOR
         self.generate_ondemand_only_trips(requests,current_time)
         self.generate_trips_with_bus(requests,request_bus_combinations)
@@ -33,6 +34,7 @@ class TripHandler:
         logging.debug("Generated trip costs. Total combinations {0}".format(len(TripHandler.trip_costs)))
         # self.assign_trips(vehicles,requests,request_bus_combinations,penalty,current_time)
         self.assign_trips_gurobi(vehicles,requests,request_bus_combinations,penalty,current_time)
+        # self.get_rebalancing_trips(vehicles,requests)
 
     def get_new_trip_no(self):
         return len(self.trips)
@@ -97,6 +99,7 @@ class TripHandler:
         return distance <= self.walk_distance_cutoff
 
     def create_trip_cost(vehicle,current_time,trip_no,trips):
+        global G,node_to_osmid_map,osmid_to_node_map,no_of_nodes
         added_cost, feasibility = VehicleHandler.add_new_trips(current_time, vehicle, trips, add=False)
         if feasibility:
             return TripCost(trip_no,vehicle.id,added_cost)
@@ -378,6 +381,50 @@ class TripHandler:
                     self.unassigned_trip_count+=1
 
             logging.info('{0}: No of requests: {1}, unassigned requests: {2}, taxi only requests: {3}, requests served by busses: {4}'.format(current_time,request_count,self.unassigned_trip_count,self.taxi_only_trip_count,self.with_one_bus_trip_count+self.with_two_bus_trip_count))
+
+    def get_rebalancing_trips(self,vehicles,requests):
+        empty_vehicles = []
+        for vehicle_id in vehicles:
+            if vehicle_id not in self.vehicle_assignment:
+                vehicle = vehicles[vehicle_id]
+                if not (vehicle.rebalancing or len(vehicle.stop_sequence)>0):
+                    empty_vehicles.append(vehicle_id)
+                
+        unassigned_requests = []
+        for request in requests:
+            if request.id not in self.request_assignment:
+                unassigned_requests.append(request)
+
+        number_of_vehicles = len(empty_vehicles)
+        number_of_requests = len(unassigned_requests)
+        max_rebalancing_count = min(number_of_vehicles,number_of_requests)
+
+        if max_rebalancing_count>0:
+            m = gp.Model('Rebalancing')
+            var_type = GRB.BINARY
+            rebalancing_costs = np.zeros((number_of_vehicles,number_of_requests))
+            for i in range(number_of_vehicles):
+                vehicle = vehicles[empty_vehicles[i]]
+                for j in range(number_of_requests):
+                    destination = unassigned_requests[j].destination
+                    rebalancing_costs[i][j] = VehicleHandler.cost_of_rebalancing(vehicle,destination)
+            y_vr = m.addVars(number_of_vehicles,number_of_requests,lb=0,ub=1,obj=rebalancing_costs,name="y_vr", vtype=var_type)
+
+            y_vr.sum(vehicle_id,'*')
+            m.addConstrs((y_vr.sum(i,'*') <= 1 for i in range(number_of_vehicles)), "veh")
+            m.addConstrs((y_vr.sum('*',j) <= 1 for j in range(number_of_requests)), "req")
+            m.addConstr((y_vr.sum() <= 1), "total_assignment")
+            m.optimize()
+
+            self.rebalancing_assignment = {}
+            if m.Status == GRB.OPTIMAL:
+                for i in range(number_of_vehicles):
+                    for j in range(number_of_requests):
+                        if y_vr[i,j].X == 1:
+                            vehicle_id = empty_vehicles[i]
+                            destination = unassigned_requests[j].destination
+                            self.rebalancing_assignment[vehicle_id] = destination
+                            break
 
     def assign_trips(self,vehicles,requests,request_bus_combinations,penalty,current_time):
         trip_count = len(TripHandler.trip_costs)

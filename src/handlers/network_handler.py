@@ -1,35 +1,3 @@
-# import logging
-# import pandas as pd
-# import numpy as np
-
-# class NetworkHandler:
-#     def __init__(self, base_directory):
-#         self.times = np.genfromtxt(base_directory+'times.csv', delimiter=',', dtype=np.int16)
-#         self.predecessors = np.genfromtxt(base_directory+'pred.csv', delimiter=',', dtype=np.int16)
-#         self.distances = np.genfromtxt(base_directory+'distance.csv', delimiter=',', dtype=np.int16)
-#         self.nodes = self.times.shape[0]
-        
-#         print(self.predecessors[0,0])
-#         logging.info('Network size: {0}'.format(self.times.shape[0]))
-
-#     def travel_time(self,source,destination):
-#         return self.times[source-1,destination-1]
-
-#     def travel_distance(self,source,destination):
-#         return self.distances[source-1,destination-1]
-
-#     def predecessor(self,source,destination):
-#         return self.predecessors[source-1,destination-1]
-
-#     def get_path(self,source,destination):
-#         path = [destination]
-#         current_target = destination
-#         while current_target != source:
-#             current_target = self.predecessor(source,current_target)
-#             path.append(current_target)
-#         path.reverse()
-#         return path
-
 import logging
 from multiprocessing.sharedctypes import RawArray, RawValue
 import ctypes
@@ -42,8 +10,8 @@ class NetworkHandler:
             global distances
             distances = np.genfromtxt(base_directory+'distance.csv', delimiter=',', dtype=np.int16) #
             distances = RawArray(np.ctypeslib.as_ctypes_type(distances.dtype), distances.flatten()) #
-        times = np.genfromtxt(base_directory+'times.csv', delimiter=',', dtype=np.int16)
-        predecessors = np.genfromtxt(base_directory+'pred.csv', delimiter=',', dtype=np.int16)
+        times = np.genfromtxt(base_directory+'times.csv', delimiter=',', dtype=np.uint16)
+        predecessors = np.genfromtxt(base_directory+'pred.csv', delimiter=',', dtype=np.uint16)
         
         no_of_nodes = RawValue(ctypes.c_uint, times.shape[0])
         times = RawArray(np.ctypeslib.as_ctypes_type(times.dtype), times.flatten())

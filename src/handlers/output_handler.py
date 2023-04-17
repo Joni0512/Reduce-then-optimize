@@ -28,7 +28,7 @@ class OutputHandler:
                         assignment_file.write('{0},ServedOnlyByTaxi,{1}\n'.format(request_id,assignment.vehicle_id))
                     else:
                         bus_trip = assignment.bus_trip
-                        assignment_file.write('{0},ServedWithBus,{1},{2},{3},{4},{5},{6},{7},{8},{9},{10}\n'.format(request_id,":".join(bus_trip.bus_lines),bus_trip.pick_up_stop,bus_trip.transfer_point,bus_trip.destination_stop,assignment.first_mile_vehicle,assignment.last_mile_vehicle,bus_trip.leaving_time,bus_trip.arrival_time,bus_trip.arrival_at_transfer,bus_trip.departure_at_transfer))
+                        assignment_file.write('{0},ServedWithBus,{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11}\n'.format(request_id,":".join(bus_trip.bus_lines),":".join([str(run) for run in bus_trip.bus_run]),bus_trip.pick_up_stop,bus_trip.transfer_point,bus_trip.destination_stop,assignment.first_mile_vehicle,assignment.last_mile_vehicle,bus_trip.leaving_time,bus_trip.arrival_time,bus_trip.arrival_at_transfer,bus_trip.departure_at_transfer))
                 else:
                     assignment_file.write('{0}\n'.format(request_id))
 
@@ -45,3 +45,9 @@ class OutputHandler:
         with open(self.output_directory+"completed_stops.csv", 'a+') as location_file:
             for completed_stop in completed_stops:
                 location_file.write(completed_stop.get_log()+"\n")
+
+    def record_bus_usage(self,busslines):
+        with open(self.output_directory+"bus_usage.csv", 'a+') as bus_file:
+            for bus_line_name in busslines:
+                for bus_run in busslines[bus_line_name].bus_runs:
+                    bus_file.write("{0}:{1}\n".format(bus_line_name,",".join([str(load) for load in bus_run.load])))

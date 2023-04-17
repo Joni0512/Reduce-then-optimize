@@ -61,6 +61,13 @@ class VehicleHandler:
                 vehicle.started = True
             if len(vehicle.stop_sequence) == 0:
                 vehicle.time_at_last = current_time
+        if vehicle.rebalancing and current_time >= vehicle.time_at_next:
+            next_stop = vehicle.stop_sequence.pop(0)
+            vehicle.last_node = next_stop.node
+            vehicle.time_at_last = current_time
+            vehicle.rebalancing = False
+            return completed_stops
+
         while len(vehicle.stop_sequence)>0 and current_time >= vehicle.time_at_next:
             next_stop = vehicle.stop_sequence.pop(0)
             # logging the stop
@@ -110,6 +117,12 @@ class VehicleHandler:
         for vehicle_id in self.vehicles:
             locations[int(vehicle_id)] = self.get_vehicle_exact_location(vehicle_id,current_time)
         return locations
+
+    def add_rebalancing_trip(vehicle,destination,current_time):
+        vehicle.rebalancing = True
+        vehicle.time_at_last = current_time
+        vehicle.stop_sequence = [VehicleStop(None,destination,TYPE_DROP_OFF)]
+        vehicle.time_at_next = vehicle.time_at_last + VehicleHandler.get_time_delta(NetworkHandler.travel_time(vehicle.last_node,destination))
     
     def add_new_trips(current_time, vehicle, new_trips, add=False):
         feasible = False
@@ -139,10 +152,14 @@ class VehicleHandler:
                         trips_to_pick_up.append(trip_id)
                 sequence, cost, feasible = VehicleHandler.get_optimal_stop_sequence(next_immediate_node,time_at_next_immediate_node,vehicle.capacity,trips,trips_to_pick_up,trips_to_drop_off,[],0)
             else:
-                sequence, cost, feasible = VehicleHandler.get_heuristic_stop_sequence(next_immediate_node,time_at_next_immediate_node,vehicle.capacity,vehicle.trips.copy(),new_trips[0],vehicle.stop_sequence)
+                if vehicle.rebalancing:
+                    sequence, cost, feasible = VehicleHandler.get_heuristic_stop_sequence(next_immediate_node,time_at_next_immediate_node,vehicle.capacity,vehicle.trips.copy(),new_trips[0],[])
+                else:
+                    sequence, cost, feasible = VehicleHandler.get_heuristic_stop_sequence(next_immediate_node,time_at_next_immediate_node,vehicle.capacity,vehicle.trips.copy(),new_trips[0],vehicle.stop_sequence)
             added_cost = cost - VehicleHandler.cost_of_serving_sequence(next_immediate_node,vehicle)
             
             if feasible and add:
+                vehicle.rebalancing = False
                 vehicle.last_node = next_immediate_node
                 vehicle.time_at_last = time_at_next_immediate_node
                 for trip in new_trips:
@@ -156,12 +173,17 @@ class VehicleHandler:
         return added_cost,feasible
 
     def cost_of_serving_sequence(next_immediate_node,vehicle):
+        if vehicle.rebalancing:
+            return 0
         cost = 0
         last_node = next_immediate_node
         for stop in vehicle.stop_sequence:
             cost += NetworkHandler.travel_distance(last_node,stop.node)
             last_node = stop.node
         return cost
+
+    def cost_of_rebalancing(vehicle,destination):
+        return NetworkHandler.travel_distance(vehicle.last_node,destination)
     
     def get_optimal_stop_sequence(last_node,time_at_last_node,max_capacity,trips,trips_to_pick_up,trips_to_drop_off,sequence,cost):
         if len(trips_to_pick_up) == 0 and len(trips_to_drop_off) == 0:
