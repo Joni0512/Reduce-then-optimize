@@ -1,10 +1,12 @@
 import logging
 import pandas as pd
 from structure.request import Request
+from structure.node import Node
 from handlers.network_handler import NetworkHandler
 from dateutil import parser
 from datetime import datetime
 from datetime import timedelta
+from multiprocessing.pool import ThreadPool
 
 PICKUP_TIME = 'tpep_pickup_datetime'
 ORIGIN = 'origin'
@@ -18,9 +20,23 @@ class RequestHandler:
         self.trip_lenghen_factor = trip_lenghen_factor
         dateparse = lambda x: datetime.strptime(x, '%Y-%m-%d %H:%M:%S')
         self.requests = pd.read_csv(filename,parse_dates=[PICKUP_TIME],date_parser=dateparse).sort_values(by = [PICKUP_TIME])
+        with ThreadPool(1000) as pool:
+            for index,_ in self.requests.iterrows():
+                pool.apply_async(self.update_request_location,args=(index,))
+
         self.count = self.requests.shape[0]
         self.next_index = 0
         logging.info('Total No of requests: {0}'.format(self.count))
+
+    def update_request_location(self,index):
+        row = self.requests.iloc[index]
+        lat,lon = NetworkHandler.get_nearest_node(row['pickup_latitude'],row['pickup_longitude'])
+        self.requests.at[index,'pickup_latitude'] = lat
+        self.requests.at[index,'pickup_longitude'] = lon
+
+        lat,lon = NetworkHandler.get_nearest_node(row['dropoff_latitude'],row['dropoff_longitude'])
+        self.requests.at[index,'dropoff_latitude'] = lat
+        self.requests.at[index,'dropoff_longitude'] = lon
 
     def earliest_start_time(self):
         start_time = self.get_request_by_iloc(0).pick_up_time
@@ -33,8 +49,8 @@ class RequestHandler:
         return start_time
 
     def get_request(self,request_data):
-        origin = int(request_data[ORIGIN])
-        destination = int(request_data[DEST])
+        origin = Node(request_data['pickup_latitude'],request_data['pickup_longitude'])
+        destination = Node(request_data['dropoff_latitude'],request_data['dropoff_longitude'])
         id = request_data[ID]
         pick_up_time = request_data[PICKUP_TIME]
         travel_time = NetworkHandler.travel_time(origin,destination)
@@ -64,3 +80,12 @@ class RequestHandler:
     
     def unique_nodes(self):
         return self.requests.origin.unique()
+    
+    def get_all_nodes(self):
+        nodes = []
+        for _,request_data in self.requests.iterrows():
+            origin = Node(request_data['pickup_latitude'],request_data['pickup_longitude'])
+            destination = Node(request_data['dropoff_latitude'],request_data['dropoff_longitude'])
+            nodes.append(origin)
+            nodes.append(destination)
+        return nodes

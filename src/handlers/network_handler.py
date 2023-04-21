@@ -1,50 +1,55 @@
-import logging
-from multiprocessing.sharedctypes import RawArray, RawValue
-import ctypes
-import numpy as np
+from structure.node import Node
+import requests
+from datetime import timedelta
+import time
 
 class NetworkHandler:
-    def init(base_directory,USE_REAL_DISTANCE):
-        global times,predecessors,no_of_nodes,use_real_distance
-        if USE_REAL_DISTANCE:
-            global distances
-            distances = np.genfromtxt(base_directory+'distance.csv', delimiter=',', dtype=np.int16) #
-            distances = RawArray(np.ctypeslib.as_ctypes_type(distances.dtype), distances.flatten()) #
-        times = np.genfromtxt(base_directory+'times.csv', delimiter=',', dtype=np.uint16)
-        predecessors = np.genfromtxt(base_directory+'pred.csv', delimiter=',', dtype=np.uint16)
-        
-        no_of_nodes = RawValue(ctypes.c_uint, times.shape[0])
-        times = RawArray(np.ctypeslib.as_ctypes_type(times.dtype), times.flatten())
-        predecessors = RawArray(np.ctypeslib.as_ctypes_type(predecessors.dtype), predecessors.flatten())
-        use_real_distance = RawValue(ctypes.c_bool, USE_REAL_DISTANCE)
-        
-        logging.info('Network size: {0}'.format(no_of_nodes))
-        if USE_REAL_DISTANCE:
-            return times,predecessors,distances,no_of_nodes,use_real_distance
-        return times,predecessors,no_of_nodes,use_real_distance
+    def init():
+        global routing_url,nearest_url
+        routing_url = 'http://127.0.0.1:5000/route/v1/driving/'
+        nearest_url = 'http://127.0.0.1:5000/nearest/v1/driving/'
+        return routing_url,nearest_url
+    
+    def get_response(url):
+        data = None
+        try_count = 0
+        while True:
+            try_count+=1
+            try:
+                data=requests.get(url)
+                return data.json()
+            except requests.exceptions.RequestException as e:
+                if try_count > 5:
+                    raise e
+                time.sleep(1)
 
-    def get_location(source,destination):
-        return (source-1)*no_of_nodes.value+destination-1
+    def get_simple_route_reponse(source,dest):
+        url="{0}{1},{2};{3},{4}".format(routing_url,source.lon,source.lat,dest.lon,dest.lat)
+        return NetworkHandler.get_response(url)
+    
+    def get_detailed_route_reponse(source,dest):
+        url="{0}{1},{2};{3},{4}?steps=true&geometries=geojson".format(routing_url,source.lon,source.lat,dest.lon,dest.lat)
+        return NetworkHandler.get_response(url)
 
     def travel_time(source,destination):
-        return times[NetworkHandler.get_location(source,destination)]
+        response = NetworkHandler.get_simple_route_reponse(source,destination)
+        return response['routes'][0]['duration']
 
     def travel_distance(source,destination):
-        if use_real_distance:
-            return distances[NetworkHandler.get_location(source,destination)]
-        return NetworkHandler.travel_time(source,destination)*(20/3.6)
+        response = NetworkHandler.get_simple_route_reponse(source,destination)
+        return response['routes'][0]['distance']    
 
-    def predecessor(source,destination):
-        return predecessors[NetworkHandler.get_location(source,destination)]
+    def get_current_location_time(source,destination,starting_time,current_time):
+        response = NetworkHandler.get_detailed_route_reponse(source,destination)
+        for step in response['routes'][0]['legs'][0]['steps']:
+            duration = step['duration']
+            starting_time += timedelta(seconds=duration)
+            if starting_time >= current_time:
+                location = step['geometry']['coordinates'][-1]
+                return starting_time,Node(location[1],location[0])
 
-    def get_path(source,destination):
-        path = [destination]
-        current_target = destination
-        while current_target != source:
-            current_target = NetworkHandler.predecessor(source,current_target)
-            path.append(current_target)
-        path.reverse()
-        return path
-
-    def get_network_size():
-        return no_of_nodes.value
+    def get_nearest_node(lat,lon):
+        url="{0}{1},{2}".format(nearest_url,lon, lat)
+        data = NetworkHandler.get_response(url)
+        nearest_node = data['waypoints'][0]['location']
+        return nearest_node[1],nearest_node[0]

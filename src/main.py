@@ -51,13 +51,13 @@ if __name__=="__main__":
     logging.basicConfig(filename=OUTPUT_DIR+'main.log', level=logging.INFO)
     logging.info('Starting the simulator with: max_number_of_vehicles {0}, max_capacity {1}'.format(args.max_number_of_vehicles, args.max_capacity))
     iteration = 0
-    NetworkHandler.init(BASE_DATA_DIR+"map/10km/",USE_REAL_DISTANCE)
+    NetworkHandler.init()
 
-    request_handler = RequestHandler(BASE_DATA_DIR+"requests/requests_10km.csv",MINIMUM_TRIP_DURATION,ADDITIONAL_TRIP_TIME_FACTOR)
+    request_handler = RequestHandler(BASE_DATA_DIR+"requests/requests_10km_10.csv",MINIMUM_TRIP_DURATION,ADDITIONAL_TRIP_TIME_FACTOR)
     starting_time = request_handler.earliest_start_time()
     latest_time = request_handler.latest_start_time()
     start_of_the_day = starting_time.replace(hour=0, minute=0, second=0, microsecond=0)
-    bus_handler = BusHandler(BASE_DATA_DIR+"bus/MBTA_GTFS/", start_of_the_day, BUS_CAPACITY,False)
+    bus_handler = BusHandler(BASE_DATA_DIR+"bus/MBTA_GTFS/", start_of_the_day, BUS_CAPACITY,BUS_DISTANCE_CUT_OFF,request_handler.get_all_nodes(),True)
     vehicle_handler = VehicleHandler(BASE_DATA_DIR+"vehicles/vehicles_10km.csv",OUTPUT_DIR,start_of_the_day,args.max_number_of_vehicles, args.max_capacity)
 
     # OUTPUT_DIR = "../output/"
@@ -71,7 +71,7 @@ if __name__=="__main__":
         end_time = starting_time + BATCH_INTERVAL
         batch,end_time = request_handler.get_batch(end_time,MAX_BATCH_SIZE)
         completed_stops = vehicle_handler.simulate_vehicles(end_time)
-        output_handler.record_vehicles(vehicle_handler.get_vehicle_locations(end_time),end_time)
+        output_handler.record_vehicles(vehicle_handler.get_vehicle_locations(),end_time)
         output_handler.record_completed_stops(completed_stops)
         if len(batch) > 0:
             request_bus_combinations = {}

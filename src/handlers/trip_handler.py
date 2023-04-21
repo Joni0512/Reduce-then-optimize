@@ -85,13 +85,13 @@ class TripHandler:
     
     def get_first_mile_trip(self,request,bustrip):
         origin = request.origin
-        destination = bustrip.pick_up_stop
+        destination = bustrip.pick_up_stop_node
         # return self.create_trip(request,origin,destination,request.pick_up_time, bustrip.leaving_time+timedelta(minutes=5),bus_combination=bustrip.id,first_last_mile_type=0)
         return self.create_trip(request,origin,destination,request.pick_up_time, bustrip.leaving_time,bus_combination=bustrip.id,first_last_mile_type=0)
 
     def get_last_mile_trip(self,request,bustrip):
         destination = request.destination
-        origin = bustrip.destination_stop
+        origin = bustrip.destination_stop_node
         return self.create_trip(request,origin,destination,bustrip.arrival_time, request.arrival_time,bus_combination=bustrip.id,first_last_mile_type=1)
     
     def can_walk(self,origin,destination):

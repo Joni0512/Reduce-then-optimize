@@ -2,6 +2,7 @@ import logging
 from datetime import timedelta
 from datetime import datetime
 from structure.request import Request
+from structure.node import Node
 from handlers.network_handler import NetworkHandler
 from structure.bus_line import BusLine
 from structure.bus_run import BusRun
@@ -10,25 +11,26 @@ import gtfs_kit as gk
 import pandas as pd
 import numpy as np
 import pickle
+from multiprocessing.pool import ThreadPool
 
 class BusHandler:
-    def __init__(self, bus_directory, bus_starting_time,  capacity,load_saved_busslines):
+    def __init__(self, bus_directory, bus_starting_time,capacity,cut_off,nodes,load_saved_busslines):
         self.busslines = {}
+        self.stop_node_map = {}
+        self.eligible_bus_lines = {}
         if load_saved_busslines:
             with open(bus_directory+"buslines.obj", 'rb') as filehandler:
                 self.busslines = pickle.load(filehandler)
+            with open(bus_directory+"stopnodemap.obj", 'rb') as filehandler:
+                self.stop_node_map = pickle.load(filehandler)
+            with open(bus_directory+"eligiblebuslines.obj", 'rb') as filehandler:
+                self.eligible_bus_lines = pickle.load(filehandler)
         else:
             feed = gk.read_feed(bus_directory, dist_units='km')
-            stop_map = pd.read_csv(bus_directory+"stop_map_10km.csv")
-            stop_map_dic = {}
-            for _,row in stop_map.iterrows():
-                stop_id = None
-                try:
-                    stop_id = int(row.stop_id)
-                except ValueError:
-                    stop_id = row.stop_id
-                stop_map_dic[stop_id] = int(row.node_id)
-
+            stops_data = pd.read_csv(bus_directory+"stops.txt")
+            with ThreadPool(1000) as pool:
+                for _,row in stops_data.iterrows():
+                    pool.apply_async(self.add_stop_node_map,args=(row,))
             selected_day = None
             for day in feed.get_first_week():
                 year = int(day[:4])
@@ -47,9 +49,9 @@ class BusHandler:
                         unique_stops = []
                         for stop in dir_timetable.stop_id.unique():
                             try:
-                                unique_stops.append(stop_map_dic[int(stop)])
+                                unique_stops.append(int(stop))
                             except ValueError:
-                                unique_stops.append(stop_map_dic[stop])
+                                unique_stops.append(stop)
                         busline = BusLine(route_id,unique_stops,capacity)
                         for trip_id in dir_timetable.trip_id.unique():
                             stops = []
@@ -62,41 +64,56 @@ class BusHandler:
                             real_stops = []
                             for stop in stops:
                                 try:
-                                    real_stops.append(stop_map_dic[int(stop)])
+                                    real_stops.append(int(stop))
                                 except ValueError:
-                                    real_stops.append(stop_map_dic[stop])
+                                    real_stops.append(stop)
                             bus_run = BusRun(real_stops,arrival_times,departure_times)
                             bus_run.load = np.zeros((len(real_stops)),dtype=np.int16)
                             busline.bus_runs.append(bus_run)
                         self.busslines["{0}_{1}".format(route_id,direction_id)] = busline
+            with ThreadPool(1000) as pool:
+                for node in nodes:
+                    dic_key = (node.lat,node.lon)
+                    if dic_key not in self.eligible_bus_lines:
+                        self.eligible_bus_lines[dic_key] = {}
+                        for bus_line_name in self.busslines:
+                            pool.apply_async(self.get_closest_stop,args=(node,bus_line_name,cut_off,dic_key,))
             with open(bus_directory+"buslines.obj", 'wb') as filehandler:
                 pickle.dump(self.busslines,filehandler)
+            with open(bus_directory+"stopnodemap.obj", 'wb') as filehandler:
+                pickle.dump(self.stop_node_map,filehandler)
+            with open(bus_directory+"eligiblebuslines.obj", 'wb') as filehandler:
+                pickle.dump(self.eligible_bus_lines,filehandler)
         logging.info('Total No of bus lines: {0}'.format(len(self.busslines)))
-        eligible_lines = pd.read_csv(bus_directory+"eligible_lines_10km.csv")
-        self.eligible_bus_lines = {}
-        for i in range(1,NetworkHandler.get_network_size()+2):
-            self.eligible_bus_lines[i] = {}
-        for _,row in eligible_lines.iterrows():
-            node = int(row.node)
-            stop = int(row.stop)
-            direction = row.direction
-            line = row.line
-            self.eligible_bus_lines[node]["{0}_{1}".format(line,direction)] = stop
 
-        # for i in nodes:
-        #     self.eligible_bus_lines[i] = {}
-        #     for bus_line_name in self.busslines:
-        #         bus_line = self.busslines[bus_line_name]
-        #         closest_stop = bus_line.stops[0]
-        #         closest_distance = cut_off+1
-        #         for stop in bus_line.stops:
-        #             dist_to_stop = NetworkHandler.travel_distance(i,stop)
-        #             if dist_to_stop < closest_distance:
-        #                 closest_distance = dist_to_stop
-        #                 closest_stop = stop
-                
-        #         if closest_distance <= cut_off:
-        #             self.eligible_bus_lines[i][bus_line] = closest_stop
+    def add_stop_node_map(self,row):
+        stop_id = None
+        try:
+            stop_id = int(row.stop_id)
+        except ValueError:
+            stop_id = row.stop_id
+        if not (np.isnan(row.stop_lon) or np.isnan(row.stop_lat)):
+            lat,lon = NetworkHandler.get_nearest_node(row.stop_lat,row.stop_lon)
+            self.stop_node_map[stop_id] = Node(lat,lon)
+
+    def get_closest_stop(self,node,bus_line_name,cut_off,dic_key):
+        stops = self.busslines[bus_line_name].stops
+        closest_stop = stops[0]
+        closest_distance = cut_off+1
+        for stop in stops:
+            stop_node = self.stop_node_map[stop]
+            dist_to_stop = NetworkHandler.travel_distance(node,stop_node)
+            if dist_to_stop < closest_distance:
+                closest_distance = dist_to_stop
+                closest_stop = stop
+        if closest_distance <= cut_off:
+            self.eligible_bus_lines[dic_key][bus_line_name] = closest_stop
+
+    def get_eligible_bus_lines(self,node):
+        return list(self.eligible_bus_lines[(node.lat,node.lon)].keys())
+    
+    def get_eligible_bus_stop(self,node,bus_line):
+        return self.eligible_bus_lines[(node.lat,node.lon)][bus_line]
         
     def str_to_datetime(self,bus_starting_time,str_obj):
         hour = int(str_obj[:2])
@@ -142,7 +159,9 @@ class BusHandler:
                 break
             if self.can_add_passenger(bus_run,source_index,destination_index,bus_line.capacity):
                 if departure_time >= earliest_pick_up_time:
-                    bus_trip = BusTrip(bus_line_name, run_number,source_stop, destination_stop, departure_time, arrival_time)
+                    source_stop_node = self.stop_node_map[source_stop]
+                    destination_stop_node = self.stop_node_map[destination_stop]
+                    bus_trip = BusTrip(bus_line_name, run_number,source_stop, source_stop_node, destination_stop, destination_stop_node, departure_time, arrival_time)
                     trips.append(bus_trip)
             run_number+=1
         return trips
@@ -179,7 +198,10 @@ class BusHandler:
                             break
                         if self.can_add_passenger(bus_run2,transfer_index_line2,destination_index_line2,bus_line2.capacity):
                             if departure_time_line2 >= arrival_time_line1:
-                                bus_trip = BusTrip(bus_line1_name, run_number1, source_stop, destination_stop, departure_time_line1, arrival_time_line2,transfer_stop,bus_line2_name,run_number2,arrival_time_line1,departure_time_line2)
+                                source_stop_node = self.stop_node_map[source_stop]
+                                destination_stop_node = self.stop_node_map[destination_stop]
+                                transfer_stop_node = self.stop_node_map[transfer_stop]
+                                bus_trip = BusTrip(bus_line1_name, run_number1, source_stop, source_stop_node, destination_stop, destination_stop_node, departure_time_line1, arrival_time_line2,transfer_stop, transfer_stop_node, bus_line2_name,run_number2,arrival_time_line1,departure_time_line2)
                                 trips.append(bus_trip)
                         run_number2+=1
             run_number1+=1
@@ -198,25 +220,22 @@ class BusHandler:
             if origin == destination:
                 return trips
 
-            bus_line_close_to_origin = []
-            for bus_line in self.eligible_bus_lines[origin]:
-                bus_line_close_to_origin.append(bus_line)
-            
-            bus_line_close_to_destination = []
-            for bus_line in self.eligible_bus_lines[destination]:
-                bus_line_close_to_destination.append(bus_line)
+            bus_line_close_to_origin = self.get_eligible_bus_lines(origin)
+            bus_line_close_to_destination = self.get_eligible_bus_lines(destination)
             
             for bus_line in bus_line_close_to_origin:
                 if bus_line in bus_line_close_to_destination:
-                    source_stop = self.eligible_bus_lines[origin][bus_line]
-                    destination_stop = self.eligible_bus_lines[destination][bus_line]
-                    distance_to_source = NetworkHandler.travel_distance(origin, source_stop)
-                    distance_from_arrival = NetworkHandler.travel_distance(destination_stop, destination)
+                    source_stop = self.get_eligible_bus_stop(origin,bus_line)
+                    source_stop_node = self.stop_node_map[source_stop]
+                    destination_stop = self.get_eligible_bus_stop(destination,bus_line)
+                    destination_stop_node = self.stop_node_map[destination_stop]
+                    distance_to_source = NetworkHandler.travel_distance(origin, source_stop_node)
+                    distance_from_arrival = NetworkHandler.travel_distance(destination_stop_node, destination)
                     added_cost = distance_to_source+distance_from_arrival-trip_distance
                     if source_stop == destination_stop or added_cost > 0:
                         continue
-                    earliest_pick_up_time = pick_up_time + self.get_time_delta(NetworkHandler.travel_time(origin,source_stop))
-                    latest_arrival_time = arrival_time - self.get_time_delta(NetworkHandler.travel_time(destination_stop,destination))
+                    earliest_pick_up_time = pick_up_time + self.get_time_delta(NetworkHandler.travel_time(origin,source_stop_node))
+                    latest_arrival_time = arrival_time - self.get_time_delta(NetworkHandler.travel_time(destination_stop_node,destination))
                     trips_from_line = self.bus_trips(bus_line,source_stop, destination_stop, earliest_pick_up_time,latest_arrival_time)
                     if len(trips_from_line) > 0:
                         # if distance_to_source <= self.walk_distance_cut_off:
@@ -233,7 +252,7 @@ class BusHandler:
             if allow_bus_transfers:
                 for bus_line1 in bus_line_close_to_origin:
                     bus1 = self.busslines[bus_line1]
-                    for bus_line2 in self.eligible_bus_lines[destination]:
+                    for bus_line2 in bus_line_close_to_destination:
                         if bus_line1 != bus_line2:
                             bus2 = self.busslines[bus_line2]
                             transfer_stop = -1
@@ -242,15 +261,17 @@ class BusHandler:
                                     transfer_stop = stop
                                     break
                             if transfer_stop != -1:
-                                source_stop = self.eligible_bus_lines[origin][bus_line1]
-                                destination_stop = self.eligible_bus_lines[destination][bus_line2]
-                                first_mile_distance = NetworkHandler.travel_distance(origin, source_stop)
-                                last_mile_distance = NetworkHandler.travel_distance(destination_stop, destination)
+                                source_stop = self.get_eligible_bus_stop(origin,bus_line1)
+                                source_stop_node = self.stop_node_map[source_stop]
+                                destination_stop = self.get_eligible_bus_stop(destination,bus_line2)
+                                destination_stop_node = self.stop_node_map[destination_stop]
+                                first_mile_distance = NetworkHandler.travel_distance(origin, source_stop_node)
+                                last_mile_distance = NetworkHandler.travel_distance(destination_stop_node, destination)
                                 added_cost = first_mile_distance + last_mile_distance - trip_distance
                                 if (source_stop == destination_stop or (source_stop == transfer_stop or destination_stop == transfer_stop)) or added_cost > 0:
                                     continue
-                                earliest_pick_up_time = pick_up_time + self.get_time_delta(NetworkHandler.travel_time(origin,source_stop))
-                                latest_arrival_time = arrival_time - self.get_time_delta(NetworkHandler.travel_time(destination_stop,destination))
+                                earliest_pick_up_time = pick_up_time + self.get_time_delta(NetworkHandler.travel_time(origin,source_stop_node))
+                                latest_arrival_time = arrival_time - self.get_time_delta(NetworkHandler.travel_time(destination_stop_node,destination))
                                 # if first_mile_distance <= WALK_DISTANCE_CUT_OFF and last_mile_distance <= WALK_DISTANCE_CUT_OFF:
                                 #     if trip_distance > 2000:
                                 #         latest_arrival_time = pick_up_time+self.get_time_delta(duration*(4/3))

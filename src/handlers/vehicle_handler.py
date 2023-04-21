@@ -2,6 +2,7 @@ import logging
 import pandas as pd
 from structure.vehicle import Vehicle
 from structure.vehicle_stop import VehicleStop
+from structure.node import Node
 from handlers.network_handler import NetworkHandler
 from datetime import datetime
 from datetime import timedelta
@@ -45,7 +46,8 @@ class VehicleHandler:
             capacity = min(int(row[CAPACITY]),self.MAX_CAPACITY)
             id = int(row[ID])
             start_time = starting_date + timedelta(hours=row[START_TIME].hour,minutes=row[START_TIME].minute,seconds=row[START_TIME].second)
-            vehicle = Vehicle(id, node, capacity, start_time)
+            nearest_lat,nearest_lon = NetworkHandler.get_nearest_node(float(row.lat),float(row.lon))
+            vehicle = Vehicle(id,Node(nearest_lat,nearest_lon) , capacity, start_time)
             self.vehicles[id] = vehicle
             self.MAX_CAPACITY = max(capacity,self.MAX_CAPACITY)
             if self.count == max_number_of_vehicles:
@@ -89,6 +91,12 @@ class VehicleHandler:
                 next_trip = vehicle.trips[next_stop.trip_id]
                 if next_stop.type == TYPE_PICK_UP and vehicle.time_at_next < next_trip.pick_up_time:
                     vehicle.time_at_next = next_trip.pick_up_time
+        
+        if len(vehicle.stop_sequence)>0:
+            ori,dest = vehicle.last_node,vehicle.stop_sequence[0].node
+            time_at_next_immediate_node,next_immediate_node = NetworkHandler.get_current_location_time(ori,dest,vehicle.time_at_last,current_time)
+            vehicle.time_at_next_immediate_node = time_at_next_immediate_node
+            vehicle.next_immediate_node = next_immediate_node
         return completed_stops
 
     def simulate_vehicles(self,current_time):
@@ -98,24 +106,17 @@ class VehicleHandler:
             completed_stops.extend(veh_completed_stops)
         return completed_stops
 
-    def get_vehicle_exact_location(self,vehicle_id,current_time):
+    def get_vehicle_exact_location(self,vehicle_id):
         vehicle = self.vehicles[vehicle_id]
         next_immediate_node = vehicle.last_node
-        time_at_next_immediate_node = vehicle.time_at_last
         if len(vehicle.stop_sequence)>0:
-            target_node = vehicle.stop_sequence[0].node
-            path = NetworkHandler.get_path(next_immediate_node,target_node)
-            path.pop(0)
-            while time_at_next_immediate_node < current_time and len(path)>0:
-                last_node = next_immediate_node
-                next_immediate_node = path.pop(0)
-                time_at_next_immediate_node = time_at_next_immediate_node + VehicleHandler.get_time_delta(NetworkHandler.travel_time(last_node,next_immediate_node))
+            next_immediate_node = vehicle.next_immediate_node
         return next_immediate_node
 
-    def get_vehicle_locations(self,current_time):
+    def get_vehicle_locations(self):
         locations = {}
         for vehicle_id in self.vehicles:
-            locations[int(vehicle_id)] = self.get_vehicle_exact_location(vehicle_id,current_time)
+            locations[int(vehicle_id)] = self.get_vehicle_exact_location(vehicle_id)
         return locations
 
     def add_rebalancing_trip(vehicle,destination,current_time):
@@ -131,13 +132,8 @@ class VehicleHandler:
             next_immediate_node = vehicle.last_node
             time_at_next_immediate_node = vehicle.time_at_last
             if len(vehicle.stop_sequence)>0:
-                target_node = vehicle.stop_sequence[0].node
-                path = NetworkHandler.get_path(next_immediate_node,target_node)
-                path.pop(0)
-                while time_at_next_immediate_node < current_time and len(path)>0:
-                    last_node = next_immediate_node
-                    next_immediate_node = path.pop(0)
-                    time_at_next_immediate_node = time_at_next_immediate_node + VehicleHandler.get_time_delta(NetworkHandler.travel_time(last_node,next_immediate_node))
+                time_at_next_immediate_node = vehicle.time_at_next_immediate_node
+                next_immediate_node = vehicle.next_immediate_node
         
             sequence, cost = None, None
             if len(vehicle.trips) < VehicleHandler.LARGEST_TSP:
