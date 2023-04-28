@@ -5,18 +5,21 @@ import time
 
 class NetworkHandler:
     def init():
-        global routing_url,nearest_url
-        routing_url = 'http://127.0.0.1:5000/route/v1/driving/'
-        nearest_url = 'http://127.0.0.1:5000/nearest/v1/driving/'
-        return routing_url,nearest_url
+        global routing_url,nearest_url,session
+        server_url = 'http://127.0.0.1:5000/'
+        routing_url = server_url+'route/v1/driving/'
+        nearest_url = server_url+'nearest/v1/driving/'
+        session = requests.Session()
+        return routing_url,nearest_url,session
     
     def get_response(url):
+        global session
         data = None
         try_count = 0
         while True:
             try_count+=1
             try:
-                data=requests.get(url)
+                data=session.get(url)
                 return data.json()
             except requests.exceptions.RequestException as e:
                 if try_count > 5:
