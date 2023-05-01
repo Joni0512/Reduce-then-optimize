@@ -23,6 +23,8 @@ class RequestHandler:
         with ThreadPool(1000) as pool:
             for index,_ in self.requests.iterrows():
                 pool.apply_async(self.update_request_location,args=(index,))
+            pool.close()
+            pool.join()
 
         self.count = self.requests.shape[0]
         self.next_index = 0
@@ -81,11 +83,14 @@ class RequestHandler:
     def unique_nodes(self):
         return self.requests.origin.unique()
     
-    def get_all_nodes(self):
+    def get_all_nodes(self,round_at):
+        coordinates = {}
         nodes = []
         for _,request_data in self.requests.iterrows():
-            origin = Node(request_data['pickup_latitude'],request_data['pickup_longitude'])
-            destination = Node(request_data['dropoff_latitude'],request_data['dropoff_longitude'])
-            nodes.append(origin)
-            nodes.append(destination)
+            lat,lon = round(request_data['pickup_latitude'],round_at),round(request_data['pickup_longitude'],round_at)
+            coordinates[(lat,lon)] = None
+            lat,lon = round(request_data['dropoff_latitude'],round_at),round(request_data['dropoff_longitude'],round_at)
+            coordinates[(lat,lon)] = None
+        for key in coordinates:
+            nodes.append(Node(key[0],key[1]))
         return nodes

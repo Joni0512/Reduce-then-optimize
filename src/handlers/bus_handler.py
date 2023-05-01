@@ -14,10 +14,11 @@ import pickle
 from multiprocessing.pool import ThreadPool
 
 class BusHandler:
-    def __init__(self, bus_directory, bus_starting_time,capacity,cut_off,nodes,load_saved_busslines):
+    def __init__(self, bus_directory, bus_starting_time,capacity,cut_off,nodes,round_at,load_saved_busslines):
         self.busslines = {}
         self.stop_node_map = {}
         self.eligible_bus_lines = {}
+        self.round_at = round_at
         if load_saved_busslines:
             with open(bus_directory+"buslines.obj", 'rb') as filehandler:
                 self.busslines = pickle.load(filehandler)
@@ -31,6 +32,8 @@ class BusHandler:
             with ThreadPool(1000) as pool:
                 for _,row in stops_data.iterrows():
                     pool.apply_async(self.add_stop_node_map,args=(row,))
+                pool.close()
+                pool.join()
             selected_day = None
             for day in feed.get_first_week():
                 year = int(day[:4])
@@ -78,6 +81,8 @@ class BusHandler:
                         self.eligible_bus_lines[dic_key] = {}
                         for bus_line_name in self.busslines:
                             pool.apply_async(self.get_closest_stop,args=(node,bus_line_name,cut_off,dic_key,))
+                pool.close()
+                pool.join()
             with open(bus_directory+"buslines.obj", 'wb') as filehandler:
                 pickle.dump(self.busslines,filehandler)
             with open(bus_directory+"stopnodemap.obj", 'wb') as filehandler:
@@ -110,10 +115,12 @@ class BusHandler:
             self.eligible_bus_lines[dic_key][bus_line_name] = closest_stop
 
     def get_eligible_bus_lines(self,node):
-        return list(self.eligible_bus_lines[(node.lat,node.lon)].keys())
+        lat,lon = round(node.lat,self.round_at),round(node.lon,self.round_at)
+        return list(self.eligible_bus_lines[(lat,lon)].keys())
     
     def get_eligible_bus_stop(self,node,bus_line):
-        return self.eligible_bus_lines[(node.lat,node.lon)][bus_line]
+        lat,lon = round(node.lat,self.round_at),round(node.lon,self.round_at)
+        return self.eligible_bus_lines[(lat,lon)][bus_line]
         
     def str_to_datetime(self,bus_starting_time,str_obj):
         hour = int(str_obj[:2])
