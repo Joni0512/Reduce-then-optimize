@@ -2,15 +2,16 @@ from structure.node import Node
 import requests
 from datetime import timedelta
 import time
+import numpy as np
 
 class NetworkHandler:
-    def init():
-        global routing_url,nearest_url,session
-        server_url = 'http://127.0.0.1:5000/'
+    def init(server_url):
+        global routing_url,nearest_url,session,table_url
         routing_url = server_url+'route/v1/driving/'
         nearest_url = server_url+'nearest/v1/driving/'
+        table_url = server_url+'table/v1/driving/'
         session = requests.Session()
-        return routing_url,nearest_url,session
+        return routing_url,nearest_url,session,table_url
     
     def get_response(url):
         global session
@@ -44,15 +45,41 @@ class NetworkHandler:
 
     def get_current_location_time(source,destination,starting_time,current_time):
         response = NetworkHandler.get_detailed_route_reponse(source,destination)
+        current_location = None
         for step in response['routes'][0]['legs'][0]['steps']:
             duration = step['duration']
             starting_time += timedelta(seconds=duration)
+            location = step['geometry']['coordinates'][-1]
+            current_location = Node(location[1],location[0])
             if starting_time >= current_time:
-                location = step['geometry']['coordinates'][-1]
-                return starting_time,Node(location[1],location[0])
+                return starting_time,current_location
+        return starting_time,current_location
 
     def get_nearest_node(lat,lon):
         url="{0}{1},{2}".format(nearest_url,lon, lat)
         data = NetworkHandler.get_response(url)
         nearest_node = data['waypoints'][0]['location']
         return nearest_node[1],nearest_node[0]
+
+    def are_nodes_equal(node1,node2):
+        if node1.lat == node2.lat and node1.lon == node2.lon:
+            return True
+        return False
+
+    def get_travel_time_matrix(nodes):
+        coordinates = []
+        node_indices = {}
+        index = 0
+        for node in nodes:
+            coordinate = "{0},{1}".format(node.lon,node.lat)
+            coordinates.append(coordinate)
+            node_indices[(node.lon,node.lat)] = index
+            index+=1
+        url="{0}{1}".format(table_url,";".join(coordinates))
+        data = NetworkHandler.get_response(url)
+        return np.array(data['durations']),node_indices
+
+    def travel_time_from_matrix(node1,node2,matrix,node_indices):
+        index1 = node_indices[(node1.lon,node1.lat)]
+        index2 = node_indices[(node2.lon,node2.lat)]
+        return matrix[index1,index2]

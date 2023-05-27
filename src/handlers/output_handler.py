@@ -46,6 +46,11 @@ class OutputHandler:
             for completed_stop in completed_stops:
                 location_file.write(completed_stop.get_log()+"\n")
 
+    def record_rebalancing_trips(self,rebalancing_trips,current_time):
+        with open(self.output_directory+"rebalancing.csv", 'a+') as location_file:
+            for trip in rebalancing_trips:
+                location_file.write('{0},{1},{2},{3},{4}\n'.format(trip[0],trip[1],trip[2],trip[3],current_time))
+
     def record_bus_usage(self,busslines):
         with open(self.output_directory+"bus_usage.csv", 'a+') as bus_file:
             for bus_line_name in busslines:
