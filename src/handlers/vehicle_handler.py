@@ -18,7 +18,7 @@ TYPE_DROP_OFF = 1
 
 class VehicleHandler:
     MAX_CAPACITY = 0
-    LARGEST_TSP = 4
+    LARGEST_TSP = 8
     def __init__(self, filename, output_directory, starting_date, max_number_of_vehicles, max_capacity):
         self.vehicles = {}
         self.count = 0
@@ -131,8 +131,9 @@ class VehicleHandler:
                 vehicle.stop_sequence = existing_sequence
                 if len(vehicle.picked) > 0:
                     tt_matrix, node_indices = NetworkHandler.get_travel_time_matrix(nodes)
-                    best_sequence, _, _ = VehicleHandler.get_optimal_stop_sequence(next_immediate_node,time_at_next_immediate_node,vehicle.capacity,updated_trip_list,[],trips_to_drop_off,existing_sequence,tt_matrix, node_indices)
-                    vehicle.stop_sequence = best_sequence
+                    best_sequence, _, feasible = VehicleHandler.get_optimal_stop_sequence(next_immediate_node,time_at_next_immediate_node,vehicle.capacity,updated_trip_list,[],trips_to_drop_off,existing_sequence,tt_matrix, node_indices)
+                    if feasible:
+                        vehicle.stop_sequence = best_sequence
                     next_stop = vehicle.stop_sequence[0]
                     vehicle.time_at_next = time_at_next_immediate_node + VehicleHandler.get_time_delta(NetworkHandler.travel_time(next_immediate_node,next_stop.node))
         return completed_stops, picked_requests, completed_requests
@@ -351,12 +352,12 @@ class VehicleHandler:
         feasible = False
         best_sequence = None
         starting_locations = []
-        if len(current_sequence) == 0:
-            for trip_id in trips:
-                starting_locations.append(trips[trip_id].origin)
-        else:
-            starting_locations.append(current_sequence[0].node)
-            starting_locations.append(trips[new_trip].origin)
+        # if len(current_sequence) == 0:
+        for trip_id in trips:
+            starting_locations.append(trips[trip_id].origin)
+        # else:
+        #     starting_locations.append(current_sequence[0].node)
+        #     starting_locations.append(trips[new_trip].origin)
         for starting_location in starting_locations:
             sequence,cost,t_feasible = None,None,None
             if 2*len(trips) <= VehicleHandler.LARGEST_TSP:

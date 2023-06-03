@@ -24,11 +24,11 @@ class RequestHandler:
         self.maximum_waiting = maximum_waiting
         dateparse = lambda x: datetime.strptime(x, '%Y-%m-%d %H:%M:%S')
         self.requests = pd.read_csv(filename,parse_dates=[PICKUP_TIME],date_parser=dateparse).sort_values(by = [PICKUP_TIME])
-        # with ThreadPool(1000) as pool:
-        #     for index,_ in self.requests.iterrows():
-        #         pool.apply_async(self.update_request_location,args=(index,))
-        #     pool.close()
-        #     pool.join()
+        with ThreadPool(10) as pool:
+            for index,_ in self.requests.iterrows():
+                pool.apply_async(self.update_request_location,args=(index,))
+            pool.close()
+            pool.join()
 
         self.count = self.requests.shape[0]
         self.next_index = 0
@@ -63,8 +63,8 @@ class RequestHandler:
         travel_time = NetworkHandler.travel_time(origin,destination)
         duration = travel_time + self.maximum_detour
         latest_arrival_time = pick_up_time + timedelta(seconds=duration)
-        dwell_pickup = 300# int(request_data[DWELL_PICKUP])
-        dwell_alight = 30# int(request_data[DWELL_ALIGHT])
+        dwell_pickup = int(request_data[DWELL_PICKUP])
+        dwell_alight = int(request_data[DWELL_ALIGHT])
         return Request(id,pick_up_time,latest_pick_up_time,latest_arrival_time,origin,destination,dwell_pickup,dwell_alight)
 
     def get_request_by_iloc(self,iloc):
@@ -85,6 +85,16 @@ class RequestHandler:
             end_time = min(end_time,batch[-1].pick_up_time)
         print(end_time,len(batch))
         return batch,end_time
+    
+    def get_lookahead_trips(self,end_time,rh_factor,batch_interval):
+        batch = []
+        horizen_end_time = end_time + rh_factor*batch_interval
+        for _, row in self.requests.iloc[self.next_index:].iterrows():
+            request = self.get_request(row)
+            if request.pick_up_time > horizen_end_time or request.pick_up_time < end_time:
+                break
+            batch.append(request)
+        return batch
     
     def unique_nodes(self):
         return self.requests.origin.unique()

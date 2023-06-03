@@ -17,27 +17,20 @@ import time
 from multiprocessing.pool import ThreadPool
 
 class TripHandler:
-    def __init__(self,current_time,vehicles,requests,request_bus_combinations,active_requests,iteration,distance_cutoff,ipm_solver_timeout,penalty,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR):
+    def __init__(self,current_time,vehicles,requests,active_requests,iteration,ipm_solver_timeout,penalty,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR):
         self.trips = []
         self.shared_trips_map = {}
-        self.empty_trip_count = 0
         self.ondemand_only_trip_map = {}
         self.ipm_solver_timeout = ipm_solver_timeout
-        self.walk_distance_cutoff = distance_cutoff
         self.vehicle_to_trips_cost_map = {}
         self.trip_to_vehicle_cost_map = {}
         self.rebalancing_assignment = {}
+        self.vehicle_assignment = {}
+        self.request_assignment = {}
         self.generate_ondemand_only_trips(requests,current_time,iteration)
-        self.generate_trips_with_bus(requests,request_bus_combinations)
-        logging.debug("Generated first and last mile trips. Total trips {0}".format(len(self.trips)))
-        st = time.time()
         self.generate_shared_trips(current_time,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR)
-        print("time to generate shared trips: ",st-time.time())
-        st = time.time()
         self.generate_trip_costs(vehicles,current_time,MAX_THREAD_CNT)
-        print("time to generate trip cost: ",st-time.time())
-        logging.debug("Generated trip costs. Total combinations {0}".format(len(TripHandler.trip_costs)))
-        self.assign_trips_gurobi(vehicles,requests,request_bus_combinations,active_requests,penalty,current_time)
+        self.assign_trips_gurobi(requests,active_requests,penalty,current_time)
         self.get_rebalancing_trips(vehicles,requests)
 
     def get_new_trip_no(self):
@@ -51,35 +44,12 @@ class TripHandler:
             origin = request.origin
             destination = request.destination
             dwell_pickup, dwell_alight, latest_pick_up_time = request.dwell_pickup, request.dwell_alight, request.latest_pick_up_time
-            trip = self.create_trip(request,origin,destination,current_time,latest_pick_up_time ,request.arrival_time,dwell_pickup, dwell_alight,iteration,allow_walk=False)
+            earliest_pick_up_time = current_time
+            if request.pick_up_time > current_time:
+                earliest_pick_up_time = request.pick_up_time
+            trip = self.create_trip(request,origin,destination,earliest_pick_up_time,latest_pick_up_time ,request.arrival_time,dwell_pickup, dwell_alight,iteration,allow_walk=False)
             self.trips.append(trip)
             self.ondemand_only_trip_map[request.id] = trip.number
-
-    def generate_trips_with_bus(self,requests,request_bus_combinations):
-        self.bus_combinations = 0
-        for request in requests:
-            if request.id in request_bus_combinations:
-                for bus_combination in request_bus_combinations[request.id]:
-                    combination = request_bus_combinations[request.id][bus_combination]
-                    for bus_trip in combination:
-                        self.bus_combinations+=1
-                        first_mile_trip = self.get_first_mile_trip(request,bus_trip)
-                        if first_mile_trip == None:
-                            bus_trip.first_mile_trip = self.empty_trip_count
-                            self.empty_trip_count+=1
-                            bus_trip.first_mile_trip_empty = True
-                        else:
-                            bus_trip.first_mile_trip = first_mile_trip.number
-                            self.trips.append(first_mile_trip)
-
-                        last_mile_trip = self.get_last_mile_trip(request,bus_trip)
-                        if last_mile_trip == None:
-                            bus_trip.last_mile_trip = self.empty_trip_count
-                            self.empty_trip_count+=1
-                            bus_trip.last_mile_trip_empty = True
-                        else:
-                            bus_trip.last_mile_trip = last_mile_trip.number
-                            self.trips.append(last_mile_trip)
 
     def create_trip(self,request,origin,destination,pick_up_time,latest_pick_up_time,arrival_time,dwell_pickup, dwell_alight,iteration, bus_combination=None,first_last_mile_type=None,allow_walk=True):
         if allow_walk and self.can_walk(origin,destination):
@@ -152,13 +122,11 @@ class TripHandler:
         feasible, cost, sequence = VehicleHandler.can_serve_trips(current_time,trips,new_trip,current_sequence)
         if feasible and cost <= SHAREABLE_COST_FACTOR*current_cost:
             return SharedTrip(0,trip_nos,cost,sequence)
-        return None #(feasible,cost,trip_nos,current_time,trips)
+        return None
     
     def process_shared_trip_result(shared_trip):
         if shared_trip != None:
             TripHandler.shared_trips_to_create.append(shared_trip)
-        # else:
-        #     print(shared_trip)
 
     def update_shared_trip_numbers(self,cardinality):
         self.selected_combinations = []
@@ -233,9 +201,8 @@ class TripHandler:
             return 1
         return 0
     
-    def assign_trips_gurobi(self,vehicles,requests,request_bus_combinations,active_requests,penalty,current_time):
+    def assign_trips_gurobi(self,requests,active_requests,penalty,current_time):
         trip_count = len(TripHandler.trip_costs)
-        empty_trip_count = self.empty_trip_count
         request_count = len(requests)
 
         logging.debug("Started building optimization problem")
@@ -245,74 +212,41 @@ class TripHandler:
         for i in range(trip_count):
             trip_costs[i] = TripHandler.trip_costs[i].cost
         x_t = m.addVars(trip_count,lb=0,ub=1,obj=trip_costs,name="t", vtype=var_type)
-        x_e = m.addVars(empty_trip_count,lb=0,ub=1,name="e", vtype=var_type)
-        x_r = m.addVars(request_count,lb=0,ub=1,obj=np.ones(request_count)*penalty,name="r", vtype=var_type)
+
+        penalties = np.ones(request_count)
+        request_no = 0
+        for request in requests:
+            if request.id in active_requests:
+                penalties[request_no] = 100
+            request_no+=1
+        x_r = m.addVars(request_count,lb=0,ub=1,obj=penalties*penalty,name="r", vtype=var_type)
 
         m.addConstrs((gp.quicksum(x_t[i] for i in self.vehicle_to_trips_cost_map[vehicle_id]) <= 1 for vehicle_id in list(self.vehicle_to_trips_cost_map.keys())), "veh")
 
         request_no = 0
         for request in requests:
-            row_indices = []
-            empty_indices = []
             trip_no = self.ondemand_only_trip_map[request.id]
             cost_map_indices = self.trip_to_vehicle_cost_map[trip_no]
-            row_indices.extend(cost_map_indices)
 
-            for combination_label in request_bus_combinations[request.id]:
-                combination = request_bus_combinations[request.id][combination_label]
-                for bus_trip in combination:
-                    first_mile_trip_id = bus_trip.first_mile_trip
-                    last_mile_trip_id = bus_trip.last_mile_trip
-                    
-                    if bus_trip.first_mile_trip_empty:
-                        empty_indices.append(first_mile_trip_id)
-                    else:
-                        row_indices.extend(self.trip_to_vehicle_cost_map[first_mile_trip_id])
-
-            m.addConstr(x_r[request_no]+gp.quicksum(x_e[i] for i in empty_indices)+gp.quicksum(x_t[i] for i in row_indices) == 1,"req_{0}".format(request.id))
+            m.addConstr(x_r[request_no]+gp.quicksum(x_t[i] for i in cost_map_indices) == 1,"req_{0}".format(request.id))
             
             # all the previously assigned requests should be picked up
-            if request.id in active_requests:
-                m.addConstr(x_r[request_no] == 0,"active_req_{0}".format(request.id))
+            # if request.id in active_requests:
+            #     m.addConstr(x_r[request_no] == 0,"active_req_{0}".format(request.id))
             request_no+=1
 
-        bus_combinations_no = 0
-        for request in requests:
-            for combination_label in request_bus_combinations[request.id]:
-                combination = request_bus_combinations[request.id][combination_label]
-                for bus_trip in combination:
-                    first_mile_indices = []
-                    first_mile_empty_indices = []
-                    last_mile_indices = []
-                    last_mile_empty_indices = []
-                    first_mile_trip_id = bus_trip.first_mile_trip
-                    last_mile_trip_id = bus_trip.last_mile_trip
-                    
-                    if bus_trip.first_mile_trip_empty:
-                        first_mile_empty_indices.append(first_mile_trip_id)
-                    else:
-                        first_mile_indices.extend(self.trip_to_vehicle_cost_map[first_mile_trip_id])
-
-                    if bus_trip.last_mile_trip_empty:
-                        last_mile_empty_indices.append(last_mile_trip_id)
-                    else:
-                        last_mile_indices.extend(self.trip_to_vehicle_cost_map[last_mile_trip_id])
-
-                    m.addConstr(gp.quicksum(x_e[i] for i in first_mile_empty_indices)+gp.quicksum(x_t[i] for i in first_mile_indices) -gp.quicksum(x_e[i] for i in last_mile_empty_indices)-gp.quicksum(x_t[i] for i in last_mile_indices) == 0,"com_{0}".format(combination_label))
-                    bus_combinations_no+=1
         m.optimize()
+
+        self.trip_sizes = []
+        self.unassigned_trip_count = 0
+        self.taxi_only_trip_count = 0
+        self.with_one_bus_trip_count = 0
+        self.with_two_bus_trip_count = 0
+        self.added_distance = 0
 
         if m.Status == GRB.OPTIMAL:
             self.log_with_timestamp(current_time,"Total time spent on optimization: {0}".format(m.Runtime))
 
-            self.vehicle_assignment = {}
-            self.request_assignment = {}
-            self.unassigned_trip_count = 0
-            self.taxi_only_trip_count = 0
-            self.with_one_bus_trip_count = 0
-            self.with_two_bus_trip_count = 0
-            self.added_distance = 0
-            self.trip_sizes = []
 
             for vehicle_id in self.vehicle_to_trips_cost_map:
                 for i in self.vehicle_to_trips_cost_map[vehicle_id]:
@@ -343,59 +277,11 @@ class TripHandler:
                         self.taxi_only_trip_count+=1
                         break
 
-                for combination_label in request_bus_combinations[request.id]:
-                    if found_assignment:
-                        break
-                    combination = request_bus_combinations[request.id][combination_label]
-                    for bus_trip in combination:
-                        first_mile_trip_id = bus_trip.first_mile_trip
-                        last_mile_trip_id = bus_trip.last_mile_trip
-                        found_first_trip_assignment = False
-                        found_last_trip_assignment = False
-
-                        first_mile_trip_cost_index = None
-                        last_mile_trip_cost_index = None
-                        
-                        if bus_trip.first_mile_trip_empty:
-                            if x_e[first_mile_trip_id].X == 1:
-                                found_first_trip_assignment = True
-                        else:
-                            for index in self.trip_to_vehicle_cost_map[first_mile_trip_id]:
-                                if x_t[index].X == 1:
-                                    found_first_trip_assignment = True
-                                    first_mile_trip_cost_index = index
-                                    break
-
-                        if bus_trip.last_mile_trip_empty:
-                            if x_e[last_mile_trip_id].X == 1:
-                                found_last_trip_assignment = True
-                        else:
-                            for index in self.trip_to_vehicle_cost_map[last_mile_trip_id]:
-                                if x_t[index].X == 1:
-                                    found_last_trip_assignment = True
-                                    last_mile_trip_cost_index = index
-                                    break
-
-                        if found_first_trip_assignment and found_last_trip_assignment:
-                            self.request_assignment[request.id] = AssignmentWithBus(bus_trip)
-                            if not bus_trip.first_mile_trip_empty:
-                                trip_cost = TripHandler.trip_costs[first_mile_trip_cost_index]
-                                vehicle_id = trip_cost.vehicle_id
-                                self.request_assignment[request.id].first_mile_vehicle = vehicle_id
-                            if not bus_trip.last_mile_trip_empty:
-                                trip_cost = TripHandler.trip_costs[last_mile_trip_cost_index]
-                                vehicle_id = trip_cost.vehicle_id
-                                self.request_assignment[request.id].last_mile_vehicle = vehicle_id
-                            found_assignment = True
-                            if bus_trip.bus_count() == 1:
-                                self.with_one_bus_trip_count += 1
-                            else:
-                                self.with_two_bus_trip_count += 1
-                            break
                 if not found_assignment:
                     self.unassigned_trip_count+=1
-
-            logging.info('{0}: No of requests: {1}, unassigned requests: {2}, taxi only requests: {3}, requests served by busses: {4}'.format(current_time,request_count,self.unassigned_trip_count,self.taxi_only_trip_count,self.with_one_bus_trip_count+self.with_two_bus_trip_count))
+        else:
+            self.unassigned_trip_count = request_count
+        logging.info('{0}: No of requests: {1}, unassigned requests: {2}, taxi only requests: {3}, requests served by busses: {4}'.format(current_time,request_count,self.unassigned_trip_count,self.taxi_only_trip_count,self.with_one_bus_trip_count+self.with_two_bus_trip_count))
 
     def get_rebalancing_trips(self,vehicles,requests):
         empty_vehicles = []
@@ -430,7 +316,6 @@ class TripHandler:
             m.addConstr((y_vr.sum() <= max_rebalancing_count), "total_assignment")
             m.optimize()
 
-            self.rebalancing_assignment = {}
             if m.Status == GRB.OPTIMAL:
                 for i in range(number_of_vehicles):
                     for j in range(number_of_requests):
@@ -439,252 +324,3 @@ class TripHandler:
                             origin = unassigned_requests[j].origin
                             self.rebalancing_assignment[vehicle_id] = origin
                             break
-
-    def assign_trips(self,vehicles,requests,request_bus_combinations,penalty,current_time):
-        trip_count = len(TripHandler.trip_costs)
-        empty_trip_count = self.empty_trip_count
-        request_count = len(requests)
-        vehicle_count = len(vehicles)
-        numvar = trip_count+empty_trip_count+request_count
-        numcon = self.bus_combinations+vehicle_count+request_count
-        x = np.zeros(numvar)
-
-
-        logging.debug("Started building optimization problem")
-
-        with mosek.Env() as env:
-            with env.Task(0, 1) as task:
-                task.appendvars(numvar)
-
-                for j in range(trip_count):
-                    task.putcj(j, TripHandler.trip_costs[j].cost)
-                    task.putvarbound(j, mosek.boundkey.ra, 0, 1)
-
-                for j in range(trip_count,trip_count+empty_trip_count):
-                    task.putcj(j, 0)
-                    task.putvarbound(j, mosek.boundkey.ra, 0, 1)
-
-                for j in range(trip_count+empty_trip_count,numvar):
-                    task.putcj(j, penalty)
-                    task.putvarbound(j, mosek.boundkey.ra, 0, 1)
-
-                task.appendcons(numcon)
-    
-                vehicle_no = 0
-                for vehicle_id in self.vehicle_to_trips_cost_map:
-                    task.putconbound(vehicle_no, mosek.boundkey.up, 0, 1)
-                    trips = self.vehicle_to_trips_cost_map[vehicle_id]
-                    task.putarow(vehicle_no,trips,[1]*len(trips))
-                    vehicle_no+=1
-
-                request_no = 0
-                for request in requests:
-                    task.putconbound(vehicle_count+request_no, mosek.boundkey.fx, 1, 1)
-                    row_indices = [trip_count+empty_trip_count+request_no]
-                    row_values = [1]
-                    trip_no = self.ondemand_only_trip_map[request.id]
-                    cost_map_indices = self.trip_to_vehicle_cost_map[trip_no]
-                    row_indices.extend(cost_map_indices)
-                    row_values.extend([1]*len(cost_map_indices))
-
-                    for combination_label in request_bus_combinations[request.id]:
-                        combination = request_bus_combinations[request.id][combination_label]
-                        for bus_trip in combination:
-                            first_mile_trip_id = bus_trip.first_mile_trip
-                            last_mile_trip_id = bus_trip.last_mile_trip
-                            
-                            if bus_trip.first_mile_trip_empty:
-                                row_indices.append(first_mile_trip_id+trip_count)
-                                row_values.append(1)
-                            else:
-                                row_indices.extend(self.trip_to_vehicle_cost_map[first_mile_trip_id])
-                                row_values.extend([1]*len(self.trip_to_vehicle_cost_map[first_mile_trip_id]))
-
-                    task.putarow(request_no+vehicle_count,row_indices,row_values)
-                    request_no+=1
-
-                bus_combinations_no = 0
-                for request in requests:
-                    for combination_label in request_bus_combinations[request.id]:
-                        combination = request_bus_combinations[request.id][combination_label]
-                        for bus_trip in combination:
-                            task.putconbound(vehicle_count+request_count+bus_combinations_no, mosek.boundkey.fx, 0, 0)
-                            row_indices = []
-                            row_values = []
-                            first_mile_trip_id = bus_trip.first_mile_trip
-                            last_mile_trip_id = bus_trip.last_mile_trip
-                            
-                            if bus_trip.first_mile_trip_empty:
-                                row_indices.append(first_mile_trip_id+trip_count)
-                                row_values.append(1)
-                            else:
-                                row_indices.extend(self.trip_to_vehicle_cost_map[first_mile_trip_id])
-                                row_values.extend([1]*len(self.trip_to_vehicle_cost_map[first_mile_trip_id]))
-
-                            if bus_trip.last_mile_trip_empty:
-                                row_indices.append(last_mile_trip_id+trip_count)
-                                row_values.append(-1)
-                            else:
-                                row_indices.extend(self.trip_to_vehicle_cost_map[last_mile_trip_id])
-                                row_values.extend([-1]*len(self.trip_to_vehicle_cost_map[last_mile_trip_id]))
-
-                            task.putarow(vehicle_count+request_count+bus_combinations_no,row_indices,row_values)
-                            bus_combinations_no+=1
-
-                task.putobjsense(mosek.objsense.minimize)
-                task.putvartypelist(np.arange(numvar),
-                            [mosek.variabletype.type_int]*numvar)
-                task.putdouparam(mosek.dparam.mio_max_time, self.ipm_solver_timeout)
-
-                logging.debug("Started optimization")
-
-                task.optimize()
-
-                logging.debug("Finished optimization")
-                task.getxx(mosek.soltype.itg, x)
-
-                task.writedata("data.opf")
-                
-                prosta = task.getprosta(mosek.soltype.itg)
-                solsta = task.getsolsta(mosek.soltype.itg)
-                message = None
-                if solsta in [mosek.solsta.integer_optimal]:
-                    message = "Optimal solution"
-                elif solsta == mosek.solsta.prim_feas:
-                    message = "Feasible solution"
-                elif mosek.solsta.unknown:
-                    if prosta == mosek.prosta.prim_infeas_or_unbounded:
-                        message = "Problem status Infeasible or unbounded."
-                    elif prosta == mosek.prosta.prim_infeas:
-                        message = "Problem status Infeasible."
-                    elif prosta == mosek.prosta.unkown:
-                        message = "Problem status unkown."
-                    else:
-                        message = "Other problem status."
-                else:
-                    message = "Other solution status"
-                time_spent = task.getdouinf(mosek.dinfitem.optimizer_time)
-                self.log_with_timestamp(current_time,"{0}, Total time spent on optimization: {1}".format(message,time_spent))
-
-        self.x = x
-        self.vehicle_assignment = {}
-        self.request_assignment = {}
-        self.unassigned_trip_count = 0
-        self.taxi_only_trip_count = 0
-        self.with_one_bus_trip_count = 0
-        self.with_two_bus_trip_count = 0
-        self.added_distance = 0
-        self.trip_sizes = []
-
-        for vehicle_id in self.vehicle_to_trips_cost_map:
-            for i in self.vehicle_to_trips_cost_map[vehicle_id]:
-                if self.get_x(i) == 1:
-                    trip_cost = TripHandler.trip_costs[i]
-                    self.added_distance+=trip_cost.cost
-                    trip_no = trip_cost.trip_no
-                    trip = self.trips[trip_no]
-                    trips = []
-                    if isinstance(trip,Trip):
-                        trips.append(trip)
-                    else:
-                        for sub_trip_no in trip.trips:
-                            trips.append(self.trips[sub_trip_no])
-                    self.trip_sizes.append(len(trips))
-                    self.vehicle_assignment[vehicle_id] = trips
-
-        for request in requests:
-            found_assignment = False
-            trip_no = self.ondemand_only_trip_map[request.id]
-            cost_map_indices = self.trip_to_vehicle_cost_map[trip_no]
-            for index in cost_map_indices:
-                if self.get_x(index) == 1:
-                    trip_cost = TripHandler.trip_costs[index]
-                    vehicle_id = trip_cost.vehicle_id
-                    self.request_assignment[request.id] = TaxiOnlyAssignment(vehicle_id)
-                    found_assignment = True
-                    self.taxi_only_trip_count+=1
-                    break
-
-            for combination_label in request_bus_combinations[request.id]:
-                if found_assignment:
-                    break
-                combination = request_bus_combinations[request.id][combination_label]
-                for bus_trip in combination:
-                    first_mile_trip_id = bus_trip.first_mile_trip
-                    last_mile_trip_id = bus_trip.last_mile_trip
-                    found_first_trip_assignment = False
-                    found_last_trip_assignment = False
-
-                    first_mile_trip_cost_index = None
-                    last_mile_trip_cost_index = None
-                    
-                    if bus_trip.first_mile_trip_empty:
-                        if self.get_x(first_mile_trip_id+trip_count) == 1:
-                            found_first_trip_assignment = True
-                    else:
-                        for index in self.trip_to_vehicle_cost_map[first_mile_trip_id]:
-                            if self.get_x(index) == 1:
-                                found_first_trip_assignment = True
-                                first_mile_trip_cost_index = index
-                                break
-
-                    if bus_trip.last_mile_trip_empty:
-                        if self.get_x(last_mile_trip_id+trip_count) == 1:
-                            found_last_trip_assignment = True
-                    else:
-                        for index in self.trip_to_vehicle_cost_map[last_mile_trip_id]:
-                            if self.get_x(index) == 1:
-                                found_last_trip_assignment = True
-                                last_mile_trip_cost_index = index
-                                break
-
-                    if found_first_trip_assignment and found_last_trip_assignment:
-                        self.request_assignment[request.id] = AssignmentWithBus(bus_trip)
-                        if not bus_trip.first_mile_trip_empty:
-                            trip_cost = TripHandler.trip_costs[first_mile_trip_cost_index]
-                            vehicle_id = trip_cost.vehicle_id
-                            self.request_assignment[request.id].first_mile_vehicle = vehicle_id
-                        if not bus_trip.last_mile_trip_empty:
-                            trip_cost = TripHandler.trip_costs[last_mile_trip_cost_index]
-                            vehicle_id = trip_cost.vehicle_id
-                            self.request_assignment[request.id].last_mile_vehicle = vehicle_id
-                        found_assignment = True
-                        if bus_trip.bus_count() == 1:
-                            self.with_one_bus_trip_count += 1
-                        else:
-                            self.with_two_bus_trip_count += 1
-                        break
-            if not found_assignment:
-                self.unassigned_trip_count+=1
-
-        # Logging
-        for request in requests:
-            trip_no = self.ondemand_only_trip_map[request.id]
-            cost_map_indices = self.trip_to_vehicle_cost_map[trip_no]
-            no_bus_trips = 0
-            first_mile_trips = []
-            last_mile_trips = []
-            for combination_label in request_bus_combinations[request.id]:
-                combination = request_bus_combinations[request.id][combination_label]
-                no_bus_trips += len(combination)
-                for bus_trip in combination:
-                    first_mile_trip_id = bus_trip.first_mile_trip
-                    last_mile_trip_id = bus_trip.last_mile_trip
-
-                    first_mile_trip_cost_index = None
-                    last_mile_trip_cost_index = None
-                    
-                    if bus_trip.first_mile_trip_empty:
-                        first_mile_trips.append(-1)
-                    else:
-                        first_mile_trips.append(len(self.trip_to_vehicle_cost_map[first_mile_trip_id]))
-
-                    if bus_trip.last_mile_trip_empty:
-                        last_mile_trips.append(-1)
-                    else:
-                        last_mile_trips.append(len(self.trip_to_vehicle_cost_map[last_mile_trip_id]))
-
-            last_mile_trips_copy = [str(i) for i in last_mile_trips]
-            first_mile_trips_copy = [str(i) for i in first_mile_trips]
-            logging.info('Requests ID: {0}, direct vehicles: {1}, no of bus trips: {2}, first mile vehicles: {3}, last mile vehicles: {4}'.format(request.id,len(cost_map_indices),no_bus_trips,",".join(first_mile_trips_copy),",".join(last_mile_trips_copy)))
-        logging.info('{0}: No of requests: {1}, unassigned requests: {2}, taxi only requests: {3}, requests served by busses: {4}'.format(current_time,request_count,self.unassigned_trip_count,self.taxi_only_trip_count,self.with_one_bus_trip_count+self.with_two_bus_trip_count))

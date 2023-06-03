@@ -10,6 +10,8 @@ class OutputHandler:
         self.taxi_only_trip_count = 0
         self.with_bus_trip_count = 0
         self.added_distance = 0
+        with open(self.output_directory+"summary.csv", 'a+') as summary_file:
+            summary_file.write("timestamp,exe_time,request_count,unassigned_trip_count,taxi_only_trip_count,with_one_bus_trip_count,with_two_bus_trip_count,added_distance\n")
 
     def record_output(self,current_time,requests,trip_handler,total_time):
         with open(self.output_directory+"shareability.csv", 'a+') as shareability_file:
@@ -20,6 +22,7 @@ class OutputHandler:
             summary_file.write('{0},{1},{2},{3},{4},{5},{6},{7}\n'.format(current_time,total_time,request_count,trip_handler.unassigned_trip_count,trip_handler.taxi_only_trip_count,trip_handler.with_one_bus_trip_count,trip_handler.with_two_bus_trip_count,trip_handler.added_distance/1000))
 
         with open(self.output_directory+"assignment.csv", 'a+') as assignment_file:
+            assignment_file.write('{0}\n'.format(current_time))
             for request in requests:
                 request_id = request.id
                 if request_id in trip_handler.request_assignment:
