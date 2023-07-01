@@ -47,16 +47,16 @@ class TripHandler:
             earliest_pick_up_time = current_time
             if request.pick_up_time > current_time:
                 earliest_pick_up_time = request.pick_up_time
-            trip = self.create_trip(request,origin,destination,earliest_pick_up_time,latest_pick_up_time ,request.arrival_time,dwell_pickup, dwell_alight,iteration,allow_walk=False)
+            trip = self.create_trip(request,request.am_capacity, request.wc_capacity,origin,destination,earliest_pick_up_time,latest_pick_up_time ,request.earliest_arrival_time,request.latest_arrival_time,dwell_pickup, dwell_alight,iteration,allow_walk=False)
             self.trips.append(trip)
             self.ondemand_only_trip_map[request.id] = trip.number
 
-    def create_trip(self,request,origin,destination,pick_up_time,latest_pick_up_time,arrival_time,dwell_pickup, dwell_alight,iteration, bus_combination=None,first_last_mile_type=None,allow_walk=True):
+    def create_trip(self,request,am_capacity, wc_capacity,origin,destination,pick_up_time,latest_pick_up_time,earliest_arrival_time,latest_arrival_time,dwell_pickup, dwell_alight,iteration, bus_combination=None,first_last_mile_type=None,allow_walk=True):
         if allow_walk and self.can_walk(origin,destination):
             return None
         trip_no = self.get_new_trip_no()
         cost = self.get_trip_cost(origin,destination)
-        return Trip(request.id,trip_no,pick_up_time, latest_pick_up_time, arrival_time, origin, destination,cost,dwell_pickup, dwell_alight, iteration, bus_combination=bus_combination,first_last_mile_type=first_last_mile_type)
+        return Trip(request.id,trip_no,am_capacity, wc_capacity, pick_up_time, latest_pick_up_time, earliest_arrival_time,latest_arrival_time, origin, destination,cost,dwell_pickup, dwell_alight, iteration, bus_combination=bus_combination,first_last_mile_type=first_last_mile_type)
     
     def get_first_mile_trip(self,request,bustrip):
         origin = request.origin

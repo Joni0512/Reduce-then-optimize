@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from datetime import timedelta
 import time
 from handlers.request_handler import RequestHandler
@@ -7,6 +8,7 @@ from handlers.vehicle_handler import VehicleHandler
 from handlers.trip_handler import TripHandler
 from handlers.output_handler import OutputHandler
 import argparse
+import pickle 
 
 IPM_SOLVER_TIMEOUT = 1200
 PENALTY = 1000000 # penalty for not serving a trip
@@ -21,10 +23,6 @@ RH_FACTOR = 0
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Simulator arguments')
-    parser.add_argument('--max_number_of_vehicles', type=int,
-                    help='maximum number of MoD vehicles')
-    parser.add_argument('--max_capacity', type=int,
-                    help='maximum capacity of a MoD vehicle')
     parser.add_argument('--max_cardinality', type=int,
                     help='maximum trips to be shared')
     parser.add_argument('--rh_factor', type=int,
@@ -35,10 +33,8 @@ if __name__=="__main__":
                     help='output directory')
     parser.add_argument('--server_url',
                     help='Server URL')
-    parser.add_argument('--request_file',
+    parser.add_argument('--input_file',
                     help='Request file')
-    parser.add_argument('--vehicle_file',
-                    help='Vehicle file')
     args = parser.parse_args()
     OUTPUT_DIR = args.out_put_dir
     MAX_CARDINALITY = args.max_cardinality
@@ -46,17 +42,19 @@ if __name__=="__main__":
     BATCH_INTERVAL = timedelta(0,seconds=args.interval)
 
     logging.basicConfig(filename=OUTPUT_DIR+'main.log', level=logging.INFO)
-    logging.info('Starting the simulator with: max_number_of_vehicles {0}, max_capacity {1}'.format(args.max_number_of_vehicles, args.max_capacity))
-    logging.info('Batch Interval {0}, RH FACTOR {1}'.format(BATCH_INTERVAL, RH_FACTOR))
-    logging.info('Max waiting time {0}, max detour time {1}'.format(MAX_WAITING, MAX_DETOUR))
+    logging.info('Starting the simulator with: Batch Interval {0}, RH FACTOR {1}'.format(BATCH_INTERVAL, RH_FACTOR))
     iteration = 0
     NetworkHandler.init(args.server_url)
 
-    request_handler = RequestHandler(args.request_file,MAX_DETOUR,MAX_WAITING)
+    with open(args.input_file, 'rb') as f:
+        payload = pickle.load(f)
+    start_of_the_day = datetime.strptime(payload['date'], '%Y-%m-%d')
+    dwell_pickup = 180
+    dwell_alight = 60
+    request_handler = RequestHandler(payload, start_of_the_day, dwell_pickup, dwell_alight)
     starting_time = request_handler.earliest_start_time()
     latest_time = request_handler.latest_start_time()
-    start_of_the_day = starting_time.replace(hour=0, minute=0, second=0, microsecond=0)
-    vehicle_handler = VehicleHandler(args.vehicle_file,OUTPUT_DIR,start_of_the_day,args.max_number_of_vehicles, args.max_capacity)
+    vehicle_handler = VehicleHandler(payload,OUTPUT_DIR,start_of_the_day)
     output_handler = OutputHandler(OUTPUT_DIR)
 
     active_requests = {}
@@ -75,11 +73,11 @@ if __name__=="__main__":
             if requests.id not in active_requests:
                 batch.append(requests)
         completed_stops, picked_requests, completed_requests = vehicle_handler.simulate_vehicles(end_time)
-        for req_id in completed_requests:
-            boarded_requests.pop(req_id)
         for req_id in picked_requests:
             boarded_requests[req_id] = active_requests[req_id]
             active_requests.pop(req_id)
+        for req_id in completed_requests:
+            boarded_requests.pop(req_id)
         output_handler.record_vehicles(vehicle_handler.get_vehicle_locations(),end_time)
         output_handler.record_completed_stops(completed_stops)
         if len(batch) + len(active_requests) > 0 :
@@ -98,6 +96,8 @@ if __name__=="__main__":
             for vehicle_id in trip_handler.vehicle_assignment:
                 vehicle = vehicle_handler.vehicles[vehicle_id]
                 trips = trip_handler.vehicle_assignment[vehicle_id]
+                for trip in trips:
+                    print("Assignment: ", vehicle_id,trip.origin,trip.destination,trip.request_id)
                 VehicleHandler.add_new_trips(end_time, vehicle, trips, add=True)
 
             rebalancing_trip_info = []
@@ -109,4 +109,4 @@ if __name__=="__main__":
             output_handler.record_rebalancing_trips(rebalancing_trip_info,end_time)
         starting_time = end_time
         iteration+=1
-    
+    request_handler.requests.to_csv(output_handler.output_directory+"requests.csv",index=False)

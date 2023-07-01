@@ -8,7 +8,7 @@ from datetime import datetime
 from datetime import timedelta
 from multiprocessing.pool import ThreadPool
 
-PICKUP_TIME = 'tpep_pickup_datetime'
+PICKUP_TIME = 'pickup_time_window_start'
 ID = 'id'
 PICKUP_LAT = 'pickup_latitude'
 PICKUP_LON = 'pickup_longitude'
@@ -16,19 +16,40 @@ DROPOFF_LAT = 'dropoff_latitude'
 DROPOFF_LON = 'dropoff_longitude'
 DWELL_PICKUP = 'dwell_pickup'
 DWELL_ALIGHT = 'dwell_alight'
+PICKUP_WINDOW_END = 'pickup_time_window_end'
+ARRIVAL_WINDOW_START = 'dropoff_time_window_start'
+ARRIVAL_WINDOW_END = 'dropoff_time_window_end'
 
 class RequestHandler:
-    def __init__(self, filename, maximum_detour, maximum_waiting):
-        self.filename = filename
-        self.maximum_detour = maximum_detour
-        self.maximum_waiting = maximum_waiting
-        dateparse = lambda x: datetime.strptime(x, '%Y-%m-%d %H:%M:%S')
-        self.requests = pd.read_csv(filename,parse_dates=[PICKUP_TIME],date_parser=dateparse).sort_values(by = [PICKUP_TIME])
-        with ThreadPool(10) as pool:
-            for index,_ in self.requests.iterrows():
-                pool.apply_async(self.update_request_location,args=(index,))
-            pool.close()
-            pool.join()
+    def __init__(self, payload, starting_date, dwell_pickup, dwell_alight):
+        requests = []
+        for req in payload['requests']:
+            pickup_time_window_start = starting_date + timedelta(seconds=int(req[PICKUP_TIME]))
+            pickup_time_window_end = starting_date + timedelta(seconds=int(req[PICKUP_WINDOW_END]))
+            dropoff_time_window_start = starting_date + timedelta(seconds=int(req[ARRIVAL_WINDOW_START]))
+            dropoff_time_window_end = starting_date + timedelta(seconds=int(req[ARRIVAL_WINDOW_END]))
+            origin = req['pickup_pt']
+            dest = req['dropoff_pt']
+            pick_up_lat,pick_up_lon = NetworkHandler.get_nearest_node(origin['lat'],origin['lon'])
+            drop_lat,drop_lon = NetworkHandler.get_nearest_node(dest['lat'],dest['lon'])
+            t_req = {'am':req['am'],'wc':req['wc'],ID:req['booking_id'],
+                PICKUP_LAT: pick_up_lat,PICKUP_LON: pick_up_lon,
+                DROPOFF_LAT: drop_lat,DROPOFF_LON: drop_lon,
+                PICKUP_TIME: pickup_time_window_start,
+                PICKUP_WINDOW_END: pickup_time_window_end,
+                ARRIVAL_WINDOW_START: dropoff_time_window_start,
+                ARRIVAL_WINDOW_END: dropoff_time_window_end,
+                DWELL_PICKUP: dwell_pickup,
+                DWELL_ALIGHT: dwell_alight
+                }
+            requests.append(t_req)
+            
+        self.requests = pd.DataFrame(requests).sort_values(by = [PICKUP_TIME])
+        # with ThreadPool(10) as pool:
+        #     for index,_ in self.requests.iterrows():
+        #         pool.apply_async(self.update_request_location,args=(index,))
+        #     pool.close()
+        #     pool.join()
 
         self.count = self.requests.shape[0]
         self.next_index = 0
@@ -59,13 +80,14 @@ class RequestHandler:
         destination = Node(request_data[DROPOFF_LAT],request_data[DROPOFF_LON])
         id = request_data[ID]
         pick_up_time = request_data[PICKUP_TIME]
-        latest_pick_up_time = pick_up_time + timedelta(seconds=self.maximum_waiting)
-        travel_time = NetworkHandler.travel_time(origin,destination)
-        duration = travel_time + self.maximum_detour
-        latest_arrival_time = pick_up_time + timedelta(seconds=duration)
+        latest_pick_up_time = request_data[PICKUP_WINDOW_END]
+        earliest_arrival_time = request_data[ARRIVAL_WINDOW_START]
+        latest_arrival_time = request_data[ARRIVAL_WINDOW_END]
         dwell_pickup = int(request_data[DWELL_PICKUP])
         dwell_alight = int(request_data[DWELL_ALIGHT])
-        return Request(id,pick_up_time,latest_pick_up_time,latest_arrival_time,origin,destination,dwell_pickup,dwell_alight)
+        am_capacity = request_data['am']
+        wc_capacity = request_data['wc']
+        return Request(id,am_capacity,wc_capacity,pick_up_time,latest_pick_up_time,earliest_arrival_time,latest_arrival_time,origin,destination,dwell_pickup,dwell_alight)
 
     def get_request_by_iloc(self,iloc):
         request_data = self.requests.iloc[iloc]
@@ -73,14 +95,14 @@ class RequestHandler:
 
     def get_batch(self,end_time,max_batch_size):
         batch = []
-        ending_index = min(self.next_index+max_batch_size,self.requests.shape[0]-1)
+        ending_index = min(self.next_index+max_batch_size,self.requests.shape[0])
         for _, row in self.requests.iloc[self.next_index:ending_index].iterrows():
             request = self.get_request(row)
             if request.pick_up_time > end_time:
                 break
             batch.append(request)
             self.next_index+=1
-        time_of_next_request = self.requests.iloc[self.next_index][PICKUP_TIME]
+        time_of_next_request = self.requests.iloc[min(self.next_index,self.requests.shape[0]-1)][PICKUP_TIME]
         if time_of_next_request <= end_time and len(batch) > 0:
             end_time = min(end_time,batch[-1].pick_up_time)
         print(end_time,len(batch))

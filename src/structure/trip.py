@@ -1,10 +1,9 @@
 class Trip:
-    def __init__(self, request_id, number, pick_up_time, latest_pick_up_time, arrival_time, origin, destination, cost, dwell_pickup, dwell_alight, iteration, bus_combination = None, first_last_mile_type = 0, vehicle=None):
+    def __init__(self, request_id, number, am_capacity, wc_capacity, pick_up_time, latest_pick_up_time, earliest_arrival_time,latest_arrival_time, origin, destination, cost, dwell_pickup, dwell_alight, iteration, bus_combination = None, first_last_mile_type = 0, vehicle=None):
         self.origin = origin
         self.destination = destination
         self.pick_up_time = pick_up_time
         self.number = number
-        self.arrival_time = arrival_time
         self.bus_combination = bus_combination
         self.first_last_mile_type = first_last_mile_type
         self.vehicle = vehicle
@@ -15,6 +14,10 @@ class Trip:
         self.dwell_pickup = dwell_pickup
         self.dwell_alight = dwell_alight
         self.latest_pick_up_time = latest_pick_up_time
+        self.earliest_arrival_time = earliest_arrival_time
+        self.latest_arrival_time = latest_arrival_time
+        self.am_capacity = am_capacity
+        self.wc_capacity = wc_capacity
         if bus_combination == None:
             self.id = "{0}-{1}".format(iteration,request_id)
         else:

@@ -17,4 +17,6 @@ class VehicleStop:
             type_name = "DROPOFF"
         elif self.type == 2:
             type_name = "REBALANCE"
-        return "{0},{1},{2},{3},{4}".format(self.node,type_name,self.stop_time,self.request_id,self.vehicle_id)
+        elif self.type == 3:
+            type_name = "DEPOT"
+        return "{0},{1},{2},{3},{4},{5}".format(self.node.lat,self.node.lon,type_name,self.stop_time,self.request_id,self.vehicle_id)

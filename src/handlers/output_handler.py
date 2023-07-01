@@ -12,6 +12,8 @@ class OutputHandler:
         self.added_distance = 0
         with open(self.output_directory+"summary.csv", 'a+') as summary_file:
             summary_file.write("timestamp,exe_time,request_count,unassigned_trip_count,taxi_only_trip_count,with_one_bus_trip_count,with_two_bus_trip_count,added_distance\n")
+        with open(self.output_directory+"completed_stops.csv", 'a+') as location_file:
+            location_file.write("lat,lon,action,scheduled_time,booking_id,run_id\n")
 
     def record_output(self,current_time,requests,trip_handler,total_time):
         with open(self.output_directory+"shareability.csv", 'a+') as shareability_file:
