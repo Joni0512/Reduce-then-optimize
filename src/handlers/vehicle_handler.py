@@ -23,6 +23,7 @@ class VehicleHandler:
     def __init__(self, payload, output_directory, starting_date):
         self.vehicles = {}
         self.count = 0
+        self.earliest_start_time = None
         self.load_vehicles(payload, starting_date)
         self.output_directory = output_directory
         logging.info('Total No of vehicles: {0}'.format(self.count))
@@ -52,6 +53,8 @@ class VehicleHandler:
             end_time = starting_date + timedelta(seconds=int(vehicle_data['end_time']))
             vehicle = Vehicle(id, start_loc, am_capacity, wc_capacity, start_time, end_time, start_loc)
             self.vehicles[id] = vehicle
+            if self.earliest_start_time == None or self.earliest_start_time > start_time:
+                self.earliest_start_time = start_time
 
     def read_vehicles(self, filename,starting_date, max_number_of_vehicles):
         dateparse = lambda x: datetime.strptime(x, '%H:%M:%S')

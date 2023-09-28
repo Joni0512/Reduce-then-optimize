@@ -60,6 +60,7 @@ if __name__=="__main__":
     active_requests = {}
     boarded_requests = {}
 
+    starting_time = vehicle_handler.earliest_start_time-BATCH_INTERVAL
     while starting_time <= latest_time or (len(active_requests) + len(boarded_requests) > 0):
         iteration_exe_start_time = time.time()
         end_time = starting_time + BATCH_INTERVAL
