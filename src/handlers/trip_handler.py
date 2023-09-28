@@ -1,7 +1,5 @@
 from structure.trip import Trip
 from structure.shared_trip import SharedTrip
-from structure.assignment import AssignmentWithBus
-from structure.assignment import TaxiOnlyAssignment
 from structure.trip_cost import TripCost
 from handlers.vehicle_handler import VehicleHandler
 from handlers.network_handler import NetworkHandler
@@ -272,7 +270,7 @@ class TripHandler:
                     if x_t[index].X == 1:
                         trip_cost = TripHandler.trip_costs[index]
                         vehicle_id = trip_cost.vehicle_id
-                        self.request_assignment[request.id] = TaxiOnlyAssignment(vehicle_id)
+                        self.request_assignment[request.id] = vehicle_id
                         found_assignment = True
                         self.taxi_only_trip_count+=1
                         break

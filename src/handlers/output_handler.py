@@ -1,6 +1,5 @@
 import logging
 import time
-from structure.assignment import TaxiOnlyAssignment
 
 class OutputHandler:
     def __init__(self, output_directory):
@@ -28,12 +27,8 @@ class OutputHandler:
             for request in requests:
                 request_id = request.id
                 if request_id in trip_handler.request_assignment:
-                    assignment = trip_handler.request_assignment[request_id]
-                    if isinstance(assignment,TaxiOnlyAssignment):
-                        assignment_file.write('{0},ServedOnlyByTaxi,{1}\n'.format(request_id,assignment.vehicle_id))
-                    else:
-                        bus_trip = assignment.bus_trip
-                        assignment_file.write('{0},ServedWithBus,{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11}\n'.format(request_id,":".join(bus_trip.bus_lines),":".join([str(run) for run in bus_trip.bus_run]),bus_trip.pick_up_stop,bus_trip.transfer_point,bus_trip.destination_stop,assignment.first_mile_vehicle,assignment.last_mile_vehicle,bus_trip.leaving_time,bus_trip.arrival_time,bus_trip.arrival_at_transfer,bus_trip.departure_at_transfer))
+                    vehicle_id = trip_handler.request_assignment[request_id]
+                    assignment_file.write('{0},{1}\n'.format(request_id,vehicle_id))
                 else:
                     assignment_file.write('{0}\n'.format(request_id))
 
