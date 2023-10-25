@@ -10,7 +10,7 @@ from handlers.output_handler import OutputHandler
 import argparse
 import pickle 
 
-IPM_SOLVER_TIMEOUT = 1200
+SOLVER_TIMEOUT = 120
 PENALTY = 1000000 # penalty for not serving a trip
 SHAREABLE_COST_FACTOR = 1
 MAX_CARDINALITY = 2
@@ -20,6 +20,7 @@ BUS_CAPACITY = 50
 MAX_WAITING = 1800
 MAX_DETOUR = 1800
 RH_FACTOR = 0
+REBALANCING = False
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Simulator arguments')
@@ -84,7 +85,7 @@ if __name__=="__main__":
         if len(batch) + len(active_requests) > 0 :
             for req_id in active_requests:
                 batch.append(active_requests[req_id])
-            trip_handler = TripHandler(end_time,vehicle_handler.vehicles,batch, active_requests, iteration, IPM_SOLVER_TIMEOUT,PENALTY,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR)
+            trip_handler = TripHandler(end_time,vehicle_handler.vehicles,batch, active_requests, iteration, SOLVER_TIMEOUT,PENALTY,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR,REBALANCING)
             output_handler.record_output(end_time,batch,trip_handler,time.time()-iteration_exe_start_time)
 
             active_requests = {}
@@ -97,8 +98,6 @@ if __name__=="__main__":
             for vehicle_id in trip_handler.vehicle_assignment:
                 vehicle = vehicle_handler.vehicles[vehicle_id]
                 trips = trip_handler.vehicle_assignment[vehicle_id]
-                for trip in trips:
-                    print("Assignment: ", vehicle_id,trip.origin,trip.destination,trip.request_id)
                 VehicleHandler.add_new_trips(end_time, vehicle, trips, add=True)
 
             rebalancing_trip_info = []

@@ -45,6 +45,7 @@ class RequestHandler:
             requests.append(t_req)
             
         self.requests = pd.DataFrame(requests).sort_values(by = [PICKUP_TIME])
+        self.requests.drop_duplicates(subset=ID, keep="first")
         # with ThreadPool(10) as pool:
         #     for index,_ in self.requests.iterrows():
         #         pool.apply_async(self.update_request_location,args=(index,))
@@ -115,6 +116,13 @@ class RequestHandler:
             request = self.get_request(row)
             if request.pick_up_time > horizen_end_time or request.pick_up_time < end_time:
                 break
+            batch.append(request)
+        return batch
+
+    def get_all_requests(self):
+        batch = []
+        for _, row in self.requests.iterrows():
+            request = self.get_request(row)
             batch.append(request)
         return batch
     

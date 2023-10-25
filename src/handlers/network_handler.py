@@ -83,3 +83,6 @@ class NetworkHandler:
         index1 = node_indices[(node1.lon,node1.lat)]
         index2 = node_indices[(node2.lon,node2.lat)]
         return matrix[index1,index2]
+
+    def manifest_location(stop):
+        return Node(stop["loc"]["lat"],stop["loc"]["lon"])

@@ -4,7 +4,6 @@ from structure.trip_cost import TripCost
 from handlers.vehicle_handler import VehicleHandler
 from handlers.network_handler import NetworkHandler
 import numpy as np
-import mosek
 import logging
 import itertools
 import multiprocessing as mp
@@ -12,14 +11,13 @@ from datetime import timedelta
 import gurobipy as gp
 from gurobipy import GRB
 import time
-from multiprocessing.pool import ThreadPool
 
 class TripHandler:
-    def __init__(self,current_time,vehicles,requests,active_requests,iteration,ipm_solver_timeout,penalty,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR):
+    def __init__(self,current_time,vehicles,requests,active_requests,iteration,solver_timeout,penalty,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR,REBALANCING):
         self.trips = []
         self.shared_trips_map = {}
         self.ondemand_only_trip_map = {}
-        self.ipm_solver_timeout = ipm_solver_timeout
+        self.solver_timeout = solver_timeout
         self.vehicle_to_trips_cost_map = {}
         self.trip_to_vehicle_cost_map = {}
         self.rebalancing_assignment = {}
@@ -29,7 +27,8 @@ class TripHandler:
         self.generate_shared_trips(current_time,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR)
         self.generate_trip_costs(vehicles,current_time,MAX_THREAD_CNT)
         self.assign_trips_gurobi(requests,active_requests,penalty,current_time)
-        self.get_rebalancing_trips(vehicles,requests)
+        if REBALANCING:
+            self.get_rebalancing_trips(vehicles,requests)
 
     def get_new_trip_no(self):
         return len(self.trips)
@@ -56,6 +55,15 @@ class TripHandler:
         cost = self.get_trip_cost(origin,destination)
         return Trip(request.id,trip_no,am_capacity, wc_capacity, pick_up_time, latest_pick_up_time, earliest_arrival_time,latest_arrival_time, origin, destination,cost,dwell_pickup, dwell_alight, iteration, bus_combination=bus_combination,first_last_mile_type=first_last_mile_type)
     
+    def create_trip_for_picked_requests(boarded_requests,iteration):
+        trip_no = 0
+        boarded_trips = []
+        for request_id in boarded_requests:
+            request = boarded_requests[request_id]
+            boarded_trips.append(Trip(request_id,trip_no,request.am_capacity, request.wc_capacity, request.pick_up_time, request.latest_pick_up_time, request.earliest_arrival_time,request.latest_arrival_time, request.origin, request.destination,None,request.dwell_pickup, request.dwell_alight, iteration))
+            trip_no+=1
+        return boarded_trips
+
     def get_first_mile_trip(self,request,bustrip):
         origin = request.origin
         destination = bustrip.pick_up_stop_node
@@ -187,8 +195,8 @@ class TripHandler:
                 pool.close()
                 pool.join()
             self.update_shared_trip_numbers(cardinality)
-            print("time to generate cardinal {0} trips: {1}".format(cardinality,st-time.time()))
-            print("Number of cardinal {0} trips: {1}".format(cardinality,len(self.shared_trips_map[cardinality])))
+            logging.debug("time to generate cardinal {0} trips: {1}".format(cardinality,time.time()-st))
+            logging.debug("Number of cardinal {0} trips: {1}".format(cardinality,len(self.shared_trips_map[cardinality])))
             cardinality+=1
     
     def log_with_timestamp(self,timestamp,message):
@@ -204,82 +212,87 @@ class TripHandler:
         request_count = len(requests)
 
         logging.debug("Started building optimization problem")
-        m = gp.Model('VRP')
-        var_type = GRB.BINARY
-        trip_costs = np.zeros(trip_count)
-        for i in range(trip_count):
-            trip_costs[i] = TripHandler.trip_costs[i].cost
-        x_t = m.addVars(trip_count,lb=0,ub=1,obj=trip_costs,name="t", vtype=var_type)
+        with gp.Env(empty=True) as env:
+            env.setParam('OutputFlag', 0)
+            env.start()
+            m = gp.Model('RTV assignment',env=env)
+            var_type = GRB.BINARY
+            trip_costs = np.zeros(trip_count)
+            for i in range(trip_count):
+                trip_costs[i] = TripHandler.trip_costs[i].cost
+            x_t = m.addVars(trip_count,lb=0,ub=1,obj=trip_costs,name="t", vtype=var_type)
 
-        penalties = np.ones(request_count)
-        request_no = 0
-        for request in requests:
-            if request.id in active_requests:
-                penalties[request_no] = 100
-            request_no+=1
-        x_r = m.addVars(request_count,lb=0,ub=1,obj=penalties*penalty,name="r", vtype=var_type)
-
-        m.addConstrs((gp.quicksum(x_t[i] for i in self.vehicle_to_trips_cost_map[vehicle_id]) <= 1 for vehicle_id in list(self.vehicle_to_trips_cost_map.keys())), "veh")
-
-        request_no = 0
-        for request in requests:
-            trip_no = self.ondemand_only_trip_map[request.id]
-            cost_map_indices = self.trip_to_vehicle_cost_map[trip_no]
-
-            m.addConstr(x_r[request_no]+gp.quicksum(x_t[i] for i in cost_map_indices) == 1,"req_{0}".format(request.id))
-            
-            # all the previously assigned requests should be picked up
-            # if request.id in active_requests:
-            #     m.addConstr(x_r[request_no] == 0,"active_req_{0}".format(request.id))
-            request_no+=1
-
-        m.optimize()
-
-        self.trip_sizes = []
-        self.unassigned_trip_count = 0
-        self.taxi_only_trip_count = 0
-        self.with_one_bus_trip_count = 0
-        self.with_two_bus_trip_count = 0
-        self.added_distance = 0
-
-        if m.Status == GRB.OPTIMAL:
-            self.log_with_timestamp(current_time,"Total time spent on optimization: {0}".format(m.Runtime))
-
-
-            for vehicle_id in self.vehicle_to_trips_cost_map:
-                for i in self.vehicle_to_trips_cost_map[vehicle_id]:
-                    if x_t[i].X == 1:
-                        trip_cost = TripHandler.trip_costs[i]
-                        self.added_distance+=trip_cost.cost
-                        trip_no = trip_cost.trip_no
-                        trip = self.trips[trip_no]
-                        trips = []
-                        if isinstance(trip,Trip):
-                            trips.append(trip)
-                        else:
-                            for sub_trip_no in trip.trips:
-                                trips.append(self.trips[sub_trip_no])
-                        self.trip_sizes.append(len(trips))
-                        self.vehicle_assignment[vehicle_id] = trips
-
+            penalties = np.ones(request_count)
+            request_no = 0
             for request in requests:
-                found_assignment = False
+                if request.id in active_requests:
+                    penalties[request_no] = 100
+                request_no+=1
+            x_r = m.addVars(request_count,lb=0,ub=1,obj=penalties*penalty,name="r", vtype=var_type)
+
+            m.addConstrs((gp.quicksum(x_t[i] for i in self.vehicle_to_trips_cost_map[vehicle_id]) <= 1 for vehicle_id in list(self.vehicle_to_trips_cost_map.keys())), "veh")
+
+            request_no = 0
+            for request in requests:
                 trip_no = self.ondemand_only_trip_map[request.id]
                 cost_map_indices = self.trip_to_vehicle_cost_map[trip_no]
-                for index in cost_map_indices:
-                    if x_t[index].X == 1:
-                        trip_cost = TripHandler.trip_costs[index]
-                        vehicle_id = trip_cost.vehicle_id
-                        self.request_assignment[request.id] = vehicle_id
-                        found_assignment = True
-                        self.taxi_only_trip_count+=1
-                        break
 
-                if not found_assignment:
-                    self.unassigned_trip_count+=1
-        else:
-            self.unassigned_trip_count = request_count
-        logging.info('{0}: No of requests: {1}, unassigned requests: {2}, taxi only requests: {3}, requests served by busses: {4}'.format(current_time,request_count,self.unassigned_trip_count,self.taxi_only_trip_count,self.with_one_bus_trip_count+self.with_two_bus_trip_count))
+                m.addConstr(x_r[request_no]+gp.quicksum(x_t[i] for i in cost_map_indices) == 1,"req_{0}".format(request.id))
+                
+                # all the previously assigned requests should be picked up
+                # if request.id in active_requests:
+                #     m.addConstr(x_r[request_no] == 0,"active_req_{0}".format(request.id))
+                request_no+=1
+
+            m.setParam('TimeLimit', self.solver_timeout)
+            m.optimize()
+
+            self.trip_sizes = []
+            self.unassigned_trip_count = 0
+            self.taxi_only_trip_count = 0
+            self.with_one_bus_trip_count = 0
+            self.with_two_bus_trip_count = 0
+            self.added_distance = 0
+
+            if m.Status == GRB.OPTIMAL or m.Status == GRB.SUBOPTIMAL:
+                self.log_with_timestamp(current_time,"Total time spent on optimization: {0}".format(m.Runtime))
+
+
+                for vehicle_id in self.vehicle_to_trips_cost_map:
+                    for i in self.vehicle_to_trips_cost_map[vehicle_id]:
+                        if x_t[i].X == 1:
+                            trip_cost = TripHandler.trip_costs[i]
+                            self.added_distance+=trip_cost.cost
+                            trip_no = trip_cost.trip_no
+                            trip = self.trips[trip_no]
+                            trips = []
+                            if isinstance(trip,Trip):
+                                trips.append(trip)
+                            else:
+                                for sub_trip_no in trip.trips:
+                                    trips.append(self.trips[sub_trip_no])
+                            self.trip_sizes.append(len(trips))
+                            self.vehicle_assignment[vehicle_id] = trips
+
+                for request in requests:
+                    found_assignment = False
+                    trip_no = self.ondemand_only_trip_map[request.id]
+                    cost_map_indices = self.trip_to_vehicle_cost_map[trip_no]
+                    for index in cost_map_indices:
+                        if x_t[index].X == 1:
+                            trip_cost = TripHandler.trip_costs[index]
+                            vehicle_id = trip_cost.vehicle_id
+                            self.request_assignment[request.id] = vehicle_id
+                            found_assignment = True
+                            self.taxi_only_trip_count+=1
+                            break
+
+                    if not found_assignment:
+                        self.unassigned_trip_count+=1
+            else:
+                self.unassigned_trip_count = request_count
+                raise Exception("Gurobi solver ended with code: {0}".format(m.Status))
+            logging.info('{0}: No of requests: {1}, unassigned requests: {2}, assigned requests: {3}'.format(current_time,request_count,self.unassigned_trip_count,self.taxi_only_trip_count))
 
     def get_rebalancing_trips(self,vehicles,requests):
         empty_vehicles = []
