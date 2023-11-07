@@ -225,6 +225,7 @@ class TripHandler:
             penalties = np.ones(request_count)
             request_no = 0
             for request in requests:
+                penalties[request_no] = request.priority
                 if request.id in active_requests:
                     penalties[request_no] = 100
                 request_no+=1

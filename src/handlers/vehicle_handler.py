@@ -19,7 +19,7 @@ TYPE_DROP_OFF = 1
 class VehicleHandler:
     MAX_AM_CAPACITY = 0
     MAX_VC_CAPACITY = 0
-    LARGEST_TSP = 8
+    LARGEST_TSP = 10
     def __init__(self, payload, output_directory, starting_date):
         self.vehicles = {}
         self.count = 0
@@ -39,9 +39,8 @@ class VehicleHandler:
         return snapshot
 
     def load_vehicles(self, payload, starting_date):
-        depot = payload['depot']['pt']
-        nearest_lat,nearest_lon = NetworkHandler.get_nearest_node(float(depot['lat']),float(depot['lon']))
-        start_loc = Node(nearest_lat,nearest_lon)
+        # nearest_lat,nearest_lon = NetworkHandler.get_nearest_node(float(depot['lat']),float(depot['lon']))
+        start_loc = NetworkHandler.manifest_location(payload['depot']['loc'])
         for driver_run in payload['driver_runs']:
             vehicle_data = driver_run
             if "state" in vehicle_data:
@@ -100,8 +99,10 @@ class VehicleHandler:
                 dwell = trip.dwell_pickup
             current_order+=1
             stop_time = time_at_last_node + VehicleHandler.get_time_delta(NetworkHandler.travel_time(last_node,node))
+            if stop_time <= time_window_start:
+                stop_time = time_window_start
             stop = {'run_id': vehicle.id, 'booking_id': trip.request_id, 'order': current_order, 'action': action, 
-                        "loc": {'lat': node.lat, 'lon': node.lon}, 'scheduled_time': VehicleHandler.get_seconds_from_start(starting_date,stop_time), 
+                        "loc": {'lat': node.lat, 'lon': node.lon, 'node_id': node.id}, 'scheduled_time': VehicleHandler.get_seconds_from_start(starting_date,stop_time), 
                         'am': trip.am_capacity, 'wc': trip.wc_capacity, 'time_window_start': VehicleHandler.get_seconds_from_start(starting_date,time_window_start), 
                         'time_window_end': VehicleHandler.get_seconds_from_start(starting_date,time_window_end)}
             last_node, time_at_last_node = node, stop_time + VehicleHandler.get_time_delta(dwell)
@@ -109,59 +110,51 @@ class VehicleHandler:
         return manifest
 
     def add_manifest_to_vehicle(self,current_time, starting_date, vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup):
-        if current_time >= vehicle.start_time:
-            if not vehicle.started:
-                vehicle.started = True
         state = driver_run['state']
-        locations_already_serviced = state["locations_already_serviced"]
         manifest = driver_run["manifest"]
         vehicle.am_capacity -= state["am_onboard"]
         vehicle.wc_capacity -= state["wc_onboard"]
 
+        vehicle.started = True
         time_at_next_immediate_node,next_immediate_node = vehicle.start_time, vehicle.depot
-        if len(manifest) > 0:
-            last_stop = manifest[locations_already_serviced-1]
-            last_node = NetworkHandler.manifest_location(last_stop)
-            dwell = dwell_alight
-            if last_stop["action"] == "pickup":
-                dwell = dwell_pickup
-            time_at_last = VehicleHandler.get_time_from_start(starting_date,last_stop['scheduled_time']+dwell)
-            time_at_next_immediate_node,next_immediate_node = time_at_last,last_node
-            if locations_already_serviced < len(manifest):
-                next_stop = manifest[locations_already_serviced]
-                next_node = NetworkHandler.manifest_location(next_stop)
-                dwell = dwell_alight
-                if next_stop["action"] == "pickup":
-                    dwell = dwell_pickup
-                time_at_next_immediate_node,next_immediate_node = VehicleHandler.get_time_from_start(starting_date,next_stop['scheduled_time']+dwell),next_node
-                if next_stop['action'] == "pickup":
-                    vehicle.am_capacity -= next_stop["am"]
-                    vehicle.wc_capacity -= next_stop["wc"]
-                else:
-                    vehicle.am_capacity += next_stop["am"]
-                    vehicle.wc_capacity += next_stop["wc"]
-                
-                # Adding existing route to the vehicle
-                filtered_manifest = []
-                for stop in manifest:
-                    booking_id = stop['booking_id']
-                    if booking_id in boarded_requests and stop['action']=="dropoff":
-                        filtered_manifest.append(stop)
+        if current_time >= vehicle.start_time:
+            time_at_next_immediate_node,next_immediate_node = current_time, NetworkHandler.manifest_location(state['loc'])
 
-                for stop in filtered_manifest:
-                    trip_of_stop = None
-                    for trip in boarded_trips:
-                        if trip.request_id == booking_id:
-                            trip_of_stop = trip
-                            break
-                    vehicle.trips[trip_of_stop.id] = trip_of_stop
-                    vehicle.picked.append(trip_of_stop.id)
-                    vehicle_stop = VehicleStop(trip_of_stop.id, trip_of_stop.destination, TYPE_DROP_OFF, trip_of_stop.dwell_alight)
-                    vehicle.stop_sequence.append(vehicle_stop)
-            elif time_at_last <= current_time:
-                time_at_next_immediate_node = current_time
-        elif vehicle.started:
-            time_at_next_immediate_node = current_time
+        if len(manifest) > 0:
+            next_stop = manifest[0]
+            next_node = NetworkHandler.manifest_location(next_stop['loc'])
+            dwell = dwell_alight
+            if next_stop["action"] == "pickup":
+                dwell = dwell_pickup
+            time_at_next_stop = next_stop['scheduled_time']
+            time_window_start = next_stop["time_window_start"]
+            if time_at_next_stop <= time_window_start:
+                time_at_next_stop = time_window_start
+            time_at_next_immediate_node,next_immediate_node = VehicleHandler.get_time_from_start(starting_date,time_at_next_stop+dwell),next_node
+            if next_stop['action'] == "pickup":
+                vehicle.am_capacity -= next_stop["am"]
+                vehicle.wc_capacity -= next_stop["wc"]
+            else:
+                vehicle.am_capacity += next_stop["am"]
+                vehicle.wc_capacity += next_stop["wc"]
+            
+            # Adding existing route to the vehicle
+            filtered_manifest = []
+            for stop in manifest[1:]:
+                booking_id = stop['booking_id']
+                if booking_id in boarded_requests and stop['action']=="dropoff":
+                    filtered_manifest.append(stop)
+
+            for stop in filtered_manifest:
+                trip_of_stop = None
+                for trip in boarded_trips:
+                    if trip.request_id == stop['booking_id']:
+                        trip_of_stop = trip
+                        break
+                vehicle.trips[trip_of_stop.id] = trip_of_stop
+                vehicle.picked.append(trip_of_stop.id)
+                vehicle_stop = VehicleStop(trip_of_stop.id, trip_of_stop.destination, TYPE_DROP_OFF, trip_of_stop.dwell_alight)
+                vehicle.stop_sequence.append(vehicle_stop)
 
         vehicle.next_immediate_node = next_immediate_node
         vehicle.time_at_next_immediate_node = time_at_next_immediate_node

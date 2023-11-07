@@ -3,15 +3,26 @@ import requests
 from datetime import timedelta
 import time
 import numpy as np
+from multiprocessing.sharedctypes import RawArray, RawValue
+import ctypes
 
 class NetworkHandler:
-    def init(server_url):
-        global routing_url,nearest_url,session,table_url
-        routing_url = server_url+'route/v1/driving/'
-        nearest_url = server_url+'nearest/v1/driving/'
-        table_url = server_url+'table/v1/driving/'
-        session = requests.Session()
-        return routing_url,nearest_url,session,table_url
+    def init(server_based,server_url=None,payload=None):
+        global SERVER_BASED
+        SERVER_BASED = RawValue(ctypes.c_bool, server_based)
+        if server_based:
+            global routing_url,nearest_url,session,table_url
+            routing_url = server_url+'route/v1/driving/'
+            nearest_url = server_url+'nearest/v1/driving/'
+            table_url = server_url+'table/v1/driving/'
+            session = requests.Session()
+            return routing_url,nearest_url,session,table_url,SERVER_BASED
+        else:
+            global travel_time_matrix,no_of_nodes
+            travel_time_matrix = np.array(payload["time_matrix"])
+            no_of_nodes = RawValue(ctypes.c_uint, travel_time_matrix.shape[0])
+            travel_time_matrix = RawArray(np.ctypeslib.as_ctypes_type(travel_time_matrix.dtype), travel_time_matrix.flatten())
+            return travel_time_matrix,no_of_nodes,SERVER_BASED
     
     def get_response(url):
         global session
@@ -34,14 +45,21 @@ class NetworkHandler:
     def get_detailed_route_reponse(source,dest):
         url="{0}{1},{2};{3},{4}?steps=true&geometries=geojson".format(routing_url,source.lon,source.lat,dest.lon,dest.lat)
         return NetworkHandler.get_response(url)
+    
+    def get_location(source,destination):
+        return source.id*no_of_nodes.value+destination.id
 
     def travel_time(source,destination):
-        response = NetworkHandler.get_simple_route_reponse(source,destination)
-        return response['routes'][0]['duration']
+        if SERVER_BASED:
+            response = NetworkHandler.get_simple_route_reponse(source,destination)
+            return response['routes'][0]['duration']
+        return travel_time_matrix[NetworkHandler.get_location(source,destination)]
 
     def travel_distance(source,destination):
-        response = NetworkHandler.get_simple_route_reponse(source,destination)
-        return response['routes'][0]['distance']    
+        if SERVER_BASED:
+            response = NetworkHandler.get_simple_route_reponse(source,destination)
+            return response['routes'][0]['distance']
+        return travel_time_matrix[NetworkHandler.get_location(source,destination)]
 
     def get_current_location_time(source,destination,starting_time,current_time):
         response = NetworkHandler.get_detailed_route_reponse(source,destination)
@@ -67,22 +85,26 @@ class NetworkHandler:
         return False
 
     def get_travel_time_matrix(nodes):
-        coordinates = []
-        node_indices = {}
-        index = 0
-        for node in nodes:
-            coordinate = "{0},{1}".format(node.lon,node.lat)
-            coordinates.append(coordinate)
-            node_indices[(node.lon,node.lat)] = index
-            index+=1
-        url="{0}{1}".format(table_url,";".join(coordinates))
-        data = NetworkHandler.get_response(url)
-        return np.array(data['durations']),node_indices
+        if SERVER_BASED:
+            coordinates = []
+            node_indices = {}
+            index = 0
+            for node in nodes:
+                coordinate = "{0},{1}".format(node.lon,node.lat)
+                coordinates.append(coordinate)
+                node_indices[(node.lon,node.lat)] = index
+                index+=1
+            url="{0}{1}".format(table_url,";".join(coordinates))
+            data = NetworkHandler.get_response(url)
+            return np.array(data['durations']),node_indices
+        return None,None
 
     def travel_time_from_matrix(node1,node2,matrix,node_indices):
-        index1 = node_indices[(node1.lon,node1.lat)]
-        index2 = node_indices[(node2.lon,node2.lat)]
-        return matrix[index1,index2]
+        if SERVER_BASED:
+            index1 = node_indices[(node1.lon,node1.lat)]
+            index2 = node_indices[(node2.lon,node2.lat)]
+            return matrix[index1,index2]
+        return NetworkHandler.travel_time(node1,node2)
 
-    def manifest_location(stop):
-        return Node(stop["loc"]["lat"],stop["loc"]["lon"])
+    def manifest_location(location):
+        return Node(location["lat"],location["lon"],location['node_id'])

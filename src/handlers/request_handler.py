@@ -19,6 +19,8 @@ DWELL_ALIGHT = 'dwell_alight'
 PICKUP_WINDOW_END = 'pickup_time_window_end'
 ARRIVAL_WINDOW_START = 'dropoff_time_window_start'
 ARRIVAL_WINDOW_END = 'dropoff_time_window_end'
+PICKUP_NODE_ID = 'pickup_node_id'
+DROPOFF_NODE_ID = 'dropoff_node_id'
 
 class RequestHandler:
     def __init__(self, payload, starting_date, dwell_pickup, dwell_alight):
@@ -30,8 +32,12 @@ class RequestHandler:
             dropoff_time_window_end = starting_date + timedelta(seconds=int(req[ARRIVAL_WINDOW_END]))
             origin = req['pickup_pt']
             dest = req['dropoff_pt']
-            pick_up_lat,pick_up_lon = NetworkHandler.get_nearest_node(origin['lat'],origin['lon'])
-            drop_lat,drop_lon = NetworkHandler.get_nearest_node(dest['lat'],dest['lon'])
+            pick_up_lat,pick_up_lon = origin['lat'],origin['lon']
+            drop_lat,drop_lon = dest['lat'],dest['lon']
+            pickup_node_id = origin['node_id']
+            dropoff_node_id = dest['node_id']
+            # pick_up_lat,pick_up_lon = NetworkHandler.get_nearest_node(pick_up_lat,pick_up_lon)
+            # drop_lat,drop_lon = NetworkHandler.get_nearest_node(drop_lat,drop_lon)
             t_req = {'am':req['am'],'wc':req['wc'],ID:req['booking_id'],
                 PICKUP_LAT: pick_up_lat,PICKUP_LON: pick_up_lon,
                 DROPOFF_LAT: drop_lat,DROPOFF_LON: drop_lon,
@@ -40,7 +46,9 @@ class RequestHandler:
                 ARRIVAL_WINDOW_START: dropoff_time_window_start,
                 ARRIVAL_WINDOW_END: dropoff_time_window_end,
                 DWELL_PICKUP: dwell_pickup,
-                DWELL_ALIGHT: dwell_alight
+                DWELL_ALIGHT: dwell_alight,
+                PICKUP_NODE_ID: pickup_node_id,
+                DROPOFF_NODE_ID: dropoff_node_id
                 }
             requests.append(t_req)
             
@@ -77,8 +85,14 @@ class RequestHandler:
         return start_time
 
     def get_request(self,request_data):
-        origin = Node(request_data[PICKUP_LAT],request_data[PICKUP_LON])
-        destination = Node(request_data[DROPOFF_LAT],request_data[DROPOFF_LON])
+        pickup_node_id = None
+        dropoff_node_id = None
+        if PICKUP_NODE_ID in request_data:
+            pickup_node_id = request_data[PICKUP_NODE_ID]
+        if DROPOFF_NODE_ID in request_data:
+            dropoff_node_id = request_data[DROPOFF_NODE_ID]
+        origin = Node(request_data[PICKUP_LAT],request_data[PICKUP_LON],pickup_node_id)
+        destination = Node(request_data[DROPOFF_LAT],request_data[DROPOFF_LON],dropoff_node_id)
         id = request_data[ID]
         pick_up_time = request_data[PICKUP_TIME]
         latest_pick_up_time = request_data[PICKUP_WINDOW_END]
