@@ -1,3 +1,83 @@
+# Online-RTV
+
+## Code example
+
+```
+from online_rtv_solver import OnlineRTVSolver
+
+solver = OnlineRTVSolver()
+result = solver.solve_rtv(payload)
+```
+
+## Payload format
+
+### Common format
+```
+{
+    
+    'depot': {
+        'loc': {'lat': float, 'lon': float, 'node_id': int}
+    }, 
+    'date': 'yyyy-mm-dd', 
+    'driver_runs': [], 
+    'time_matrix': "nxn array", 
+    'manifests': []
+    
+}
+```
+
+
+### Running with a single new requests
+
+```
+{
+    
+    'pickup': {
+        'booking_id': int,
+        'action': 'pickup',
+        'am': int,
+        'wc': int,
+        'time_window_start': int,
+        'time_window_end': int,
+        'node_id': int,
+        'loc': {'lat': float, 'lon': float, 'node_id': int}
+    }, 
+    'dropoff': {
+        'booking_id': int,
+        'action': 'dropoff',
+        'am': int,
+        'wc': int,
+        'time_window_start': int,
+        'time_window_end': int,
+        'node_id': int,
+        'loc': {'lat': float, 'lon': float, 'node_id': int}
+    }, 
+    'booking_id': "booking id of new requests", 
+    
+}
+```
+
+### Running with a batch of requests
+
+```
+{
+    
+    'requests': [ {
+        'am': int,
+        'wc': int,
+        'pickup_time_window_start': int,
+        'pickup_time_window_end': int,
+        'pickup_pt': {'lat': float, 'lon': float, 'node_id': int},
+        'booking_id': int,
+        'dropoff_time_window_start': int,
+        'dropoff_time_window_end': int,
+        'dropoff_pt': {'lat': float, 'lon': float, 'node_id': int}
+    }] 
+    
+}
+```
+
+
 # rolling-horizen-RTV
 
 ## Running
