@@ -7,7 +7,7 @@ from multiprocessing.sharedctypes import RawArray, RawValue
 import ctypes
 
 class NetworkHandler:
-    def init(server_based,server_url=None,payload=None):
+    def init(server_based,server_url=None,tt_matrix=None):
         global SERVER_BASED
         SERVER_BASED = RawValue(ctypes.c_bool, server_based)
         if server_based:
@@ -19,7 +19,7 @@ class NetworkHandler:
             return routing_url,nearest_url,session,table_url,SERVER_BASED
         else:
             global travel_time_matrix,no_of_nodes
-            travel_time_matrix = np.array(payload["time_matrix"])
+            travel_time_matrix = np.array(tt_matrix)
             no_of_nodes = RawValue(ctypes.c_uint, travel_time_matrix.shape[0])
             travel_time_matrix = RawArray(np.ctypeslib.as_ctypes_type(travel_time_matrix.dtype), travel_time_matrix.flatten())
             return travel_time_matrix,no_of_nodes,SERVER_BASED

@@ -23,9 +23,9 @@ PICKUP_NODE_ID = 'pickup_node_id'
 DROPOFF_NODE_ID = 'dropoff_node_id'
 
 class RequestHandler:
-    def __init__(self, payload, starting_date, dwell_pickup, dwell_alight):
+    def __init__(self, request_data, starting_date, dwell_pickup, dwell_alight):
         requests = []
-        for req in payload['requests']:
+        for req in request_data:
             pickup_time_window_start = starting_date + timedelta(seconds=int(req[PICKUP_TIME]))
             pickup_time_window_end = starting_date + timedelta(seconds=int(req[PICKUP_WINDOW_END]))
             dropoff_time_window_start = starting_date + timedelta(seconds=int(req[ARRIVAL_WINDOW_START]))

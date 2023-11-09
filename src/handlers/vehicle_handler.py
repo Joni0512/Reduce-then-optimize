@@ -20,11 +20,11 @@ class VehicleHandler:
     MAX_AM_CAPACITY = 0
     MAX_VC_CAPACITY = 0
     LARGEST_TSP = 10
-    def __init__(self, payload, output_directory, starting_date):
+    def __init__(self, depot, driver_runs, output_directory, starting_date):
         self.vehicles = {}
         self.count = 0
         self.earliest_start_time = None
-        self.load_vehicles(payload, starting_date)
+        self.load_vehicles(depot, driver_runs, starting_date)
         self.output_directory = output_directory
         logging.info('Total No of vehicles: {0}'.format(self.count))
 
@@ -38,10 +38,10 @@ class VehicleHandler:
             snapshot = pickle.load(snapshot_file)
         return snapshot
 
-    def load_vehicles(self, payload, starting_date):
+    def load_vehicles(self, depot, driver_runs, starting_date):
         # nearest_lat,nearest_lon = NetworkHandler.get_nearest_node(float(depot['lat']),float(depot['lon']))
-        start_loc = NetworkHandler.manifest_location(payload['depot']['loc'])
-        for driver_run in payload['driver_runs']:
+        start_loc = depot
+        for driver_run in driver_runs:
             vehicle_data = driver_run
             if "state" in vehicle_data:
                 vehicle_data = driver_run["state"]
@@ -161,13 +161,14 @@ class VehicleHandler:
         vehicle.last_node = next_immediate_node
         vehicle.time_at_last = time_at_next_immediate_node
 
-    def add_manifest_to_vehicles(self,current_time,starting_date,payload,boarded_requests,boarded_trips,dwell_alight, dwell_pickup):
+    def add_manifest_to_vehicles(self,current_time,starting_date,driver_runs,boarded_requests,boarded_trips,dwell_alight, dwell_pickup):
         for vehicle_id in self.vehicles:
             vehicle = self.vehicles[vehicle_id]
             driver_run = None
-            for run in payload['driver_runs']:
+            for run in driver_runs:
                 if int(run['state']['run_id']) == vehicle_id:
                     driver_run = run
+                    break
             self.add_manifest_to_vehicle(current_time, starting_date, vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup)
 
     def simulate_vehicle(self,current_time, vehicle):

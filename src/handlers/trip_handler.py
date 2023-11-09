@@ -13,16 +13,18 @@ from gurobipy import GRB
 import time
 
 class TripHandler:
-    def __init__(self,current_time,vehicles,requests,active_requests,iteration,solver_timeout,penalty,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR,REBALANCING):
+    def __init__(self,current_time,vehicles,requests,active_requests,iteration,solver_timeout,penalty,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR,REBALANCING,rtv_timeout):
         self.trips = []
         self.shared_trips_map = {}
         self.ondemand_only_trip_map = {}
         self.solver_timeout = solver_timeout
+        self.rtv_timeout = rtv_timeout
         self.vehicle_to_trips_cost_map = {}
         self.trip_to_vehicle_cost_map = {}
         self.rebalancing_assignment = {}
         self.vehicle_assignment = {}
         self.request_assignment = {}
+        self.starting_time = time.time()
         self.generate_ondemand_only_trips(requests,current_time,iteration)
         self.generate_shared_trips(current_time,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR)
         self.generate_trip_costs(vehicles,current_time,MAX_THREAD_CNT)
@@ -32,6 +34,11 @@ class TripHandler:
 
     def get_new_trip_no(self):
         return len(self.trips)
+
+    def check_rtv_timeout(self):
+        time_spent = time.time()-self.starting_time
+        if time_spent > self.rtv_timeout:
+            raise Exception("RTV generation timedout: {0} > {1}".format(time_spent,self.rtv_timeout))
 
     def get_trip_cost(self,origin,destination):
         return NetworkHandler.travel_distance(origin,destination)
@@ -101,6 +108,7 @@ class TripHandler:
                     shared_trip = trip
                     for sub_trip_no in shared_trip.trips:
                         trips.append(self.trips[sub_trip_no])
+                self.check_rtv_timeout()
                 pool.apply_async(TripHandler.create_trip_cost, args=(vehicles[vehicle_id],current_time,trip.number,trips,), callback=TripHandler.process_result)
         pool.close()
         pool.join()
@@ -147,6 +155,7 @@ class TripHandler:
         cardinality = 2
         self.selected_combinations = []
         while cardinality <= max_cardinality:
+            self.check_rtv_timeout()
             TripHandler.shared_trips_to_create = []
             self.shared_trips_to_create = []
             st = time.time()
