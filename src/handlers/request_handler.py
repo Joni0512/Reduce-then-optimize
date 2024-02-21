@@ -34,8 +34,12 @@ class RequestHandler:
             dest = req['dropoff_pt']
             pick_up_lat,pick_up_lon = origin['lat'],origin['lon']
             drop_lat,drop_lon = dest['lat'],dest['lon']
-            pickup_node_id = origin['node_id']
-            dropoff_node_id = dest['node_id']
+            pickup_node_id = None
+            if 'node_id' in origin:
+                pickup_node_id = origin['node_id']
+            dropoff_node_id = None
+            if 'node_id' in dest:
+                dropoff_node_id = dest['node_id']
             # pick_up_lat,pick_up_lon = NetworkHandler.get_nearest_node(pick_up_lat,pick_up_lon)
             # drop_lat,drop_lon = NetworkHandler.get_nearest_node(drop_lat,drop_lon)
             t_req = {'am':req['am'],'wc':req['wc'],ID:req['booking_id'],

@@ -14,7 +14,7 @@ class PayloadParser:
     BOOKING_ID = "booking_id"
 
 
-    def get_payload_object(payload):
+    def get_payload_object(payload, online=True):
 
         travel_time_matrix = payload["time_matrix"]
         start_of_the_day = datetime.strptime(payload['date'], '%Y-%m-%d')
@@ -22,17 +22,18 @@ class PayloadParser:
         driver_runs = payload["driver_runs"]
 
         current_time = 3600*24
-        earliest_start_time = current_time
-        for driver_run in driver_runs:
-            state = driver_run[PayloadParser.DRIVER_STATE]
-            last_recorded_time = state['location_dt_seconds']
-            start_time = state['start_time']
-            earliest_start_time = min(earliest_start_time,start_time)
-            if last_recorded_time > start_time:
-                current_time = min(current_time,last_recorded_time)
-        if current_time == 3600*24:
-            current_time = earliest_start_time
-        current_time = start_of_the_day +timedelta(seconds=int(current_time))
+        if online:
+            earliest_start_time = current_time
+            for driver_run in driver_runs:
+                state = driver_run[PayloadParser.DRIVER_STATE]
+                last_recorded_time = state['location_dt_seconds']
+                start_time = state['start_time']
+                earliest_start_time = min(earliest_start_time,start_time)
+                if last_recorded_time > start_time:
+                    current_time = min(current_time,last_recorded_time)
+            if current_time == 3600*24:
+                current_time = earliest_start_time
+            current_time = start_of_the_day +timedelta(seconds=int(current_time))
 
 
         active_requests_data = {}
@@ -50,23 +51,24 @@ class PayloadParser:
         for driver_run in driver_runs:
             i = 0
             added_active_requests = []
-            driver_manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
-            while i < len(driver_manifest):
-                stop = driver_manifest[i]
-                booking_id = stop[PayloadParser.BOOKING_ID]
-                if stop[PayloadParser.MANIFEST_ACTION] == 'pickup':
-                    request = PayloadParser.build_request_from_driver_manifest(driver_manifest,i)
-                    if i == 0:
-                        boarded_requests_data[booking_id] = request
+            if PayloadParser.DRIVER_MANIFEST in driver_run:
+                driver_manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
+                while i < len(driver_manifest):
+                    stop = driver_manifest[i]
+                    booking_id = stop[PayloadParser.BOOKING_ID]
+                    if stop[PayloadParser.MANIFEST_ACTION] == 'pickup':
+                        request = PayloadParser.build_request_from_driver_manifest(driver_manifest,i)
+                        if i == 0:
+                            boarded_requests_data[booking_id] = request
+                        else:
+                            added_active_requests.append(booking_id)
+                            active_requests_data[booking_id] = request
                     else:
-                        added_active_requests.append(booking_id)
-                        active_requests_data[booking_id] = request
-                else:
-                    if booking_id not in active_requests_data:
-                        run_id = stop["run_id"]
-                        request = PayloadParser.build_request_from_manifest(manifest_sorted_by_vehicles[run_id],stop)
-                        boarded_requests_data[booking_id] = request
-                i+=1
+                        if booking_id not in active_requests_data:
+                            run_id = stop["run_id"]
+                            request = PayloadParser.build_request_from_manifest(manifest_sorted_by_vehicles[run_id],stop)
+                            boarded_requests_data[booking_id] = request
+                    i+=1
 
         requests = []
 
@@ -84,7 +86,11 @@ class PayloadParser:
             requests.append(boarded_requests_data[req_id])
         boarded_requests = list(boarded_requests_data.keys())
 
-        depot = NetworkHandler.manifest_location(payload['depot']['loc'])
+        depot = None
+        if 'loc' in payload['depot']:
+            depot = NetworkHandler.manifest_location(payload['depot']['loc'])
+        else:
+            depot = NetworkHandler.manifest_location(payload['depot']['pt'])
 
         return Payload(travel_time_matrix, start_of_the_day, current_time, requests, boarded_requests, active_requests, driver_runs, depot)
 

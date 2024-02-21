@@ -7,6 +7,7 @@ from handlers.network_handler import NetworkHandler
 from handlers.vehicle_handler import VehicleHandler
 from handlers.trip_handler import TripHandler
 from handlers.output_handler import OutputHandler
+from handlers.payload_parser import PayloadParser
 import argparse
 import pickle 
 
@@ -21,6 +22,7 @@ MAX_WAITING = 1800
 MAX_DETOUR = 1800
 RH_FACTOR = 0
 REBALANCING = False
+RTV_TIMEOUT = 3000
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Simulator arguments')
@@ -45,17 +47,20 @@ if __name__=="__main__":
     logging.basicConfig(filename=OUTPUT_DIR+'main.log', level=logging.INFO)
     logging.info('Starting the simulator with: Batch Interval {0}, RH FACTOR {1}'.format(BATCH_INTERVAL, RH_FACTOR))
     iteration = 0
-    NetworkHandler.init(args.server_url)
+    NetworkHandler.init(True,args.server_url)
 
     with open(args.input_file, 'rb') as f:
         payload = pickle.load(f)
     start_of_the_day = datetime.strptime(payload['date'], '%Y-%m-%d')
     dwell_pickup = 180
     dwell_alight = 60
-    request_handler = RequestHandler(payload, start_of_the_day, dwell_pickup, dwell_alight)
+
+    payload_object = PayloadParser.get_payload_object(payload,False)
+    start_of_the_day = payload_object.start_of_the_day
+    request_handler = RequestHandler(payload_object.requests, start_of_the_day, dwell_pickup, dwell_alight)
     starting_time = request_handler.earliest_start_time()
     latest_time = request_handler.latest_start_time()
-    vehicle_handler = VehicleHandler(payload,OUTPUT_DIR,start_of_the_day)
+    vehicle_handler = VehicleHandler(payload_object.depot, payload_object.driver_runs,OUTPUT_DIR,start_of_the_day)
     output_handler = OutputHandler(OUTPUT_DIR)
 
     active_requests = {}
@@ -85,7 +90,7 @@ if __name__=="__main__":
         if len(batch) + len(active_requests) > 0 :
             for req_id in active_requests:
                 batch.append(active_requests[req_id])
-            trip_handler = TripHandler(end_time,vehicle_handler.vehicles,batch, active_requests, iteration, SOLVER_TIMEOUT,PENALTY,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR,REBALANCING)
+            trip_handler = TripHandler(end_time,vehicle_handler.vehicles,batch, active_requests, iteration, SOLVER_TIMEOUT,PENALTY,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR,REBALANCING, RTV_TIMEOUT)
             output_handler.record_output(end_time,batch,trip_handler,time.time()-iteration_exe_start_time)
 
             active_requests = {}
