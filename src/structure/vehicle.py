@@ -16,7 +16,7 @@ class Vehicle:
         self.started = False
         self.rebalancing = False
         self.dwelling = False
-        self.final_stop_time = None
+        self.final_stop_time = start_time
 
     def __str__(self):
         return "{{Vehicle ID: {0}, capacity: {1}, last node: {2}, time at last: {3}}}".format(self.id, self.am_capacity+self.wc_capacity, self.last_node, self.time_at_last)
