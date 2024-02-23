@@ -21,7 +21,8 @@ result = solver.solve_rtv(payload)
     'date': 'yyyy-mm-dd', 
     'driver_runs': [], 
     'time_matrix': "nxn array", 
-    'manifests': []
+    'manifests': [],
+    'current_time': int
     
 }
 ```

@@ -24,7 +24,6 @@ class OnlineRTVSolver:
         NetworkHandler.init(False,tt_matrix=payload_object.travel_time_matrix)
 
         start_of_the_day = payload_object.start_of_the_day
-        current_time = payload_object.current_time
 
         request_handler = RequestHandler(payload_object.requests, start_of_the_day, self.DWELL_PICKUP, self.DWELL_ALIGHT)
         temp_batch = request_handler.get_all_requests()

@@ -12,6 +12,7 @@ class PayloadParser:
     DRIVER_MANIFEST = "manifest"
     MANIFEST_ACTION = "action"
     BOOKING_ID = "booking_id"
+    CURRENT_TIME = "current_time"
 
 
     def get_payload_object(payload, online=True):
@@ -23,16 +24,19 @@ class PayloadParser:
 
         current_time = 3600*24
         if online:
-            earliest_start_time = current_time
-            for driver_run in driver_runs:
-                state = driver_run[PayloadParser.DRIVER_STATE]
-                last_recorded_time = state['location_dt_seconds']
-                start_time = state['start_time']
-                earliest_start_time = min(earliest_start_time,start_time)
-                if last_recorded_time > start_time:
-                    current_time = min(current_time,last_recorded_time)
-            if current_time == 3600*24:
-                current_time = earliest_start_time
+            if PayloadParser.CURRENT_TIME in payload:
+                current_time = payload[PayloadParser.CURRENT_TIME]
+            else:
+                earliest_start_time = current_time
+                for driver_run in driver_runs:
+                    state = driver_run[PayloadParser.DRIVER_STATE]
+                    last_recorded_time = state['location_dt_seconds']
+                    start_time = state['start_time']
+                    earliest_start_time = min(earliest_start_time,start_time)
+                    if last_recorded_time > start_time:
+                        current_time = min(current_time,last_recorded_time)
+                if current_time == 3600*24:
+                    current_time = earliest_start_time
             current_time = start_of_the_day +timedelta(seconds=int(current_time))
 
 
