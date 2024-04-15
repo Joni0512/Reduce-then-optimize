@@ -6,17 +6,18 @@ from handlers.payload_parser import PayloadParser
 
 class OnlineRTVSolver:
 
-    def __init__(self):
+    def __init__(self,SHAREABLE_COST_FACTOR=1.5,RTV_TIMEOUT=30, LARGEST_TSP = 10):
         self.ILP_SOLVER_TIMEOUT = 10 # seconds
-        self.RTV_TIMEOUT = 50 #seconds
+        self.RTV_TIMEOUT = RTV_TIMEOUT #seconds
         self.PENALTY = 1000000 # penalty for not serving a trip
-        self.SHAREABLE_COST_FACTOR = 1
-        self.MAX_CARDINALITY = 8
+        self.SHAREABLE_COST_FACTOR = SHAREABLE_COST_FACTOR
+        self.MAX_CARDINALITY = 10
         self.MAX_THREAD_CNT = 500
         self.REBALANCING = False
         self.RH_FACTOR = 0
         self.DWELL_PICKUP = 180
         self.DWELL_ALIGHT = 60
+        self.LARGEST_TSP = LARGEST_TSP
             
     def solve_rtv(self, payload):
         payload_object = PayloadParser.get_payload_object(payload)
@@ -43,7 +44,7 @@ class OnlineRTVSolver:
         iteration = 0
         boarded_trips = TripHandler.create_trip_for_picked_requests(boarded_requests,iteration)
 
-        vehicle_handler = VehicleHandler(payload_object.depot, payload_object.driver_runs,None,start_of_the_day)
+        vehicle_handler = VehicleHandler(payload_object.depot, payload_object.driver_runs,None,start_of_the_day,LARGEST_TSP=self.LARGEST_TSP)
         vehicle_handler.add_manifest_to_vehicles(current_time,start_of_the_day,payload_object.driver_runs,boarded_requests,boarded_trips,self.DWELL_ALIGHT, self.DWELL_PICKUP)
 
         iteration+=1

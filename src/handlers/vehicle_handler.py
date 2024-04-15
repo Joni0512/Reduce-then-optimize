@@ -20,12 +20,13 @@ class VehicleHandler:
     MAX_AM_CAPACITY = 0
     MAX_VC_CAPACITY = 0
     LARGEST_TSP = 10
-    def __init__(self, depot, driver_runs, output_directory, starting_date):
+    def __init__(self, depot, driver_runs, output_directory, starting_date, LARGEST_TSP=10):
         self.vehicles = {}
         self.count = 0
         self.earliest_start_time = None
         self.load_vehicles(depot, driver_runs, starting_date)
         self.output_directory = output_directory
+        VehicleHandler.LARGEST_TSP = LARGEST_TSP
         logging.info('Total No of vehicles: {0}'.format(self.count))
 
     def save_snapshot(self):
