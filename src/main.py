@@ -80,6 +80,11 @@ if __name__=="__main__":
             if requests.id not in active_requests:
                 batch.append(requests)
         completed_stops, picked_requests, completed_requests = vehicle_handler.simulate_vehicles(end_time)
+        for stop in completed_stops:
+            for driver_run in payload["driver_runs"]:
+                if driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_RUN_ID] == stop.vehicle_id:
+                    driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_LOC_SERV] += 1
+                    break
         for req_id in picked_requests:
             boarded_requests[req_id] = active_requests[req_id]
             active_requests.pop(req_id)
@@ -114,4 +119,16 @@ if __name__=="__main__":
             output_handler.record_rebalancing_trips(rebalancing_trip_info,end_time)
         starting_time = end_time
         iteration+=1
+
+        # create updated driver runs
+        updated_driver_runs = []
+        for driver_run in payload["driver_runs"]:
+            new_driver_run = vehicle_handler.get_state(driver_run,start_of_the_day)
+            updated_driver_runs.append(new_driver_run)
+        
+        payload["driver_runs"] = updated_driver_runs
+
+        formatted_end_time = end_time.strftime('%H%M%S')
+        with open(OUTPUT_DIR+'manifests/state_{0}.pkl'.format(formatted_end_time), 'wb') as file:
+            pickle.dump(payload, file)
     request_handler.requests.to_csv(output_handler.output_directory+"requests.csv",index=False)

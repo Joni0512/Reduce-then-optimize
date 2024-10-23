@@ -4,6 +4,7 @@ from structure.vehicle import Vehicle
 from structure.vehicle_stop import VehicleStop
 from structure.node import Node
 from handlers.network_handler import NetworkHandler
+from handlers.payload_parser import PayloadParser
 from datetime import datetime
 from datetime import timedelta
 import pickle
@@ -82,10 +83,30 @@ class VehicleHandler:
     
     def get_seconds_from_start(starting_date,time_obj):
         return (time_obj-starting_date).seconds
+
+    def get_current_location_time(vehicle):
+        next_immediate_node = vehicle.last_node
+        time_at_next_immediate_node = vehicle.time_at_last
+        if len(vehicle.stop_sequence)>0:
+            time_at_next_immediate_node = vehicle.time_at_next_immediate_node
+            next_immediate_node = vehicle.next_immediate_node
+        return next_immediate_node,time_at_next_immediate_node
+
+    def get_state(self,driver_run,start_of_the_day):
+        new_state = driver_run[PayloadParser.DRIVER_STATE]
+        current_order = new_state[PayloadParser.DRIVER_STATE_LOC_SERV]
+        manifest = driver_run[PayloadParser.DRIVER_MANIFEST][:current_order]
+        vehicle = self.vehicles[new_state[PayloadParser.DRIVER_STATE_RUN_ID]]
+        next_immediate_node,time_at_next_immediate_node = VehicleHandler.get_current_location_time(vehicle)
+        new_state[PayloadParser.DRIVER_STATE_LOC] = {"lat":next_immediate_node.lat,"lon":next_immediate_node.lon}
+        new_state[PayloadParser.DRIVER_STATE_DT_SEC] = VehicleHandler.get_seconds_from_start(start_of_the_day,time_at_next_immediate_node)
+        manifest.extend(VehicleHandler.get_manifest(vehicle,current_order,start_of_the_day))
+        new_driver_run = {PayloadParser.DRIVER_STATE:new_state,PayloadParser.DRIVER_MANIFEST:manifest}
+        return new_driver_run
     
     def get_manifest(vehicle,current_order,starting_date):
         manifest = []
-        last_node, time_at_last_node = vehicle.next_immediate_node, vehicle.time_at_next_immediate_node
+        last_node, time_at_last_node = VehicleHandler.get_current_location_time(vehicle)
         for vehicle_stop in vehicle.stop_sequence:
             trip = vehicle.trips[vehicle_stop.trip_id]
             node = vehicle_stop.node
@@ -110,38 +131,28 @@ class VehicleHandler:
             manifest.append(stop)
         return manifest
 
-    def add_manifest_to_vehicle(self,current_time, starting_date, vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup):
+    def add_manifest_to_vehicle(self, starting_date, vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup):
         state = driver_run['state']
-        manifest = driver_run["manifest"]
-        vehicle.am_capacity -= state["am_onboard"]
-        vehicle.wc_capacity -= state["wc_onboard"]
-
+        current_order = state['locations_already_serviced']
         vehicle.started = True
-        time_at_next_immediate_node,next_immediate_node = vehicle.start_time, vehicle.depot
-        if current_time >= vehicle.start_time:
-            time_at_next_immediate_node,next_immediate_node = current_time, NetworkHandler.manifest_location(state['loc'])
+        time_at_next_immediate_node = starting_date + VehicleHandler.get_time_delta(state["location_dt_seconds"])
+        next_immediate_node = NetworkHandler.manifest_location(state['loc'],node_id=NetworkHandler.get_next_node_id(state['loc']['lat'],state['loc']['lon']))
 
+        manifest = driver_run["manifest"]
         if len(manifest) > 0:
-            next_stop = manifest[0]
-            next_node = NetworkHandler.manifest_location(next_stop['loc'])
-            dwell = dwell_alight
-            if next_stop["action"] == "pickup":
-                dwell = dwell_pickup
-            time_at_next_stop = next_stop['scheduled_time']
-            time_window_start = next_stop["time_window_start"]
-            if time_at_next_stop <= time_window_start:
-                time_at_next_stop = time_window_start
-            time_at_next_immediate_node,next_immediate_node = VehicleHandler.get_time_from_start(starting_date,time_at_next_stop+dwell),next_node
-            if next_stop['action'] == "pickup":
-                vehicle.am_capacity -= next_stop["am"]
-                vehicle.wc_capacity -= next_stop["wc"]
-            else:
-                vehicle.am_capacity += next_stop["am"]
-                vehicle.wc_capacity += next_stop["wc"]
+            for stop in manifest:
+                if stop["order"] > current_order:
+                    break
+                if stop["action"] == "pickup":
+                    vehicle.am_capacity -= stop["am"]
+                    vehicle.wc_capacity -= stop["wc"]
+                else:
+                    vehicle.am_capacity += stop["am"]
+                    vehicle.wc_capacity += stop["wc"]
             
             # Adding existing route to the vehicle
             filtered_manifest = []
-            for stop in manifest[1:]:
+            for stop in manifest:
                 booking_id = stop['booking_id']
                 if booking_id in boarded_requests and stop['action']=="dropoff":
                     filtered_manifest.append(stop)
@@ -157,12 +168,19 @@ class VehicleHandler:
                 vehicle_stop = VehicleStop(trip_of_stop.id, trip_of_stop.destination, TYPE_DROP_OFF, trip_of_stop.dwell_alight)
                 vehicle.stop_sequence.append(vehicle_stop)
 
+            if len(vehicle.stop_sequence) > 0:
+                next_stop = vehicle.stop_sequence[0]
+                vehicle.time_at_next = time_at_next_immediate_node + VehicleHandler.get_time_delta(NetworkHandler.travel_time(next_immediate_node,next_stop.node))
+                next_trip = vehicle.trips[next_stop.trip_id]
+                if next_stop.type == TYPE_DROP_OFF and vehicle.time_at_next < next_trip.earliest_arrival_time:
+                    vehicle.time_at_next = next_trip.earliest_arrival_time
+
         vehicle.next_immediate_node = next_immediate_node
         vehicle.time_at_next_immediate_node = time_at_next_immediate_node
         vehicle.last_node = next_immediate_node
         vehicle.time_at_last = time_at_next_immediate_node
 
-    def add_manifest_to_vehicles(self,current_time,starting_date,driver_runs,boarded_requests,boarded_trips,dwell_alight, dwell_pickup):
+    def add_manifest_to_vehicles(self,starting_date,driver_runs,boarded_requests,boarded_trips,dwell_alight, dwell_pickup):
         for vehicle_id in self.vehicles:
             vehicle = self.vehicles[vehicle_id]
             driver_run = None
@@ -170,7 +188,7 @@ class VehicleHandler:
                 if int(run['state']['run_id']) == vehicle_id:
                     driver_run = run
                     break
-            self.add_manifest_to_vehicle(current_time, starting_date, vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup)
+            self.add_manifest_to_vehicle(starting_date, vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup)
 
     def simulate_vehicle(self,current_time, vehicle):
         completed_stops = []
@@ -196,6 +214,8 @@ class VehicleHandler:
         
         if (not vehicle.dwelling) and len(vehicle.stop_sequence) == 0:
             vehicle.time_at_last = current_time
+            vehicle.time_at_next_immediate_node = current_time
+            vehicle.next_immediate_node = vehicle.last_node
 
         while len(vehicle.stop_sequence)>0 and current_time >= vehicle.time_at_next:
             next_stop = vehicle.stop_sequence.pop(0)
@@ -320,11 +340,7 @@ class VehicleHandler:
         feasible = False
         added_cost = -1
         if vehicle.started:
-            next_immediate_node = vehicle.last_node
-            time_at_next_immediate_node = vehicle.time_at_last
-            if len(vehicle.stop_sequence)>0:
-                time_at_next_immediate_node = vehicle.time_at_next_immediate_node
-                next_immediate_node = vehicle.next_immediate_node
+            next_immediate_node, time_at_next_immediate_node = VehicleHandler.get_current_location_time(vehicle)
         
             sequence, cost = None, None
             trips_to_pick_up = []

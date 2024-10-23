@@ -6,6 +6,8 @@ from handlers.network_handler import NetworkHandler
 class PayloadParser:
     DRIVER_STATE = "state"
     DRIVER_STATE_T_LOCS = "total_locations"
+    DRIVER_STATE_LOC = "loc"
+    DRIVER_STATE_DT_SEC = "location_dt_seconds"
     DRIVER_STATE_ORDER = "order"
     DRIVER_STATE_RUN_ID = "run_id"
     DRIVER_STATE_LOC_SERV = "locations_already_serviced"
@@ -16,7 +18,9 @@ class PayloadParser:
 
     def get_payload_object(payload, online=True):
 
-        travel_time_matrix = payload["time_matrix"]
+        travel_time_matrix = None
+        if "time_matrix" in payload:
+            travel_time_matrix = payload["time_matrix"]
         start_of_the_day = datetime.strptime(payload['date'], '%Y-%m-%d')
 
         driver_runs = payload["driver_runs"]
@@ -39,15 +43,6 @@ class PayloadParser:
         active_requests_data = {}
         boarded_requests_data = {}
 
-        manifest_sorted_by_vehicles = {}
-        if "manifests" in payload:
-            for stop in payload["manifests"]:
-                run_id = stop["run_id"]
-                if run_id not in manifest_sorted_by_vehicles:
-                    manifest_sorted_by_vehicles[run_id] = []
-                manifest_sorted_by_vehicles[run_id].append(stop)
-
-
         for driver_run in driver_runs:
             i = 0
             added_active_requests = []
@@ -60,36 +55,21 @@ class PayloadParser:
                     booking_id = stop[PayloadParser.BOOKING_ID]
                     if stop[PayloadParser.MANIFEST_ACTION] == 'pickup':
                         request = PayloadParser.build_request_from_driver_manifest(driver_manifest,i)
-                        if stop_order <= driver_state[PayloadParser.DRIVER_STATE_LOC_SERV]+1:
+                        if stop_order <= driver_state[PayloadParser.DRIVER_STATE_LOC_SERV]:
                             boarded_requests_data[booking_id] = request
                         else:
                             added_active_requests.append(booking_id)
                             active_requests_data[booking_id] = request
                     else:
-                        if booking_id not in active_requests_data:
-                            # print(driver_run['state'],booking_id)
-                            run_id = stop["run_id"]
-                            request = PayloadParser.build_request_from_manifest(manifest_sorted_by_vehicles[run_id],stop)
-                            boarded_requests_data[booking_id] = request
+                        if stop_order <= driver_state[PayloadParser.DRIVER_STATE_LOC_SERV] and booking_id in boarded_requests_data:
+                            del boarded_requests_data[booking_id]
                     i+=1
 
         requests = []
 
-        if 'pickups' in payload:
-            pickups = payload["pickups"]
-            dropoffs = payload["dropoffs"]
-            for pickup in pickups:
-                booking_id = pickup["booking_id"]
-                dropoff = None
-                for stop in dropoffs:
-                    if stop["booking_id"] == booking_id:
-                        dropoff = stop
-                        break
-                requests.append(PayloadParser.build_request(pickup,dropoff))
-
-        else:
-            request = PayloadParser.build_request(payload['pickup'],payload['dropoff'])
-            requests = [request]
+        for request_data in payload["requests"]:
+            request = PayloadParser.build_request(request_data)
+            requests.append(request)
             
         for req_id in active_requests_data:
             requests.append(active_requests_data[req_id])
@@ -101,9 +81,11 @@ class PayloadParser:
 
         depot = None
         if 'loc' in payload['depot']:
-            depot = NetworkHandler.manifest_location(payload['depot']['loc'])
+            lat,lon = payload['depot']['loc']['lat'],payload['depot']['loc']['lon']
+            depot = NetworkHandler.manifest_location(payload['depot']['loc'],NetworkHandler.get_next_node_id(lat,lon))
         else:
-            depot = NetworkHandler.manifest_location(payload['depot']['pt'])
+            lat,lon = payload['depot']['pt']['lat'],payload['depot']['pt']['lon']
+            depot = NetworkHandler.manifest_location(payload['depot']['pt'],NetworkHandler.get_next_node_id(lat,lon))
 
         return Payload(travel_time_matrix, start_of_the_day, current_time, requests, boarded_requests, active_requests, driver_runs, depot)
 
@@ -113,18 +95,26 @@ class PayloadParser:
         booking_id = stop[PayloadParser.BOOKING_ID]
         for drop_off_stop in manifest[pick_up_index+1:]:
             if drop_off_stop[PayloadParser.BOOKING_ID] == booking_id:
-                return PayloadParser.build_request(stop,drop_off_stop)
+                return PayloadParser.build_request_from_stops(stop,drop_off_stop)
             
     def build_request_from_manifest(manifest,drop_off_stop):
         booking_id = drop_off_stop[PayloadParser.BOOKING_ID]
         for pick_up_stop in manifest:
             if pick_up_stop[PayloadParser.BOOKING_ID] == booking_id and pick_up_stop[PayloadParser.MANIFEST_ACTION] == 'pickup':
-                return PayloadParser.build_request(pick_up_stop,drop_off_stop)
+                return PayloadParser.build_request_from_stops(pick_up_stop,drop_off_stop)
             
-    def build_request(pick_up_stop,drop_off_stop):
+    def build_request_from_stops(pick_up_stop,drop_off_stop):
         request = {'am': pick_up_stop['am'], 'wc': pick_up_stop['wc'], 'pickup_time_window_start': pick_up_stop['time_window_start'], 
         'pickup_time_window_end': pick_up_stop['time_window_end'], 'pickup_pt': pick_up_stop['loc'], PayloadParser.BOOKING_ID: pick_up_stop[PayloadParser.BOOKING_ID],
         'dropoff_time_window_start': drop_off_stop['time_window_start'], 'dropoff_time_window_end': drop_off_stop['time_window_end'],
         'dropoff_pt': drop_off_stop['loc']
+        }
+        return request
+
+    def build_request(request_data):
+        request = {'am': request_data['am'], 'wc': request_data['wc'], 'pickup_time_window_start': request_data['pickup_time_window_start'], 
+        'pickup_time_window_end': request_data['pickup_time_window_end'], 'pickup_pt': request_data['pickup_pt'], PayloadParser.BOOKING_ID: request_data[PayloadParser.BOOKING_ID],
+        'dropoff_time_window_start': request_data['dropoff_time_window_start'], 'dropoff_time_window_end': request_data['dropoff_time_window_end'],
+        'dropoff_pt': request_data['dropoff_pt']
         }
         return request

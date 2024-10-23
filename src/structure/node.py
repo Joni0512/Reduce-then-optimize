@@ -5,4 +5,4 @@ class Node:
         self.id = id
 
     def __str__(self):
-        return "{{lat: {0}, lon: {1}}}".format(self.lat,self.lon)
+        return "{{lat: {0}, lon: {1}, id: {2}}}".format(self.lat,self.lon,self.id)

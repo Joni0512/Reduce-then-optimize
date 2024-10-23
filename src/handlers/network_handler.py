@@ -9,6 +9,8 @@ import ctypes
 class NetworkHandler:
     def init(server_based,server_url=None,tt_matrix=None):
         global SERVER_BASED
+        NetworkHandler.NODE_INDEX = 0
+        NetworkHandler.node_data = []
         SERVER_BASED = RawValue(ctypes.c_bool, server_based)
         if server_based:
             global routing_url,nearest_url,session,table_url
@@ -24,6 +26,26 @@ class NetworkHandler:
             travel_time_matrix = RawArray(np.ctypeslib.as_ctypes_type(travel_time_matrix.dtype), travel_time_matrix.flatten())
             return travel_time_matrix,no_of_nodes,SERVER_BASED
     
+    def get_next_node_id(lat,lon):
+        NetworkHandler.node_data.append({"lat":lat,"lon":lon})
+        NetworkHandler.NODE_INDEX+=1
+        return NetworkHandler.NODE_INDEX-1
+
+    def initialize_travel_time_matrix():
+        global SERVER_BASED,travel_time_matrix,no_of_nodes
+        coordinates = []
+        for node in NetworkHandler.node_data:
+            coordinate = "{0},{1}".format(node["lon"],node["lat"])
+            coordinates.append(coordinate)
+        url="{0}{1}".format(table_url,";".join(coordinates))
+        data = NetworkHandler.get_response(url)
+
+        travel_time_matrix = np.array(data['durations'])
+        no_of_nodes = RawValue(ctypes.c_uint, travel_time_matrix.shape[0])
+        SERVER_BASED = RawValue(ctypes.c_bool, False)
+        travel_time_matrix = RawArray(np.ctypeslib.as_ctypes_type(travel_time_matrix.dtype), travel_time_matrix.flatten())
+        return travel_time_matrix,no_of_nodes,SERVER_BASED
+
     def get_response(url):
         global session
         data = None
@@ -106,8 +128,7 @@ class NetworkHandler:
             return matrix[index1,index2]
         return NetworkHandler.travel_time(node1,node2)
 
-    def manifest_location(location):
-        node_id = None
+    def manifest_location(location, node_id=None):
         if 'node_id' in location:
             node_id = location['node_id']
         return Node(location["lat"],location["lon"],node_id)
