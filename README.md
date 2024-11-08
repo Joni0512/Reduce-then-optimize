@@ -2,11 +2,32 @@
 
 ## Code example
 
+### Initialize
+
 ```
 from online_rtv_solver import OnlineRTVSolver
 
-solver = OnlineRTVSolver()
-result = solver.solve_rtv(payload)
+# Initialize the RTV solver with the URL of the OSRM server
+online_rtv_solver = OnlineRTVSolver("http://127.0.0.1:50000/")
+```
+
+### Initialize
+
+```
+driver_runs = online_rtv_solver.solve_rtv(current_time,new_payload)
+```
+
+### Generating a manifest
+
+```
+current_time = 5*3600+30*60 # 05:30:00 pm
+driver_runs = online_rtv_solver.solve_rtv(current_time,new_payload)
+```
+
+### Simulate the vehicles
+```
+current_time = 5*3600+40*60+00 # Simulate to 05:40:00 pm
+new_driver_runs = online_rtv_solver.simulate_manifest(current_time,new_payload["date"],driver_runs)
 ```
 
 ## Payload format
@@ -19,46 +40,13 @@ result = solver.solve_rtv(payload)
         'loc': {'lat': float, 'lon': float, 'node_id': int}
     }, 
     'date': 'yyyy-mm-dd', 
-    'driver_runs': [], 
-    'time_matrix': "nxn array", 
-    'manifests': [],
-    'current_time': int
+    'driver_runs': [],
+    'requests': []
     
 }
 ```
 
-
-### Running with a single new requests
-
-```
-{
-    
-    'pickup': {
-        'booking_id': int,
-        'action': 'pickup',
-        'am': int,
-        'wc': int,
-        'time_window_start': int,
-        'time_window_end': int,
-        'node_id': int,
-        'loc': {'lat': float, 'lon': float, 'node_id': int}
-    }, 
-    'dropoff': {
-        'booking_id': int,
-        'action': 'dropoff',
-        'am': int,
-        'wc': int,
-        'time_window_start': int,
-        'time_window_end': int,
-        'node_id': int,
-        'loc': {'lat': float, 'lon': float, 'node_id': int}
-    }, 
-    'booking_id': "booking id of new requests", 
-    
-}
-```
-
-### Running with a batch of requests
+### Requests
 
 ```
 {
@@ -78,6 +66,50 @@ result = solver.solve_rtv(payload)
 }
 ```
 
+### DriverRun
+
+```
+{
+    
+    'DriverRun': [ {
+        'state': {
+            'run_id': int,
+            'start_time': int,
+            'end_time': int,
+            'am_capacity': int,
+            'wc_capacity': int,
+            'locations_already_serviced': int,
+            'locations_dt_seconds': int,
+            'loc': {'lat': float, 'lon': float, 'node_id': int},
+            'total_locations': int,
+        },
+        'manifest': Stop[list]
+    }] 
+    
+}
+```
+
+
+### Stop
+
+```
+{
+    
+    'Stop': [ {
+        'run': int,
+        'booking_id': int,
+        'order': int,
+        'action': string,
+        'loc': {'lat': float, 'lon': float, 'node_id': int}
+        'scheduled_time': int,
+        'am': int,
+        'wc': int,
+        'time_window_start': int,
+        'time_window_end': int,
+    }] 
+    
+}
+```
 
 # rolling-horizen-RTV
 
