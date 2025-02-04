@@ -3,6 +3,7 @@ from handlers.network_handler import NetworkHandler
 from handlers.vehicle_handler import VehicleHandler
 from handlers.trip_handler import TripHandler
 from handlers.payload_parser import PayloadParser
+import copy
 
 class OnlineRTVSolver:
 
@@ -19,7 +20,38 @@ class OnlineRTVSolver:
         self.DWELL_ALIGHT = 60
         self.LARGEST_TSP = LARGEST_TSP
         self.server_url = server_url
-            
+
+    def check_feasibility(self, current_time, payload):
+        payloads = []
+        for time_window in payload["request"]["time_windows"]:
+            payload_copy = copy.deepcopy(payload)
+            request = copy.deepcopy(payload["request"])
+            request["pickup_time_window_start"] = time_window["pickup_time_window_start"]
+            request["pickup_time_window_end"] = time_window["pickup_time_window_end"]
+            request["dropoff_time_window_start"] = time_window["dropoff_time_window_start"]
+            request["dropoff_time_window_end"] = time_window["dropoff_time_window_end"]
+            payload_copy["requests"] = [request]
+            payloads.append(payload_copy)
+
+        feasible_time_slots = []
+        for payload in payloads:
+            driver_run = self.solve_rtv(current_time, payload)
+            found = False
+            for driver in driver_run:
+                for stop in driver[PayloadParser.DRIVER_MANIFEST]:
+                    if stop["booking_id"] == payload["request"]["booking_id"]:
+                        request = payload["requests"][0]
+                        time_slot = {"pickup_time_window_start":request["pickup_time_window_start"],
+                                     "pickup_time_window_end":request["pickup_time_window_end"],
+                                     "dropoff_time_window_start":request["dropoff_time_window_start"],
+                                     "dropoff_time_window_end":request["dropoff_time_window_end"]}
+                        feasible_time_slots.append(time_slot)
+                        found = True
+                        break
+                if found:
+                    break
+        return feasible_time_slots
+
     def solve_rtv(self, current_time, payload):
         NetworkHandler.init(True, self.server_url)
         payload_object = PayloadParser.get_payload_object(payload)
@@ -66,9 +98,8 @@ class OnlineRTVSolver:
 
         return updated_driver_runs #,trip_handler,vehicle_handler,request_handler,payload_object
 
-    def simulate_manifest(self, current_time, date, driver_runs):
+    def simulate_manifest(self, current_time, driver_runs):
         NetworkHandler.init(True, self.server_url)
-        start_of_the_day = datetime.strptime(date, '%Y-%m-%d')
         new_driver_runs = []
         for driver_run in driver_runs:
             state = driver_run[PayloadParser.DRIVER_STATE]
@@ -97,10 +128,7 @@ class OnlineRTVSolver:
             if len(manifest) > current_order and next_immediate_time < current_time:
                 next_immediate_node = NetworkHandler.manifest_location(next_immediate_loc)
                 target_node = NetworkHandler.manifest_location(manifest[current_order]["loc"])
-                current_time_dt = start_of_the_day + timedelta(seconds=int(current_time))
-                next_immediate_time_dt = start_of_the_day + timedelta(seconds=int(next_immediate_time))
-                next_immediate_time_dt,next_immediate_node = NetworkHandler.get_current_location_time(next_immediate_node,target_node,next_immediate_time_dt,current_time_dt)
-                next_immediate_time = (next_immediate_time_dt - start_of_the_day).seconds
+                next_immediate_time, next_immediate_node = NetworkHandler.get_current_location_time(next_immediate_node,target_node,next_immediate_time,current_time)
                 next_immediate_loc = {"lat":next_immediate_node.lat,"lon":next_immediate_node.lon}
             state[PayloadParser.DRIVER_STATE_DT_SEC] = next_immediate_time
             state[PayloadParser.DRIVER_STATE_LOC] = next_immediate_loc
