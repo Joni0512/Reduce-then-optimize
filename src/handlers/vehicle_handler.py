@@ -21,11 +21,11 @@ class VehicleHandler:
     MAX_AM_CAPACITY = 0
     MAX_VC_CAPACITY = 0
     LARGEST_TSP = 10
-    def __init__(self, depot, driver_runs, output_directory, starting_date, LARGEST_TSP=10):
+    def __init__(self, depot, driver_runs, output_directory, LARGEST_TSP=10):
         self.vehicles = {}
         self.count = 0
         self.earliest_start_time = None
-        self.load_vehicles(depot, driver_runs, starting_date)
+        self.load_vehicles(depot, driver_runs)
         self.output_directory = output_directory
         VehicleHandler.LARGEST_TSP = LARGEST_TSP
         logging.info('Total No of vehicles: {0}'.format(self.count))
@@ -40,7 +40,7 @@ class VehicleHandler:
             snapshot = pickle.load(snapshot_file)
         return snapshot
 
-    def load_vehicles(self, depot, driver_runs, starting_date):
+    def load_vehicles(self, depot, driver_runs):
         # nearest_lat,nearest_lon = NetworkHandler.get_nearest_node(float(depot['lat']),float(depot['lon']))
         start_loc = depot
         for driver_run in driver_runs:
@@ -53,8 +53,8 @@ class VehicleHandler:
             wc_capacity = int(vehicle_data['wc_capacity'])
             VehicleHandler.MAX_AM_CAPACITY = max(VehicleHandler.MAX_AM_CAPACITY,am_capacity)
             VehicleHandler.MAX_VC_CAPACITY = max(VehicleHandler.MAX_AM_CAPACITY,wc_capacity)
-            start_time = starting_date + timedelta(seconds=int(vehicle_data['start_time']))
-            end_time = starting_date + timedelta(seconds=int(vehicle_data['end_time']))
+            start_time = vehicle_data['start_time']
+            end_time = vehicle_data['end_time']
             vehicle = Vehicle(id, start_loc, am_capacity, wc_capacity, start_time, end_time, start_loc)
             self.vehicles[id] = vehicle
             if self.earliest_start_time == None or self.earliest_start_time > start_time:
@@ -74,15 +74,6 @@ class VehicleHandler:
             self.MAX_CAPACITY = max(capacity,self.MAX_CAPACITY)
             if self.count == max_number_of_vehicles:
                 break
-    
-    def get_time_delta(seconds):
-        return timedelta(seconds=int(seconds))
-
-    def get_time_from_start(starting_date,seconds):
-        return starting_date+timedelta(seconds=int(seconds))
-    
-    def get_seconds_from_start(starting_date,time_obj):
-        return (time_obj-starting_date).seconds
 
     def get_current_location_time(vehicle):
         next_immediate_node = vehicle.last_node
@@ -99,12 +90,12 @@ class VehicleHandler:
         vehicle = self.vehicles[new_state[PayloadParser.DRIVER_STATE_RUN_ID]]
         next_immediate_node,time_at_next_immediate_node = VehicleHandler.get_current_location_time(vehicle)
         new_state[PayloadParser.DRIVER_STATE_LOC] = {"lat":next_immediate_node.lat,"lon":next_immediate_node.lon}
-        new_state[PayloadParser.DRIVER_STATE_DT_SEC] = VehicleHandler.get_seconds_from_start(start_of_the_day,time_at_next_immediate_node)
+        new_state[PayloadParser.DRIVER_STATE_DT_SEC] = time_at_next_immediate_node
         manifest.extend(VehicleHandler.get_manifest(vehicle,current_order,start_of_the_day))
         new_driver_run = {PayloadParser.DRIVER_STATE:new_state,PayloadParser.DRIVER_MANIFEST:manifest}
         return new_driver_run
     
-    def get_manifest(vehicle,current_order,starting_date):
+    def get_manifest(vehicle,current_order):
         manifest = []
         last_node, time_at_last_node = VehicleHandler.get_current_location_time(vehicle)
         for vehicle_stop in vehicle.stop_sequence:
@@ -120,22 +111,22 @@ class VehicleHandler:
                 time_window_end = trip.latest_pick_up_time
                 dwell = trip.dwell_pickup
             current_order+=1
-            stop_time = time_at_last_node + VehicleHandler.get_time_delta(NetworkHandler.travel_time(last_node,node))
+            stop_time = time_at_last_node + NetworkHandler.travel_time(last_node,node)
             if stop_time <= time_window_start:
                 stop_time = time_window_start
             stop = {'run_id': vehicle.id, 'booking_id': trip.request_id, 'order': current_order, 'action': action, 
-                        "loc": {'lat': node.lat, 'lon': node.lon, 'node_id': node.id}, 'scheduled_time': VehicleHandler.get_seconds_from_start(starting_date,stop_time), 
-                        'am': trip.am_capacity, 'wc': trip.wc_capacity, 'time_window_start': VehicleHandler.get_seconds_from_start(starting_date,time_window_start), 
-                        'time_window_end': VehicleHandler.get_seconds_from_start(starting_date,time_window_end)}
-            last_node, time_at_last_node = node, stop_time + VehicleHandler.get_time_delta(dwell)
+                        "loc": {'lat': node.lat, 'lon': node.lon, 'node_id': node.id}, 'scheduled_time': stop_time, 
+                        'am': trip.am_capacity, 'wc': trip.wc_capacity, 'time_window_start': time_window_start, 
+                        'time_window_end':time_window_end}
+            last_node, time_at_last_node = node, stop_time + dwell
             manifest.append(stop)
         return manifest
 
-    def add_manifest_to_vehicle(self, starting_date, vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup):
+    def add_manifest_to_vehicle(self, vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup):
         state = driver_run['state']
         current_order = state['locations_already_serviced']
         vehicle.started = True
-        time_at_next_immediate_node = starting_date + VehicleHandler.get_time_delta(state["location_dt_seconds"])
+        time_at_next_immediate_node = state["location_dt_seconds"]
         next_immediate_node = NetworkHandler.manifest_location(state['loc'],node_id=NetworkHandler.get_next_node_id(state['loc']['lat'],state['loc']['lon']))
 
         manifest = driver_run["manifest"]
@@ -170,7 +161,7 @@ class VehicleHandler:
 
             if len(vehicle.stop_sequence) > 0:
                 next_stop = vehicle.stop_sequence[0]
-                vehicle.time_at_next = time_at_next_immediate_node + VehicleHandler.get_time_delta(NetworkHandler.travel_time(next_immediate_node,next_stop.node))
+                vehicle.time_at_next = time_at_next_immediate_node + NetworkHandler.travel_time(next_immediate_node,next_stop.node)
                 next_trip = vehicle.trips[next_stop.trip_id]
                 if next_stop.type == TYPE_DROP_OFF and vehicle.time_at_next < next_trip.earliest_arrival_time:
                     vehicle.time_at_next = next_trip.earliest_arrival_time
@@ -180,7 +171,7 @@ class VehicleHandler:
         vehicle.last_node = next_immediate_node
         vehicle.time_at_last = time_at_next_immediate_node
 
-    def add_manifest_to_vehicles(self,starting_date,driver_runs,boarded_requests,boarded_trips,dwell_alight, dwell_pickup):
+    def add_manifest_to_vehicles(self,driver_runs,boarded_requests,boarded_trips,dwell_alight, dwell_pickup):
         for vehicle_id in self.vehicles:
             vehicle = self.vehicles[vehicle_id]
             driver_run = None
@@ -188,7 +179,7 @@ class VehicleHandler:
                 if int(run['state']['run_id']) == vehicle_id:
                     driver_run = run
                     break
-            self.add_manifest_to_vehicle(starting_date, vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup)
+            self.add_manifest_to_vehicle(vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup)
 
     def simulate_vehicle(self,current_time, vehicle):
         completed_stops = []
@@ -227,7 +218,7 @@ class VehicleHandler:
             completed_stops.append(next_stop)
 
             vehicle.last_node = next_stop.node
-            vehicle.time_at_last = vehicle.time_at_next + VehicleHandler.get_time_delta(next_stop.dwell)
+            vehicle.time_at_last = vehicle.time_at_next + next_stop.dwell
             vehicle.final_stop_time = vehicle.time_at_last
             if vehicle.time_at_last > current_time:
                 vehicle.dwelling = True
@@ -246,7 +237,7 @@ class VehicleHandler:
                 del vehicle.trips[next_stop.trip_id]
             if len(vehicle.stop_sequence) > 0:
                 next_stop = vehicle.stop_sequence[0]
-                vehicle.time_at_next = vehicle.time_at_last + VehicleHandler.get_time_delta(NetworkHandler.travel_time(vehicle.last_node,next_stop.node))
+                vehicle.time_at_next = vehicle.time_at_last + NetworkHandler.travel_time(vehicle.last_node,next_stop.node)
                 next_trip = vehicle.trips[next_stop.trip_id]
                 if next_stop.type == TYPE_PICK_UP and vehicle.time_at_next < next_trip.pick_up_time:
                     vehicle.time_at_next = next_trip.pick_up_time
@@ -282,7 +273,7 @@ class VehicleHandler:
                     if feasible:
                         vehicle.stop_sequence = best_sequence
                     next_stop = vehicle.stop_sequence[0]
-                    vehicle.time_at_next = time_at_next_immediate_node + VehicleHandler.get_time_delta(NetworkHandler.travel_time(next_immediate_node,next_stop.node))
+                    vehicle.time_at_next = time_at_next_immediate_node + NetworkHandler.travel_time(next_immediate_node,next_stop.node)
                     next_trip = vehicle.trips[next_stop.trip_id]
                     if next_stop.type == TYPE_DROP_OFF and vehicle.time_at_next < next_trip.earliest_arrival_time:
                         vehicle.time_at_next = next_trip.earliest_arrival_time
@@ -297,7 +288,7 @@ class VehicleHandler:
             vehicle = self.vehicles[vehicle_id]
             if len(vehicle.stop_sequence) == 0 and vehicle.end_time <= current_time:
                 stop = VehicleStop(None,vehicle.depot,3,0)
-                stop.stop_time = vehicle.final_stop_time+VehicleHandler.get_time_delta(NetworkHandler.travel_time(vehicle.last_node,vehicle.depot))
+                stop.stop_time = vehicle.final_stop_time+NetworkHandler.travel_time(vehicle.last_node,vehicle.depot)
                 stop.vehicle_id = vehicle.id
                 completed_stops.append(stop)
                 completed_vehicles.append(vehicle_id)
@@ -324,7 +315,7 @@ class VehicleHandler:
         return locations
 
     def add_rebalancing_trip(vehicle,destination,current_time):
-        time_at_destination = current_time + VehicleHandler.get_time_delta(NetworkHandler.travel_time(vehicle.last_node,destination))
+        time_at_destination = current_time + NetworkHandler.travel_time(vehicle.last_node,destination)
         if VehicleHandler.can_return_to_deport(vehicle,destination,time_at_destination):
             vehicle.rebalancing = True
             vehicle.time_at_last = current_time
@@ -332,7 +323,7 @@ class VehicleHandler:
             vehicle.time_at_next = time_at_destination
 
     def can_return_to_deport(vehicle,last_node,time_at_last_node):
-        if time_at_last_node+VehicleHandler.get_time_delta(NetworkHandler.travel_time(last_node,vehicle.depot)) < vehicle.end_time:
+        if time_at_last_node+NetworkHandler.travel_time(last_node,vehicle.depot) < vehicle.end_time:
             return True
         return False
     
@@ -374,7 +365,7 @@ class VehicleHandler:
                 vehicle.stop_sequence = sequence
                 next_stop = vehicle.stop_sequence[0]
                 travel_time = NetworkHandler.travel_time_from_matrix(vehicle.last_node,next_stop.node,tt_matrix, node_indices)
-                vehicle.time_at_next = vehicle.time_at_last + VehicleHandler.get_time_delta(travel_time)
+                vehicle.time_at_next = vehicle.time_at_last + travel_time
                 next_trip = vehicle.trips[next_stop.trip_id]
                 if next_stop.type == TYPE_PICK_UP and vehicle.time_at_next < next_trip.pick_up_time:
                     vehicle.time_at_next = next_trip.pick_up_time
@@ -416,12 +407,12 @@ class VehicleHandler:
             if new_am_capacity < 0 or new_wc_capacity < 0:
                 continue
             travel_time = NetworkHandler.travel_time_from_matrix(last_node,trip.origin,tt_matrix, node_indices)
-            time_at_pick_up = time_at_last_node + VehicleHandler.get_time_delta(travel_time)
+            time_at_pick_up = time_at_last_node + travel_time
             if time_at_pick_up < trip.pick_up_time:
                 time_at_pick_up = trip.pick_up_time
 
             if time_at_pick_up <= trip.latest_pick_up_time:
-                time_at_pick_up = time_at_pick_up + VehicleHandler.get_time_delta(trip.dwell_pickup)
+                time_at_pick_up = time_at_pick_up + trip.dwell_pickup
             
                 new_cost = cost + NetworkHandler.travel_distance(last_node,trip.origin)
                 new_trips_to_pick_up = trips_to_pick_up.copy()
@@ -442,11 +433,11 @@ class VehicleHandler:
                 trip = trips[trip_id]
                 new_am_capacity, new_wc_capacity = max_am_capacity+trip.am_capacity,max_wc_capacity+trip.wc_capacity
                 travel_time = NetworkHandler.travel_time_from_matrix(last_node,trip.destination,tt_matrix, node_indices)
-                time_at_drop_off = time_at_last_node + VehicleHandler.get_time_delta(travel_time)
+                time_at_drop_off = time_at_last_node + travel_time
                 if time_at_drop_off <= trip.latest_arrival_time:
                     if time_at_drop_off < trip.earliest_arrival_time:
                         time_at_drop_off = trip.earliest_arrival_time
-                    time_at_drop_off = time_at_drop_off + VehicleHandler.get_time_delta(trip.dwell_alight)
+                    time_at_drop_off = time_at_drop_off + trip.dwell_alight
                     new_cost = cost + NetworkHandler.travel_distance(last_node,trip.destination)
                     new_trips_to_drop_off = trips_to_drop_off.copy()
                     new_trips_to_drop_off.remove(trip_id)
@@ -490,7 +481,7 @@ class VehicleHandler:
                         trip = new_trip
                         if stop.trip_id != trip_id:
                             trip = trips[stop.trip_id]
-                        travel_time = VehicleHandler.get_time_delta(NetworkHandler.travel_time_from_matrix(current_node,stop.node,tt_matrix, node_indices))
+                        travel_time = NetworkHandler.travel_time_from_matrix(current_node,stop.node,tt_matrix, node_indices)
                         cost +=  NetworkHandler.travel_distance(current_node,stop.node)
                         current_time = current_time + travel_time
                         if stop.type == TYPE_PICK_UP:
@@ -501,7 +492,7 @@ class VehicleHandler:
                             if min(current_am_capacity,current_wc_capacity) < 0 or current_time > trip.latest_pick_up_time:
                                 new_feasible = False
                                 break
-                            current_time = current_time + VehicleHandler.get_time_delta(trip.dwell_pickup)
+                            current_time = current_time + trip.dwell_pickup
                         else:
                             current_am_capacity += trip.am_capacity
                             current_wc_capacity += trip.wc_capacity
@@ -510,7 +501,7 @@ class VehicleHandler:
                                 break
                             if current_time < trip.earliest_arrival_time:
                                 current_time = trip.earliest_arrival_time
-                            current_time = current_time + VehicleHandler.get_time_delta(trip.dwell_alight)
+                            current_time = current_time + trip.dwell_alight
                         current_node = stop.node
                     if new_feasible:
                         if (not feasible) or (current_lowest_cost > cost):

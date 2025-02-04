@@ -3,7 +3,6 @@ from handlers.network_handler import NetworkHandler
 from handlers.vehicle_handler import VehicleHandler
 from handlers.trip_handler import TripHandler
 from handlers.payload_parser import PayloadParser
-from datetime import datetime, timedelta
 
 class OnlineRTVSolver:
 
@@ -24,8 +23,7 @@ class OnlineRTVSolver:
     def solve_rtv(self, current_time, payload):
         NetworkHandler.init(True, self.server_url)
         payload_object = PayloadParser.get_payload_object(payload)
-        start_of_the_day = payload_object.start_of_the_day
-        request_handler = RequestHandler(payload_object.requests, start_of_the_day, self.DWELL_PICKUP, self.DWELL_ALIGHT)
+        request_handler = RequestHandler(payload_object.requests, self.DWELL_PICKUP, self.DWELL_ALIGHT)
         temp_batch = request_handler.get_all_requests()
         batch = []
         active_requests = {}
@@ -39,12 +37,11 @@ class OnlineRTVSolver:
                     active_requests[req_id] = req
                 batch.append(req)
 
-        current_time = start_of_the_day + timedelta(seconds=current_time)
         iteration = 0
         boarded_trips = TripHandler.create_trip_for_picked_requests(boarded_requests,iteration)
 
-        vehicle_handler = VehicleHandler(payload_object.depot, payload_object.driver_runs,None,start_of_the_day,LARGEST_TSP=self.LARGEST_TSP)
-        vehicle_handler.add_manifest_to_vehicles(start_of_the_day,payload_object.driver_runs,boarded_requests,boarded_trips,self.DWELL_ALIGHT, self.DWELL_PICKUP)
+        vehicle_handler = VehicleHandler(payload_object.depot, payload_object.driver_runs,None,LARGEST_TSP=self.LARGEST_TSP)
+        vehicle_handler.add_manifest_to_vehicles(payload_object.driver_runs,boarded_requests,boarded_trips,self.DWELL_ALIGHT, self.DWELL_PICKUP)
 
         NetworkHandler.initialize_travel_time_matrix()
         iteration+=1
@@ -62,14 +59,14 @@ class OnlineRTVSolver:
             current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
             new_manifest = manifest[:current_order]
             vehicle = vehicle_handler.vehicles[state[PayloadParser.DRIVER_STATE_RUN_ID]]
-            new_manifest.extend(VehicleHandler.get_manifest(vehicle,current_order,start_of_the_day))
+            new_manifest.extend(VehicleHandler.get_manifest(vehicle,current_order))
             state[PayloadParser.DRIVER_STATE_T_LOCS] = len(new_manifest)
             new_driver_run = {PayloadParser.DRIVER_STATE:state,PayloadParser.DRIVER_MANIFEST:new_manifest}
             updated_driver_runs.append(new_driver_run)
 
         return updated_driver_runs #,trip_handler,vehicle_handler,request_handler,payload_object
 
-    def simulate_manifest(self,current_time, date, driver_runs):
+    def simulate_manifest(self, current_time, date, driver_runs):
         NetworkHandler.init(True, self.server_url)
         start_of_the_day = datetime.strptime(date, '%Y-%m-%d')
         new_driver_runs = []
