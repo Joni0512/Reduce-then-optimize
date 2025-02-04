@@ -56,3 +56,6 @@ class OutputHandler:
             for bus_line_name in busslines:
                 for bus_run in busslines[bus_line_name].bus_runs:
                     bus_file.write("{0}:{1}\n".format(bus_line_name,",".join([str(load) for load in bus_run.load])))
+
+    def convert_seconds_to_timestamp(self, seconds):
+        return time.strftime('%H:%M:%S', time.gmtime(seconds))

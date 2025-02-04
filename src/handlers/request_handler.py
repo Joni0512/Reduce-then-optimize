@@ -4,8 +4,6 @@ from structure.request import Request
 from structure.node import Node
 from handlers.network_handler import NetworkHandler
 from dateutil import parser
-from datetime import datetime
-from datetime import timedelta
 from multiprocessing.pool import ThreadPool
 
 PICKUP_TIME = 'pickup_time_window_start'
@@ -23,13 +21,13 @@ PICKUP_NODE_ID = 'pickup_node_id'
 DROPOFF_NODE_ID = 'dropoff_node_id'
 
 class RequestHandler:
-    def __init__(self, request_data, starting_date, dwell_pickup, dwell_alight):
+    def __init__(self, request_data, dwell_pickup, dwell_alight):
         requests = []
         for req in request_data:
-            pickup_time_window_start = starting_date + timedelta(seconds=int(req[PICKUP_TIME]))
-            pickup_time_window_end = starting_date + timedelta(seconds=int(req[PICKUP_WINDOW_END]))
-            dropoff_time_window_start = starting_date + timedelta(seconds=int(req[ARRIVAL_WINDOW_START]))
-            dropoff_time_window_end = starting_date + timedelta(seconds=int(req[ARRIVAL_WINDOW_END]))
+            pickup_time_window_start = req[PICKUP_TIME]
+            pickup_time_window_end = req[PICKUP_WINDOW_END]
+            dropoff_time_window_start = req[ARRIVAL_WINDOW_START]
+            dropoff_time_window_end = req[ARRIVAL_WINDOW_END]
             origin = req['pickup_pt']
             dest = req['dropoff_pt']
             pick_up_lat,pick_up_lon = origin['lat'],origin['lon']

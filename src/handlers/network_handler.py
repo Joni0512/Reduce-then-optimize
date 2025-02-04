@@ -1,6 +1,5 @@
 from structure.node import Node
 import requests
-from datetime import timedelta
 import time
 import numpy as np
 from multiprocessing.sharedctypes import RawArray, RawValue
@@ -69,7 +68,7 @@ class NetworkHandler:
         return NetworkHandler.get_response(url)
     
     def get_location(source,destination):
-        return source.id*no_of_nodes.value+destination.id
+        return int(source.id*no_of_nodes.value+destination.id)
 
     def travel_time(source,destination):
         if SERVER_BASED:
@@ -88,7 +87,7 @@ class NetworkHandler:
         current_location = None
         for step in response['routes'][0]['legs'][0]['steps']:
             duration = step['duration']
-            starting_time += timedelta(seconds=duration)
+            starting_time += duration
             location = step['geometry']['coordinates'][-1]
             current_location = Node(location[1],location[0])
             if starting_time >= current_time:

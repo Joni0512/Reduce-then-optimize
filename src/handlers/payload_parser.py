@@ -1,5 +1,3 @@
-from datetime import datetime
-from datetime import timedelta
 from structure.payload import Payload
 from handlers.network_handler import NetworkHandler
 
@@ -21,7 +19,6 @@ class PayloadParser:
         travel_time_matrix = None
         if "time_matrix" in payload:
             travel_time_matrix = payload["time_matrix"]
-        start_of_the_day = datetime.strptime(payload['date'], '%Y-%m-%d')
 
         driver_runs = payload["driver_runs"]
 
@@ -37,7 +34,6 @@ class PayloadParser:
                     current_time = min(current_time,last_recorded_time)
             if current_time == 3600*24:
                 current_time = earliest_start_time
-            current_time = start_of_the_day +timedelta(seconds=int(current_time))
 
 
         active_requests_data = {}
@@ -87,7 +83,7 @@ class PayloadParser:
             lat,lon = payload['depot']['pt']['lat'],payload['depot']['pt']['lon']
             depot = NetworkHandler.manifest_location(payload['depot']['pt'],NetworkHandler.get_next_node_id(lat,lon))
 
-        return Payload(travel_time_matrix, start_of_the_day, current_time, requests, boarded_requests, active_requests, driver_runs, depot)
+        return Payload(travel_time_matrix, current_time, requests, boarded_requests, active_requests, driver_runs, depot)
 
     
     def build_request_from_driver_manifest(manifest,pick_up_index):
