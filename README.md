@@ -125,3 +125,13 @@ new_driver_runs = online_rtv_solver.simulate_manifest(current_time,new_payload["
     - interval: interval for the rolling horizon and batching
     - rh_factor: rolling horizon factor
     - max_cardinality: meximum size of shared trips
+
+# Set up the OSRM Server
+
+```
+wget https://download.geofabrik.de/north-america/us/north-carolina-latest.osm.pbf
+docker run -t -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend osrm-extract -p /opt/car.lua /data/north-carolina-latest.osm.pbf || echo "osrm-extract failed"
+docker run -t -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend osrm-partition /data/north-carolina-latest.osrm || echo "osrm-partition failed"
+docker run -t -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend osrm-customize /data/north-carolina-latest.osrm || echo "osrm-customize failed"
+docker run -t -i -p 5000:5000 -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend osrm-routed --algorithm mld /data/north-carolina-latest.osrm
+```
