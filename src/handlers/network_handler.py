@@ -128,6 +128,6 @@ class NetworkHandler:
         return NetworkHandler.travel_time(node1,node2)
 
     def manifest_location(location, node_id=None):
-        if 'node_id' in location:
+        if 'node_id' in location and node_id is None:
             node_id = location['node_id']
         return Node(location["lat"],location["lon"],node_id)
