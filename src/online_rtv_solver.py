@@ -23,14 +23,15 @@ class OnlineRTVSolver:
 
     def check_feasibility(self, current_time, payload):
         payloads = []
-        for time_window in payload["request"]["time_windows"]:
+        request = payload["requests"][0]
+        for time_window in request["time_windows"]:
             payload_copy = copy.deepcopy(payload)
-            request = copy.deepcopy(payload["request"])
-            request["pickup_time_window_start"] = time_window["pickup_time_window_start"]
-            request["pickup_time_window_end"] = time_window["pickup_time_window_end"]
-            request["dropoff_time_window_start"] = time_window["dropoff_time_window_start"]
-            request["dropoff_time_window_end"] = time_window["dropoff_time_window_end"]
-            payload_copy["requests"] = [request]
+            request_copy = copy.deepcopy(request)
+            request_copy["pickup_time_window_start"] = time_window["pickup_time_window_start"]
+            request_copy["pickup_time_window_end"] = time_window["pickup_time_window_end"]
+            request_copy["dropoff_time_window_start"] = time_window["dropoff_time_window_start"]
+            request_copy["dropoff_time_window_end"] = time_window["dropoff_time_window_end"]
+            payload_copy["requests"] = [request_copy]
             payloads.append(payload_copy)
 
         feasible_time_slots = []
@@ -39,8 +40,8 @@ class OnlineRTVSolver:
             found = False
             for driver in driver_run:
                 for stop in driver[PayloadParser.DRIVER_MANIFEST]:
-                    if stop["booking_id"] == payload["request"]["booking_id"]:
-                        request = payload["requests"][0]
+                    request = payload["requests"][0]
+                    if stop["booking_id"] == request["booking_id"]:
                         time_slot = {"pickup_time_window_start":request["pickup_time_window_start"],
                                      "pickup_time_window_end":request["pickup_time_window_end"],
                                      "dropoff_time_window_start":request["dropoff_time_window_start"],
