@@ -1,5 +1,0 @@
-gurobipy==10.0.3
-numpy==1.26.0
-pandas==1.5.3
-python_dateutil==2.8.2
-Requests==2.31.0

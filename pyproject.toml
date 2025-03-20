@@ -1,0 +1,11 @@
+[project]
+name = "rtv_solver"
+version = "0.1.0"
+description = "A solver for real-time vehicle routing problems"
+authors = [{name = "Danushka Edirimanna", email = "ke233@cornell.edu"}]
+license = "MIT"  # Use a string instead of a table
+readme = "README.md"
+dependencies = []
+
+[tool.setuptools.packages]
+find = { include = ["rtv_solver"] }
