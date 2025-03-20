@@ -1,5 +1,5 @@
-from structure.payload import Payload
-from handlers.network_handler import NetworkHandler
+from rtv_solver.structure.payload import Payload
+from rtv_solver.handlers.network_handler import NetworkHandler
 
 class PayloadParser:
     DRIVER_STATE = "state"

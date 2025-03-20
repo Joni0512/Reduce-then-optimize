@@ -1,8 +1,8 @@
-from structure.trip import Trip
-from structure.shared_trip import SharedTrip
-from structure.trip_cost import TripCost
-from handlers.vehicle_handler import VehicleHandler
-from handlers.network_handler import NetworkHandler
+from rtv_solver.structure.trip import Trip
+from rtv_solver.structure.shared_trip import SharedTrip
+from rtv_solver.structure.trip_cost import TripCost
+from rtv_solver.handlers.vehicle_handler import VehicleHandler
+from rtv_solver.handlers.network_handler import NetworkHandler
 import numpy as np
 import logging
 import itertools

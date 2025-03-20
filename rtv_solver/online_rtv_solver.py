@@ -1,9 +1,9 @@
-from handlers.request_handler import RequestHandler
-from handlers.network_handler import NetworkHandler
-from handlers.vehicle_handler import VehicleHandler
-from handlers.trip_handler import TripHandler
-from handlers.payload_parser import PayloadParser
-from structure.node import Node
+from .handlers.request_handler import RequestHandler
+from .handlers.network_handler import NetworkHandler
+from .handlers.vehicle_handler import VehicleHandler
+from .handlers.trip_handler import TripHandler
+from .handlers.payload_parser import PayloadParser
+from .structure.node import Node
 import copy
 from multiprocessing import Pool
 import time

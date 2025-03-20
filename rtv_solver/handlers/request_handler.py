@@ -1,8 +1,8 @@
 import logging
 import pandas as pd
-from structure.request import Request
-from structure.node import Node
-from handlers.network_handler import NetworkHandler
+from rtv_solver.structure.request import Request
+from rtv_solver.structure.node import Node
+from rtv_solver.handlers.network_handler import NetworkHandler
 from dateutil import parser
 from multiprocessing.pool import ThreadPool
 

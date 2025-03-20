@@ -1,10 +1,10 @@
 import logging
 import pandas as pd
-from structure.vehicle import Vehicle
-from structure.vehicle_stop import VehicleStop
-from structure.node import Node
-from handlers.network_handler import NetworkHandler
-from handlers.payload_parser import PayloadParser
+from rtv_solver.structure.vehicle import Vehicle
+from rtv_solver.structure.vehicle_stop import VehicleStop
+from rtv_solver.structure.node import Node
+from rtv_solver.handlers.network_handler import NetworkHandler
+from rtv_solver.handlers.payload_parser import PayloadParser
 from datetime import datetime
 from datetime import timedelta
 import pickle

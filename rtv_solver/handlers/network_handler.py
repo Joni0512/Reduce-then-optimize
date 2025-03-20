@@ -1,4 +1,4 @@
-from structure.node import Node
+from rtv_solver.structure.node import Node
 import requests
 import time
 import numpy as np
