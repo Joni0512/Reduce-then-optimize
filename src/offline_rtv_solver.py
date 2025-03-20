@@ -67,7 +67,7 @@ class OfflineRTVSolver:
             current_time += step_size
 
             # simulate the driver runs
-            simulated_driver_runs = online_rtv_solver.simulate_manifest(current_time,new_driver_runs)
+            simulated_driver_runs = online_rtv_solver.simulate_manifest(current_time,new_driver_runs,intermediate_location=False)
             driver_runs = simulated_driver_runs
 
         return driver_runs

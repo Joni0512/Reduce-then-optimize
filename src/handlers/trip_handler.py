@@ -47,9 +47,10 @@ class TripHandler:
             origin = request.origin
             destination = request.destination
             dwell_pickup, dwell_alight, latest_pick_up_time = request.dwell_pickup, request.dwell_alight, request.latest_pick_up_time
-            earliest_pick_up_time = current_time
-            if request.pick_up_time > current_time:
-                earliest_pick_up_time = request.pick_up_time
+            earliest_pick_up_time = request.pick_up_time
+            # earliest_pick_up_time = current_time
+            # if request.pick_up_time > current_time:
+            #     earliest_pick_up_time = request.pick_up_time
             trip = self.create_trip(request,request.am_capacity, request.wc_capacity,origin,destination,earliest_pick_up_time,latest_pick_up_time ,request.earliest_arrival_time,request.latest_arrival_time,dwell_pickup, dwell_alight,iteration,allow_walk=False)
             self.trips.append(trip)
             self.ondemand_only_trip_map[request.id] = trip.number

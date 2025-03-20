@@ -159,12 +159,12 @@ class VehicleHandler:
                 vehicle_stop = VehicleStop(trip_of_stop.id, trip_of_stop.destination, TYPE_DROP_OFF, trip_of_stop.dwell_alight)
                 vehicle.stop_sequence.append(vehicle_stop)
 
-            if len(vehicle.stop_sequence) > 0:
-                next_stop = vehicle.stop_sequence[0]
-                vehicle.time_at_next = time_at_next_immediate_node + NetworkHandler.travel_time(next_immediate_node,next_stop.node)
-                next_trip = vehicle.trips[next_stop.trip_id]
-                if next_stop.type == TYPE_DROP_OFF and vehicle.time_at_next < next_trip.earliest_arrival_time:
-                    vehicle.time_at_next = next_trip.earliest_arrival_time
+            # if len(vehicle.stop_sequence) > 0:
+            #     next_stop = vehicle.stop_sequence[0]
+            #     vehicle.time_at_next = time_at_next_immediate_node + NetworkHandler.travel_time(next_immediate_node,next_stop.node)
+            #     next_trip = vehicle.trips[next_stop.trip_id]
+            #     if next_stop.type == TYPE_DROP_OFF and vehicle.time_at_next < next_trip.earliest_arrival_time:
+            #         vehicle.time_at_next = next_trip.earliest_arrival_time
 
         vehicle.next_immediate_node = next_immediate_node
         vehicle.time_at_next_immediate_node = time_at_next_immediate_node
