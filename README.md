@@ -1,20 +1,46 @@
 # Online-RTV
 
+# Installation
+
+```
+pip install rtv-solver
+```
+
 ## Code example
 
 ### Initialize
 
 ```
-from online_rtv_solver import OnlineRTVSolver
+from rtv_solver import OnlineRTVSolver
 
 # Initialize the RTV solver with the URL of the OSRM server
 online_rtv_solver = OnlineRTVSolver("http://127.0.0.1:50000/")
 ```
 
-### Initialize
+### Check feasibility of time slots
 
 ```
-driver_runs = online_rtv_solver.solve_rtv(current_time,new_payload)
+payload = {
+    "requests": [
+    {
+        'am': int,
+        'wc': int,
+        'time_windows' : [
+            {'pickup_time_window_start': int, 'pickup_time_window_end': int, 'dropoff_time_window_start': int, 'dropoff_time_window_end': int,},
+        ],
+        'pickup_pt': {'lat': float, 'lon': float, 'node_id': int},
+        'booking_id': int,
+        'dropoff_time_window_start': int,
+        'dropoff_time_window_end': int,
+        'dropoff_pt': {'lat': float, 'lon': float, 'node_id': int}
+    }],
+    "driver_runs": driver_runs
+}
+
+feasibility = online_rtv_solver.check_feasibility(payload)
+
+
+feasibility <-- [(feasible_window,vmt/pmt ratio)]
 ```
 
 ### Generating a manifest
@@ -22,6 +48,12 @@ driver_runs = online_rtv_solver.solve_rtv(current_time,new_payload)
 ```
 current_time = 5*3600+30*60 # 05:30:00 pm
 driver_runs = online_rtv_solver.solve_rtv(current_time,new_payload)
+```
+
+#### Fast option
+
+```
+driver_runs = online_rtv_solver.solve_rtv_fast(new_payload)
 ```
 
 ### Simulate the vehicles

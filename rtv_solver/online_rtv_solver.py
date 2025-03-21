@@ -38,11 +38,11 @@ class OnlineRTVSolver:
             request_copy["dropoff_time_window_start"] = time_window["dropoff_time_window_start"]
             request_copy["dropoff_time_window_end"] = time_window["dropoff_time_window_end"]
             best_cost = float("inf")
-            for driver in driver_run:
+            for driver_run in payload["driver_runs"]:
                 cost, _ = self.insert_request_to_driver_run(driver_run, request_copy)
-                if cost < best_cost:
+                if cost >= 0 and cost < best_cost:
                     best_cost = cost
-            if best_cost >= 0:
+            if best_cost < float("inf"):
                 feasible_time_slots.append((time_window,best_cost/request_travel_time))
 
         return feasible_time_slots
