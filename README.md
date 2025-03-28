@@ -47,19 +47,23 @@ feasibility <-- [(feasible_window,vmt/pmt ratio)]
 
 ```
 current_time = 5*3600+30*60 # 05:30:00 pm
-driver_runs = online_rtv_solver.solve_rtv(current_time,new_payload)
+driver_runs, unserved_requests = online_rtv_solver.solve_rtv(current_time, new_payload)
+
+unserved_requests <-- [list of ids of the requests that are not feasible to serve]
 ```
 
 #### Fast option
 
 ```
-driver_runs = online_rtv_solver.solve_rtv_fast(new_payload)
+driver_runs, unserved_requests = online_rtv_solver.solve_rtv_fast(new_payload)
+
+unserved_requests <-- [list of ids of the requests that are not feasible to serve]
 ```
 
 ### Simulate the vehicles
 ```
 current_time = 5*3600+40*60+00 # Simulate to 05:40:00 pm
-new_driver_runs = online_rtv_solver.simulate_manifest(current_time,new_payload["date"],driver_runs)
+new_driver_runs = online_rtv_solver.simulate_manifest(current_time, driver_runs)
 ```
 
 ## Payload format
@@ -143,21 +147,6 @@ new_driver_runs = online_rtv_solver.simulate_manifest(current_time,new_payload["
 }
 ```
 
-# rolling-horizen-RTV
-
-## Running
-
-- Set up an osrm server. Follow https://github.com/Project-OSRM/osrm-backend
-- `cd` into the src folder.
-- run `python main.py --server_url "" --input_file "" --out_put_dir "" --interval 300 --rh_factor 0 --max_cardinality 4`
-- Required parameters:
-    - server_url: Url of the OSRM server (ex: "http://127.0.0.1:5000/")
-    - input_file: path to the payload.pkl file
-    - out_put_dir: directory to record outputs
-    - interval: interval for the rolling horizon and batching
-    - rh_factor: rolling horizon factor
-    - max_cardinality: meximum size of shared trips
-
 # Set up the OSRM Server
 
 ```
@@ -166,4 +155,12 @@ docker run -t -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend osrm-extract -
 docker run -t -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend osrm-partition /data/north-carolina-latest.osrm || echo "osrm-partition failed"
 docker run -t -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend osrm-customize /data/north-carolina-latest.osrm || echo "osrm-customize failed"
 docker run -t -i -p 5000:5000 -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend osrm-routed --algorithm mld /data/north-carolina-latest.osrm
+```
+
+# Building
+
+```
+python -m build
+twine upload dist/rtv_solver-[version]*
+
 ```

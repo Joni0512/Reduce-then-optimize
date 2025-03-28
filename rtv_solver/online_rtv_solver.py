@@ -72,10 +72,14 @@ class OnlineRTVSolver:
 
         NetworkHandler.initialize_travel_time_matrix()
         iteration+=1
+        unserved_requests = set([req.id for req in batch]) - set(active_requests.keys())
         trip_handler = TripHandler(current_time,vehicle_handler.vehicles,batch, active_requests, iteration, self.ILP_SOLVER_TIMEOUT,self.PENALTY,self.MAX_CARDINALITY,self.MAX_THREAD_CNT,self.SHAREABLE_COST_FACTOR,self.REBALANCING,self.RTV_TIMEOUT)
         for vehicle_id in trip_handler.vehicle_assignment:
             vehicle = vehicle_handler.vehicles[vehicle_id]
             trips = trip_handler.vehicle_assignment[vehicle_id]
+            for trip in trips:
+                if trip.request_id in unserved_requests:
+                    unserved_requests.remove(trip.request_id)
             VehicleHandler.add_new_trips(current_time, vehicle, trips, add=True)
 
         # create updated driver runs
@@ -91,7 +95,7 @@ class OnlineRTVSolver:
             new_driver_run = {PayloadParser.DRIVER_STATE:state,PayloadParser.DRIVER_MANIFEST:new_manifest}
             updated_driver_runs.append(new_driver_run)
 
-        return updated_driver_runs #,trip_handler,vehicle_handler,request_handler,payload_object
+        return updated_driver_runs, list(unserved_requests) #,trip_handler,vehicle_handler,request_handler,payload_object
 
     def simulate_manifest(self, current_time, driver_runs, intermediate_location=True):
         NetworkHandler.init(True, self.server_url)
@@ -131,9 +135,10 @@ class OnlineRTVSolver:
             new_driver_runs.append({PayloadParser.DRIVER_STATE:state,PayloadParser.DRIVER_MANIFEST:manifest})
         return new_driver_runs
 
-    def solve_rtv_fast(self, payload):
+    def solve_rtv_fast(self, payload, return_added_vmt=False):
         updated_driver_runs = copy.deepcopy(payload["driver_runs"])
         total_cost = 0
+        unserved_requests = []
         for request in payload["requests"]:
             cheapest_vehicle = None
             cheapest_cost = float("inf")
@@ -148,7 +153,11 @@ class OnlineRTVSolver:
             if cheapest_vehicle is not None:
                 updated_driver_runs[cheapest_vehicle_index] = cheapest_vehicle
                 total_cost += cheapest_cost
-        return updated_driver_runs, total_cost #,trip_handler,vehicle_handler,request_handler,payload_object
+            else:
+                unserved_requests.append(request["booking_id"])
+        if return_added_vmt:
+            return updated_driver_runs, unserved_requests, total_cost
+        return updated_driver_runs, unserved_requests
 
     def evaluate_insertion(args):
         i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state = args
