@@ -47,15 +47,15 @@ feasibility <-- [(feasible_window,vmt/pmt ratio)]
 
 ```
 current_time = 5*3600+30*60 # 05:30:00 pm
-driver_runs, unserved_requests = online_rtv_solver.solve_rtv(current_time, new_payload)
+driver_runs, unserved_requests = online_rtv_solver.solve_pdptw_rtv(current_time, new_payload)
 
 unserved_requests <-- [list of ids of the requests that are not feasible to serve]
 ```
 
-#### Fast option
+#### Fast option with Insertion Heuristic
 
 ```
-driver_runs, unserved_requests = online_rtv_solver.solve_rtv_fast(new_payload)
+driver_runs, unserved_requests = online_rtv_solver.solve_pdptw_heuristic(new_payload)
 
 unserved_requests <-- [list of ids of the requests that are not feasible to serve]
 ```

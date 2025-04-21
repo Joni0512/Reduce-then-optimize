@@ -47,7 +47,7 @@ class OnlineRTVSolver:
 
         return feasible_time_slots
 
-    def solve_rtv(self, current_time, payload):
+    def solve_pdptw_rtv(self, current_time, payload):
         NetworkHandler.init(True, self.server_url)
         payload_object = PayloadParser.get_payload_object(payload)
         request_handler = RequestHandler(payload_object.requests, self.DWELL_PICKUP, self.DWELL_ALIGHT)
@@ -135,7 +135,7 @@ class OnlineRTVSolver:
             new_driver_runs.append({PayloadParser.DRIVER_STATE:state,PayloadParser.DRIVER_MANIFEST:manifest})
         return new_driver_runs
 
-    def solve_rtv_fast(self, payload, return_added_vmt=False):
+    def solve_pdptw_heuristic(self, payload, return_added_vmt=False):
         updated_driver_runs = copy.deepcopy(payload["driver_runs"])
         total_cost = 0
         unserved_requests = []

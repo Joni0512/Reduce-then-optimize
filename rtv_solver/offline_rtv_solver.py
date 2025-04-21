@@ -1,9 +1,9 @@
-from online_rtv_solver import OnlineRTVSolver
-from handlers.request_handler import RequestHandler
-from handlers.network_handler import NetworkHandler
-from handlers.vehicle_handler import VehicleHandler
-from handlers.trip_handler import TripHandler
-from handlers.payload_parser import PayloadParser
+from .online_rtv_solver import OnlineRTVSolver
+from .handlers.request_handler import RequestHandler
+from .handlers.network_handler import NetworkHandler
+from .handlers.vehicle_handler import VehicleHandler
+from .handlers.trip_handler import TripHandler
+from .handlers.payload_parser import PayloadParser
 import copy
 
 class OfflineRTVSolver:
