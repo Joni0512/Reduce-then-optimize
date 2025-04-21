@@ -47,7 +47,14 @@ class OnlineRTVSolver:
 
         return feasible_time_slots
 
-    def solve_pdptw_rtv(self, current_time, payload):
+    def resolve_pdptw_rtv(self, payload):
+        updated_driver_runs, unserved_requests = self.solve_pdptw_rtv(payload)
+        if len(unserved_requests) == 0:
+            return updated_driver_runs
+        else:
+            return payload
+
+    def solve_pdptw_rtv(self, payload):
         NetworkHandler.init(True, self.server_url)
         payload_object = PayloadParser.get_payload_object(payload)
         request_handler = RequestHandler(payload_object.requests, self.DWELL_PICKUP, self.DWELL_ALIGHT)
@@ -73,14 +80,14 @@ class OnlineRTVSolver:
         NetworkHandler.initialize_travel_time_matrix()
         iteration+=1
         unserved_requests = set([req.id for req in batch]) - set(active_requests.keys())
-        trip_handler = TripHandler(current_time,vehicle_handler.vehicles,batch, active_requests, iteration, self.ILP_SOLVER_TIMEOUT,self.PENALTY,self.MAX_CARDINALITY,self.MAX_THREAD_CNT,self.SHAREABLE_COST_FACTOR,self.REBALANCING,self.RTV_TIMEOUT)
+        trip_handler = TripHandler(vehicle_handler.vehicles,batch, active_requests, iteration, self.ILP_SOLVER_TIMEOUT,self.PENALTY,self.MAX_CARDINALITY,self.MAX_THREAD_CNT,self.SHAREABLE_COST_FACTOR,self.REBALANCING,self.RTV_TIMEOUT)
         for vehicle_id in trip_handler.vehicle_assignment:
             vehicle = vehicle_handler.vehicles[vehicle_id]
             trips = trip_handler.vehicle_assignment[vehicle_id]
             for trip in trips:
                 if trip.request_id in unserved_requests:
                     unserved_requests.remove(trip.request_id)
-            VehicleHandler.add_new_trips(current_time, vehicle, trips, add=True)
+            VehicleHandler.add_new_trips(vehicle, trips, add=True)
 
         # create updated driver runs
         updated_driver_runs = []
@@ -178,7 +185,7 @@ class OnlineRTVSolver:
                 current_time = stop["time_window_start"]
             stop["scheduled_time"] = current_time
             if objective == "pick_up_time" and (i == index or j == index):
-                stop["time_window_end"] = current_time
+                stop["time_window_end"] = current_time + 30
             if current_time > stop["time_window_end"]:
                 return float("inf"), None
             if stop["action"] == "pickup":
@@ -271,7 +278,7 @@ class OnlineRTVSolver:
         new_driver_run[PayloadParser.DRIVER_MANIFEST] = completed_stops + best_insertion
         new_driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_T_LOCS] = len(new_driver_run[PayloadParser.DRIVER_MANIFEST])
         if objective == "pick_up_time":
-            best_cost,new_driver_run
+            return best_cost,new_driver_run
         return best_cost-prev_cost,new_driver_run
 
 
@@ -290,3 +297,78 @@ class OnlineRTVSolver:
                     earliest_vehicle_index = vehicle_index
             updated_driver_runs[earliest_vehicle_index] = earliest_vehicle
         return updated_driver_runs
+
+    def get_stats(self, payload, manifest):
+        feasible = True
+        stats = {}
+        stats["vmt"] = 0
+        stats["pmt"] = 0
+        stats["serviced"] = 0
+        stats["wait_time"] = []
+        stats["detour"] = []
+
+        NetworkHandler.init(True, self.server_url)
+        request_stops = {}
+        for driver_run in manifest:
+            # print(driver_run["state"]["run_id"])
+            load = 0
+            current_node = Node(payload["depot"]["pt"]["lat"],payload["depot"]["pt"]["lon"])
+            current_time = driver_run["state"]["start_time"]
+            for stop in driver_run["manifest"]:
+                booking_id = stop["booking_id"]
+                if booking_id not in request_stops:
+                    request_stops[booking_id] = {}
+                action = stop["action"]
+                served_time = stop["scheduled_time"]
+                next_node = Node(stop["loc"]["lat"],stop["loc"]["lon"])
+                duration = NetworkHandler.travel_time(current_node,next_node)
+                stats["vmt"] += duration
+                current_time += duration
+                if current_time > served_time+0.5:
+                    feasible = False
+                    print("Error: Scheduled time is impossible ", current_time-served_time)
+                    print("Current time: ",current_time)
+                    print("Scheduled time: ",served_time)
+                    print(stop)
+                if current_time < served_time:
+                    current_time = served_time
+                
+                if served_time < stop["time_window_start"]:
+                    feasible = False
+                    print("Error: Served before window start")
+                if served_time > stop["time_window_end"]:
+                    feasible = False
+                    print("Error: Served after window end")
+                if action == "pickup":
+                    load += stop["am"]
+                    current_time += 180
+                    if "pick_up" in request_stops[booking_id]:
+                        print("Error: Pick up already exists")
+                    request_stops[booking_id]["pick_up"] = stop
+                else:
+                    current_time += 60
+                    load -= stop["am"]
+                    if "drop_off" in request_stops[booking_id]:
+                        feasible = False
+                        print("Error: Drop off already exists")
+                    if "pick_up" not in request_stops[booking_id]:
+                        feasible = False
+                        print("Error: Drop off before pick up")
+                    request_stops[booking_id]["drop_off"] = stop
+                    stats["serviced"] += 1
+                if load > driver_run["state"]["am_capacity"]:
+                    feasible = False
+                    print("Error: Over capacity")
+                current_node = next_node
+
+        for served in request_stops:
+            if "drop_off" not in request_stops[served]:
+                feasible = False
+                print("Error: Request not dropped off")
+            origin = Node(request_stops[served]["pick_up"]["loc"]["lat"],request_stops[served]["pick_up"]["loc"]["lon"])
+            destination = Node(request_stops[served]["drop_off"]["loc"]["lat"],request_stops[served]["drop_off"]["loc"]["lon"])
+            travel_time = NetworkHandler.travel_time(origin,destination)
+            stats["pmt"] += travel_time
+            stats["wait_time"].append(request_stops[served]["pick_up"]["scheduled_time"]-request_stops[served]["pick_up"]["time_window_start"])
+            stats["detour"].append(request_stops[served]["drop_off"]["scheduled_time"]-request_stops[served]["pick_up"]["scheduled_time"]-travel_time)
+        return feasible, stats

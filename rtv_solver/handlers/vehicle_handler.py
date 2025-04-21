@@ -327,7 +327,7 @@ class VehicleHandler:
             return True
         return False
     
-    def add_new_trips(current_time, vehicle, new_trips, add=False):
+    def add_new_trips(vehicle, new_trips, add=False):
         feasible = False
         added_cost = -1
         if vehicle.started:
@@ -516,7 +516,7 @@ class VehicleHandler:
                 break
         return best_sequence, current_lowest_cost, feasible, best_last_node, best_time_at_last_node
 
-    def can_serve_trips(current_time,trips,new_trip,current_sequence):
+    def can_serve_trips(trips,new_trip,current_sequence):
         trips_to_pick_up = []
         trips_to_drop_off = []
         nodes = []
@@ -531,6 +531,7 @@ class VehicleHandler:
         best_sequence = None
         starting_locations = []
         # if len(current_sequence) == 0:
+        current_time = new_trip.pick_up_time
         for trip_id in trips:
             starting_locations.append(trips[trip_id].origin)
         # else:

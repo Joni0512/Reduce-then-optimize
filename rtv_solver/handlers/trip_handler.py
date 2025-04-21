@@ -12,7 +12,7 @@ from gurobipy import GRB
 import time
 
 class TripHandler:
-    def __init__(self,current_time,vehicles,requests,active_requests,iteration,solver_timeout,penalty,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR,REBALANCING,rtv_timeout):
+    def __init__(self,vehicles,requests,active_requests,iteration,solver_timeout,penalty,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR,REBALANCING,rtv_timeout):
         self.trips = []
         self.shared_trips_map = {}
         self.ondemand_only_trip_map = {}
@@ -24,10 +24,10 @@ class TripHandler:
         self.vehicle_assignment = {}
         self.request_assignment = {}
         self.starting_time = time.time()
-        self.generate_ondemand_only_trips(requests,current_time,iteration)
-        self.generate_trip_costs(vehicles,current_time,MAX_THREAD_CNT,0)
-        self.generate_shared_trips(vehicles,current_time,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR)
-        self.assign_trips_gurobi(requests,active_requests,penalty,current_time)
+        self.generate_ondemand_only_trips(requests,iteration)
+        self.generate_trip_costs(vehicles,MAX_THREAD_CNT,0)
+        self.generate_shared_trips(vehicles,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR)
+        self.assign_trips_gurobi(requests,active_requests,penalty)
         if REBALANCING:
             self.get_rebalancing_trips(vehicles,requests)
 
@@ -42,7 +42,7 @@ class TripHandler:
     def get_trip_cost(self,origin,destination):
         return NetworkHandler.travel_distance(origin,destination)
     
-    def generate_ondemand_only_trips(self,requests,current_time,iteration):
+    def generate_ondemand_only_trips(self,requests,iteration):
         for request in requests:
             origin = request.origin
             destination = request.destination
@@ -85,8 +85,8 @@ class TripHandler:
         distance = NetworkHandler.travel_distance(origin,destination)
         return distance <= self.walk_distance_cutoff
 
-    def create_trip_cost(vehicle,current_time,trip_no,trips):
-        added_cost, feasibility = VehicleHandler.add_new_trips(current_time, vehicle, trips, add=False)
+    def create_trip_cost(vehicle,trip_no,trips):
+        added_cost, feasibility = VehicleHandler.add_new_trips(vehicle, trips, add=False)
         if feasibility:
             return TripCost(trip_no,vehicle.id,added_cost)
         return None
@@ -95,7 +95,7 @@ class TripHandler:
         if trip_cost != None:
             TripHandler.trip_costs.append(trip_cost)
 
-    def generate_trip_costs(self,vehicles,current_time,max_num_thread,trip_start):
+    def generate_trip_costs(self,vehicles,max_num_thread,trip_start):
         if trip_start == 0:
             TripHandler.trip_costs = []
 
@@ -115,7 +115,7 @@ class TripHandler:
             if trip_start > 0:
                 selected_vehicle_ids = self.common_vehicles_of_trips(trips)
             for vehicle_id in selected_vehicle_ids:
-                pool.apply_async(TripHandler.create_trip_cost, args=(vehicles[vehicle_id],current_time,trip.number,trips,), callback=TripHandler.process_result)
+                pool.apply_async(TripHandler.create_trip_cost, args=(vehicles[vehicle_id],trip.number,trips,), callback=TripHandler.process_result)
         pool.close()
         pool.join()
 
@@ -141,8 +141,8 @@ class TripHandler:
                     self.trip_to_vehicle_cost_map[sub_trip_no].append(trip_cost_index)
             trip_cost_index+=1
 
-    def can_share_trips(current_time,trips,trip_nos,new_trip,current_cost,current_sequence,SHAREABLE_COST_FACTOR):
-        feasible, cost, sequence = VehicleHandler.can_serve_trips(current_time,trips,new_trip,current_sequence)
+    def can_share_trips(trips,trip_nos,new_trip,current_cost,current_sequence,SHAREABLE_COST_FACTOR):
+        feasible, cost, sequence = VehicleHandler.can_serve_trips(trips,new_trip,current_sequence)
         if feasible and cost <= SHAREABLE_COST_FACTOR*current_cost:
             return SharedTrip(0,trip_nos,cost,sequence)
         return None
@@ -175,7 +175,7 @@ class TripHandler:
                 return common_vehicles
         return common_vehicles
 
-    def generate_shared_trips(self,vehicles,current_time,max_cardinality,max_num_thread,SHAREABLE_COST_FACTOR):
+    def generate_shared_trips(self,vehicles,max_cardinality,max_num_thread,SHAREABLE_COST_FACTOR):
         cardinality = 2
         self.selected_combinations = []
         while cardinality <= max_cardinality:
@@ -197,7 +197,7 @@ class TripHandler:
                         trip = self.trips[trip_no]
                         trips[trip.id] = trip
                     if len(self.common_vehicles_of_trips(trips.values())) > 0:
-                        pool.apply_async(TripHandler.can_share_trips,args=(current_time,trips,set(trip_nos),trip1.id,current_cost,[],SHAREABLE_COST_FACTOR,), callback=TripHandler.process_shared_trip_result)
+                        pool.apply_async(TripHandler.can_share_trips,args=(trips,set(trip_nos),trip1.id,current_cost,[],SHAREABLE_COST_FACTOR,), callback=TripHandler.process_shared_trip_result)
                 pool.close()
                 pool.join()
             else:
@@ -227,14 +227,14 @@ class TripHandler:
                                         temp_trip = self.trips[trip_no]
                                         trips[temp_trip.id] = temp_trip
                                     if len(self.common_vehicles_of_trips(trips.values())) > 0:
-                                        pool.apply_async(TripHandler.can_share_trips,args=(current_time,trips,trip_nos,trip.id,current_cost,shared_trip1.sequence,SHAREABLE_COST_FACTOR,), callback=TripHandler.process_shared_trip_result)
+                                        pool.apply_async(TripHandler.can_share_trips,args=(trips,trip_nos,trip.id,current_cost,shared_trip1.sequence,SHAREABLE_COST_FACTOR,), callback=TripHandler.process_shared_trip_result)
                 pool.close()
                 pool.join()
             
             self.update_shared_trip_numbers(cardinality)
             if len(self.shared_trips_map[cardinality]) == 0:
                 break
-            self.generate_trip_costs(vehicles,current_time,max_num_thread,trip_start)
+            self.generate_trip_costs(vehicles,max_num_thread,trip_start)
             logging.debug("time to generate cardinal {0} trips: {1}".format(cardinality,time.time()-st))
             logging.debug("Number of cardinal {0} trips: {1}".format(cardinality,len(self.shared_trips_map[cardinality])))
             cardinality+=1
@@ -247,7 +247,7 @@ class TripHandler:
             return 1
         return 0
     
-    def assign_trips_gurobi(self,requests,active_requests,penalty,current_time):
+    def assign_trips_gurobi(self,requests,active_requests,penalty):
         trip_count = len(TripHandler.trip_costs)
         request_count = len(requests)
 
@@ -296,7 +296,7 @@ class TripHandler:
             self.added_distance = 0
 
             if m.Status == GRB.OPTIMAL or m.Status == GRB.SUBOPTIMAL:
-                self.log_with_timestamp(current_time,"Total time spent on optimization: {0}".format(m.Runtime))
+                logging.info("Total time spent on optimization: {0}".format(m.Runtime))
 
 
                 for vehicle_id in self.vehicle_to_trips_cost_map:
@@ -333,7 +333,7 @@ class TripHandler:
             else:
                 self.unassigned_trip_count = request_count
                 raise Exception("Gurobi solver ended with code: {0}".format(m.Status))
-            logging.info('{0}: No of requests: {1}, unassigned requests: {2}, assigned requests: {3}'.format(current_time,request_count,self.unassigned_trip_count,self.taxi_only_trip_count))
+            logging.info('No of requests: {0}, unassigned requests: {1}, assigned requests: {2}'.format(request_count,self.unassigned_trip_count,self.taxi_only_trip_count))
 
     def get_rebalancing_trips(self,vehicles,requests):
         empty_vehicles = []

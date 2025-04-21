@@ -47,7 +47,7 @@ feasibility <-- [(feasible_window,vmt/pmt ratio)]
 
 ```
 current_time = 5*3600+30*60 # 05:30:00 pm
-driver_runs, unserved_requests = online_rtv_solver.solve_pdptw_rtv(current_time, new_payload)
+driver_runs, unserved_requests = online_rtv_solver.solve_pdptw_rtv(new_payload)
 
 unserved_requests <-- [list of ids of the requests that are not feasible to serve]
 ```
@@ -64,6 +64,18 @@ unserved_requests <-- [list of ids of the requests that are not feasible to serv
 ```
 current_time = 5*3600+40*60+00 # Simulate to 05:40:00 pm
 new_driver_runs = online_rtv_solver.simulate_manifest(current_time, driver_runs)
+```
+
+### Regenerating a manifest
+
+```
+payload = {
+    "driver_runs": driver_runs,
+    "depot": depot
+}
+
+driver_runs = online_rtv_solver.solve_pdptw_rtv(payload)
+
 ```
 
 ## Payload format

@@ -63,9 +63,10 @@ class PayloadParser:
 
         requests = []
 
-        for request_data in payload["requests"]:
-            request = PayloadParser.build_request(request_data)
-            requests.append(request)
+        if 'requests' in payload:
+            for request_data in payload["requests"]:
+                request = PayloadParser.build_request(request_data)
+                requests.append(request)
             
         for req_id in active_requests_data:
             requests.append(active_requests_data[req_id])
