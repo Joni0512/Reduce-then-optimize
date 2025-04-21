@@ -38,6 +38,8 @@ class OfflineRTVSolver:
         current_time = max(0,start_time - interval)
         driver_runs = payload["driver_runs"]
 
+        unserved_requests = []
+
         while current_time < end_time:
             # select the requests that are to be considered in the current interval
             selected_requests = {}
@@ -63,11 +65,12 @@ class OfflineRTVSolver:
             if len(selected_requests) == 0:
                 new_driver_runs = driver_runs
             else:             
-                new_driver_runs = online_rtv_solver.solve_rtv(current_time,new_payload)
+                new_driver_runs, unserved = online_rtv_solver.solve_pdptw_rtv(new_payload)
+                unserved_requests.extend(unserved)
             current_time += step_size
 
             # simulate the driver runs
             simulated_driver_runs = online_rtv_solver.simulate_manifest(current_time,new_driver_runs,intermediate_location=False)
             driver_runs = simulated_driver_runs
 
-        return driver_runs
+        return driver_runs, unserved_requests
