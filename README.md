@@ -60,6 +60,18 @@ driver_runs, unserved_requests = online_rtv_solver.solve_pdptw_heuristic(new_pay
 unserved_requests <-- [list of ids of the requests that are not feasible to serve]
 ```
 
+#### Serve a request as soon as possible
+
+```
+new_payload = {
+    "depot": {},
+    "requests": [],
+    "driver_runs": []
+}
+
+driver_runs = online_rtv_solver.serve_asap(new_payload)
+```
+
 ### Simulate the vehicles
 ```
 current_time = 5*3600+40*60+00 # Simulate to 05:40:00 pm
@@ -74,7 +86,7 @@ payload = {
     "depot": depot
 }
 
-driver_runs = online_rtv_solver.solve_pdptw_rtv(payload)
+driver_runs = online_rtv_solver.resolve_pdptw_rtv(payload)
 
 ```
 
