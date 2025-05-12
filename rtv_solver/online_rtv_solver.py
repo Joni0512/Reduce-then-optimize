@@ -5,6 +5,8 @@ from .handlers.trip_handler import TripHandler
 from .handlers.payload_parser import PayloadParser
 from .structure.node import Node
 import copy
+import multiprocessing
+import sys
 from multiprocessing import Pool
 import time
 
@@ -23,6 +25,8 @@ class OnlineRTVSolver:
         self.DWELL_ALIGHT = 60
         self.LARGEST_TSP = LARGEST_TSP
         self.server_url = server_url
+        if sys.platform == "darwin":
+            multiprocessing.set_start_method("fork")
 
     def check_feasibility(self, payload):
         NetworkHandler.init(True, self.server_url)

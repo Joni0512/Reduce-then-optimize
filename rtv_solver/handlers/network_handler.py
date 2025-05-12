@@ -4,6 +4,7 @@ import time
 import numpy as np
 from multiprocessing.sharedctypes import RawArray, RawValue
 import ctypes
+import math
 
 class NetworkHandler:
     def init(server_based,server_url=None,tt_matrix=None):
@@ -32,14 +33,27 @@ class NetworkHandler:
 
     def initialize_travel_time_matrix():
         global SERVER_BASED,travel_time_matrix,no_of_nodes
+        num_nodes = len(NetworkHandler.node_data)
+        travel_time_matrix = np.zeros((num_nodes,num_nodes),dtype=np.float64)
+        MAX_NUM_COORD = 50
+
         coordinates = []
         for node in NetworkHandler.node_data:
             coordinate = "{0},{1}".format(node["lon"],node["lat"])
             coordinates.append(coordinate)
-        url="{0}{1}".format(table_url,";".join(coordinates))
-        data = NetworkHandler.get_response(url)
 
-        travel_time_matrix = np.array(data['durations'])
+        iterations = math.ceil(num_nodes/MAX_NUM_COORD)
+        for i in range(iterations):
+            for j in range(iterations):
+                origins = coordinates[i*MAX_NUM_COORD:(i+1)*MAX_NUM_COORD]
+                destinations = coordinates[j*MAX_NUM_COORD:(j+1)*MAX_NUM_COORD]
+                origin_indices = [str(k) for k in range(len(origins))]
+                destination_indices = [str(len(origins)+k) for k in range(len(destinations))]
+                url="{0}{1}?sources={2}&destinations={3}".format(table_url,";".join(origins+destinations),";".join(origin_indices),";".join(destination_indices))
+                data = NetworkHandler.get_response(url)
+                matrix = np.array(data['durations'])
+                travel_time_matrix[i*MAX_NUM_COORD:(i+1)*MAX_NUM_COORD,j*MAX_NUM_COORD:(j+1)*MAX_NUM_COORD] = matrix
+
         no_of_nodes = RawValue(ctypes.c_uint, travel_time_matrix.shape[0])
         SERVER_BASED = RawValue(ctypes.c_bool, False)
         travel_time_matrix = RawArray(np.ctypeslib.as_ctypes_type(travel_time_matrix.dtype), travel_time_matrix.flatten())

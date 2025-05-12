@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="rtv_solver",
-    version="0.1.16",
+    version="0.1.20",
     description="A solver for real-time vehicle routing problems",
     author="Danushka Edirimanna",
     author_email="ke233@cornell.edu",
