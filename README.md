@@ -90,6 +90,29 @@ driver_runs = online_rtv_solver.resolve_pdptw_rtv(payload)
 
 ```
 
+### Get stats from the manifest
+
+```
+depot = {
+    "pt": {"lat": val, "lon": val}
+}
+
+driver_runs <- generated driver runs
+
+feasibility, stats = online_rtv_solver.get_stats(depot, driver_runs)
+
+feasibility {true or false} <- Is this schedule feasibile
+
+stats = {
+    "vmt": ,
+    "pmt": ,
+    "serviced": ,
+    "wait_time": [wait time for each request],
+    "detour": [detour for each request]
+}
+
+```
+
 ## Payload format
 
 ### Common format
