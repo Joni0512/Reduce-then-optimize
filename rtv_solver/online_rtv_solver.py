@@ -12,12 +12,12 @@ import time
 
 class OnlineRTVSolver:
 
-    def __init__(self,server_url,SHAREABLE_COST_FACTOR=1,RTV_TIMEOUT=3000, LARGEST_TSP = 10):
+    def __init__(self,server_url,SHAREABLE_COST_FACTOR=1,RTV_TIMEOUT=3000, LARGEST_TSP = 10, MAX_CARDINALITY = 8, ):
         self.ILP_SOLVER_TIMEOUT = 120 # seconds
         self.RTV_TIMEOUT = RTV_TIMEOUT #seconds
         self.PENALTY = 1000000 # penalty for not serving a trip
         self.SHAREABLE_COST_FACTOR = SHAREABLE_COST_FACTOR
-        self.MAX_CARDINALITY = 4
+        self.MAX_CARDINALITY = MAX_CARDINALITY
         self.MAX_THREAD_CNT = 64
         self.REBALANCING = False
         self.RH_FACTOR = 1
@@ -302,7 +302,7 @@ class OnlineRTVSolver:
             updated_driver_runs[earliest_vehicle_index] = earliest_vehicle
         return updated_driver_runs
 
-    def get_stats(self, payload, manifest):
+    def get_stats(self, depot, manifest):
         feasible = True
         stats = {}
         stats["vmt"] = 0
@@ -316,7 +316,7 @@ class OnlineRTVSolver:
         for driver_run in manifest:
             # print(driver_run["state"]["run_id"])
             load = 0
-            current_node = Node(payload["depot"]["pt"]["lat"],payload["depot"]["pt"]["lon"])
+            current_node = Node(depot["pt"]["lat"],depot["pt"]["lon"])
             current_time = driver_run["state"]["start_time"]
             for stop in driver_run["manifest"]:
                 booking_id = stop["booking_id"]
