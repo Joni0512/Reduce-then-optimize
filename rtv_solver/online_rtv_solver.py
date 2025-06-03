@@ -43,7 +43,7 @@ class OnlineRTVSolver:
             request_copy["dropoff_time_window_end"] = time_window["dropoff_time_window_end"]
             best_cost = float("inf")
             for driver_run in payload["driver_runs"]:
-                cost, _ = self.insert_request_to_driver_run(driver_run, request_copy)
+                cost, _ = self.insert_request_to_driver_run(payload["depot"], driver_run, request_copy)
                 if cost >= 0 and cost < best_cost:
                     best_cost = cost
             if best_cost < float("inf"):
@@ -156,7 +156,7 @@ class OnlineRTVSolver:
             cheapest_vehicle_index = -1
             for vehicle_index in range(len(updated_driver_runs)):
                 driver_run = updated_driver_runs[vehicle_index]
-                cost, new_driver_run = self.insert_request_to_driver_run(driver_run, request)
+                cost, new_driver_run = self.insert_request_to_driver_run(payload["depot"], driver_run, request)
                 if cost >=0 and cost < cheapest_cost:
                     cheapest_cost = cost
                     cheapest_vehicle = new_driver_run
@@ -171,7 +171,7 @@ class OnlineRTVSolver:
         return updated_driver_runs, unserved_requests
 
     def evaluate_insertion(args):
-        i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective = args
+        i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective, depot, end_time = args
         new_manifest = copy.deepcopy(remaining_stops[:i] + [pickup_stop] + remaining_stops[i:j] + [dropoff_stop] + remaining_stops[j:])
         current_time = start_time
         current_node = start_node
@@ -203,13 +203,19 @@ class OnlineRTVSolver:
             order += 1
             stop["order"] = order
             index += 1
+
+        if current_time+NetworkHandler.travel_time(current_node,depot) > end_time:
+            return float("inf"), None
         if objective == "pick_up_time":
             return new_manifest[i]["scheduled_time"], new_manifest
         return cost, new_manifest
 
-    def insert_request_to_driver_run(self, driver_run, request, objective="vmt"):
+    def insert_request_to_driver_run(self, depot, driver_run, request, objective="vmt"):
         NetworkHandler.init(True, self.server_url)
         driver_run_c = copy.deepcopy(driver_run)
+
+        depot_node_id = NetworkHandler.get_next_node_id(depot["pt"]["lat"],depot["pt"]["lon"])
+        depot_node = Node(depot["pt"]["lat"],depot["pt"]["lon"], id=depot_node_id)
 
         pickup_stop = {'run_id': None, 'booking_id': request['booking_id'], 'order': -1, 'action': "pickup", 
             "loc": request["pickup_pt"], 'scheduled_time': -1, 
@@ -258,9 +264,10 @@ class OnlineRTVSolver:
             prev_cost += NetworkHandler.travel_time(current_node,next_node)
             current_node = next_node
 
+        end_time = state["end_time"]
         st_th = time.time()
         pool = Pool(processes=max(1,min(len(remaining_stops), 8)))
-        args_list = [(i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective) 
+        args_list = [(i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective, depot_node, end_time) 
                      for i in range(len(remaining_stops) + 1) 
                      for j in range(i + 1, len(remaining_stops) + 2)]
         results = pool.map(OnlineRTVSolver.evaluate_insertion, args_list)
@@ -294,7 +301,7 @@ class OnlineRTVSolver:
             earliest_vehicle_index = -1
             for vehicle_index in range(len(updated_driver_runs)):
                 driver_run = updated_driver_runs[vehicle_index]
-                pick_up_time, new_driver_run = self.insert_request_to_driver_run(driver_run, request, objective = "pick_up_time")
+                pick_up_time, new_driver_run = self.insert_request_to_driver_run(payload["depot"], driver_run, request, objective = "pick_up_time")
                 if pick_up_time >=0 and pick_up_time < earliest_time:
                     earliest_time = pick_up_time
                     earliest_vehicle = new_driver_run
@@ -302,7 +309,7 @@ class OnlineRTVSolver:
             updated_driver_runs[earliest_vehicle_index] = earliest_vehicle
         return updated_driver_runs
 
-    def get_stats(self, depot, manifest):
+    def get_stats(self, depot, manifest, travel_time_error_margin=5):
         feasible = True
         stats = {}
         stats["vmt"] = 0
@@ -314,7 +321,6 @@ class OnlineRTVSolver:
         NetworkHandler.init(True, self.server_url)
         request_stops = {}
         for driver_run in manifest:
-            # print(driver_run["state"]["run_id"])
             load = 0
             current_node = Node(depot["pt"]["lat"],depot["pt"]["lon"])
             current_time = driver_run["state"]["start_time"]
@@ -328,9 +334,11 @@ class OnlineRTVSolver:
                 duration = NetworkHandler.travel_time(current_node,next_node)
                 stats["vmt"] += duration
                 current_time += duration
-                if current_time > served_time+0.5:
+                if current_time > served_time + travel_time_error_margin:  # Allow a small margin of error
                     feasible = False
                     print("Error: Scheduled time is impossible ", current_time-served_time)
+                    if duration > 0:
+                        print(100*(current_time - served_time)/duration)
                     print("Current time: ",current_time)
                     print("Scheduled time: ",served_time)
                     print(stop)

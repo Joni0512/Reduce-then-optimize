@@ -197,7 +197,7 @@ class TripHandler:
                         trip = self.trips[trip_no]
                         trips[trip.id] = trip
                     if len(self.common_vehicles_of_trips(trips.values())) > 0:
-                        pool.apply_async(TripHandler.can_share_trips,args=(trips,set(trip_nos),trip1.id,current_cost,[],SHAREABLE_COST_FACTOR,), callback=TripHandler.process_shared_trip_result)
+                        pool.apply_async(TripHandler.can_share_trips,args=(trips,set(trip_nos),trip1,current_cost,[],SHAREABLE_COST_FACTOR,), callback=TripHandler.process_shared_trip_result)
                 pool.close()
                 pool.join()
             else:
@@ -227,7 +227,7 @@ class TripHandler:
                                         temp_trip = self.trips[trip_no]
                                         trips[temp_trip.id] = temp_trip
                                     if len(self.common_vehicles_of_trips(trips.values())) > 0:
-                                        pool.apply_async(TripHandler.can_share_trips,args=(trips,trip_nos,trip.id,current_cost,shared_trip1.sequence,SHAREABLE_COST_FACTOR,), callback=TripHandler.process_shared_trip_result)
+                                        pool.apply_async(TripHandler.can_share_trips,args=(trips,trip_nos,trip,current_cost,shared_trip1.sequence,SHAREABLE_COST_FACTOR,), callback=TripHandler.process_shared_trip_result)
                 pool.close()
                 pool.join()
             

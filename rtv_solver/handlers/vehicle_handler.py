@@ -533,6 +533,8 @@ class VehicleHandler:
         # if len(current_sequence) == 0:
         current_time = new_trip.pick_up_time
         for trip_id in trips:
+            if trips[trip_id].pick_up_time < current_time:
+                current_time = trips[trip_id].pick_up_time
             starting_locations.append(trips[trip_id].origin)
         # else:
         #     starting_locations.append(current_sequence[0].node)
