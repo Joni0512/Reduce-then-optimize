@@ -12,7 +12,7 @@ import time
 
 class OnlineRTVSolver:
 
-    def __init__(self,server_url,SHAREABLE_COST_FACTOR=1,RTV_TIMEOUT=3000, LARGEST_TSP = 10, MAX_CARDINALITY = 8, ):
+    def __init__(self,server_url,SHAREABLE_COST_FACTOR=1.5,RTV_TIMEOUT=3000, LARGEST_TSP = 10, MAX_CARDINALITY = 8, ):
         self.ILP_SOLVER_TIMEOUT = 120 # seconds
         self.RTV_TIMEOUT = RTV_TIMEOUT #seconds
         self.PENALTY = 1000000 # penalty for not serving a trip
@@ -314,7 +314,10 @@ class OnlineRTVSolver:
         stats = {}
         stats["vmt"] = 0
         stats["pmt"] = 0
+        stats["vmt/pmt"] = 0
         stats["serviced"] = 0
+        stats["average_wait_time"] = 0
+        stats["average_detour"] = 0
         stats["wait_time"] = []
         stats["detour"] = []
 
@@ -383,4 +386,9 @@ class OnlineRTVSolver:
             stats["pmt"] += travel_time
             stats["wait_time"].append(request_stops[served]["pick_up"]["scheduled_time"]-request_stops[served]["pick_up"]["time_window_start"])
             stats["detour"].append(request_stops[served]["drop_off"]["scheduled_time"]-request_stops[served]["pick_up"]["scheduled_time"]-travel_time)
+        if stats["pmt"] > 0:
+            stats["vmt/pmt"] = stats["vmt"] / stats["pmt"]
+        if stats["serviced"] > 0:
+            stats["average_wait_time"] = sum(stats["wait_time"]) / stats["serviced"]
+            stats["average_detour"] = sum(stats["detour"]) / stats["serviced"]
         return feasible, stats

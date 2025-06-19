@@ -542,9 +542,9 @@ class VehicleHandler:
         for starting_location in starting_locations:
             sequence,cost,t_feasible = None,None,None
             if 2*len(trips) <= VehicleHandler.LARGEST_TSP:
-                sequence,cost,t_feasible,_,_ = VehicleHandler.get_exact_stop_sequence(starting_location,current_time,VehicleHandler.MAX_AM_CAPACITY,VehicleHandler.MAX_VC_CAPACITY,trips,trips_to_pick_up,trips_to_drop_off,current_sequence,0,tt_matrix, node_indices)
+                sequence,cost,t_feasible,_,_ = VehicleHandler.get_exact_stop_sequence(starting_location,current_time,VehicleHandler.MAX_AM_CAPACITY,VehicleHandler.MAX_VC_CAPACITY,trips,trips_to_pick_up,trips_to_drop_off,[],0,tt_matrix, node_indices)
             else:
-                sequence,cost,t_feasible,_,_ = VehicleHandler.get_heuristic_stop_sequence(starting_location,current_time,VehicleHandler.MAX_AM_CAPACITY,VehicleHandler.MAX_VC_CAPACITY,trips,[new_trip],[new_trip],current_sequence,tt_matrix, node_indices)
+                sequence,cost,t_feasible,_,_ = VehicleHandler.get_heuristic_stop_sequence(starting_location,current_time,VehicleHandler.MAX_AM_CAPACITY,VehicleHandler.MAX_VC_CAPACITY,trips,[new_trip.id],[new_trip.id],current_sequence,tt_matrix, node_indices)
             
             if t_feasible:
                 if not feasible or best_cost > cost:
