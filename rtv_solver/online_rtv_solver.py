@@ -12,7 +12,7 @@ import time
 
 class OnlineRTVSolver:
 
-    def __init__(self,server_url,SHAREABLE_COST_FACTOR=1.5,RTV_TIMEOUT=3000, LARGEST_TSP = 10, MAX_CARDINALITY = 8, ):
+    def __init__(self,server_url,SHAREABLE_COST_FACTOR=2,RTV_TIMEOUT=3000, LARGEST_TSP = 10, MAX_CARDINALITY = 8, ):
         self.ILP_SOLVER_TIMEOUT = 120 # seconds
         self.RTV_TIMEOUT = RTV_TIMEOUT #seconds
         self.PENALTY = 1000000 # penalty for not serving a trip
@@ -84,7 +84,11 @@ class OnlineRTVSolver:
         NetworkHandler.initialize_travel_time_matrix()
         iteration+=1
         unserved_requests = set([req.id for req in batch]) - set(active_requests.keys())
-        trip_handler = TripHandler(vehicle_handler.vehicles,batch, active_requests, iteration, self.ILP_SOLVER_TIMEOUT,self.PENALTY,self.MAX_CARDINALITY,self.MAX_THREAD_CNT,self.SHAREABLE_COST_FACTOR,self.REBALANCING,self.RTV_TIMEOUT)
+        try:
+            trip_handler = TripHandler(vehicle_handler.vehicles,batch, active_requests, iteration, self.ILP_SOLVER_TIMEOUT,self.PENALTY,self.MAX_CARDINALITY,self.MAX_THREAD_CNT,self.SHAREABLE_COST_FACTOR,self.REBALANCING,self.RTV_TIMEOUT)
+        except Exception as e:
+            print("Error in TripHandler:", e)
+            return self.solve_pdptw_heuristic(payload)
         for vehicle_id in trip_handler.vehicle_assignment:
             vehicle = vehicle_handler.vehicles[vehicle_id]
             trips = trip_handler.vehicle_assignment[vehicle_id]
@@ -106,7 +110,33 @@ class OnlineRTVSolver:
             new_driver_run = {PayloadParser.DRIVER_STATE:state,PayloadParser.DRIVER_MANIFEST:new_manifest}
             updated_driver_runs.append(new_driver_run)
 
+        self.check_consistency_of_manifests(payload["driver_runs"], updated_driver_runs, unserved_requests, payload["requests"])
         return updated_driver_runs, list(unserved_requests) #,trip_handler,vehicle_handler,request_handler,payload_object
+
+    def check_consistency_of_manifests(self, prev_driver_runs, new_driver_runs, unserved_requests, new_requests):
+        picked_requests = set([req["booking_id"] for req in new_requests])
+        dropped_requests = set([req["booking_id"] for req in new_requests])
+        for driver_run in prev_driver_runs:
+            for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
+                if stop["action"] == "pickup":
+                    picked_requests.add(stop["booking_id"])
+                else:
+                    dropped_requests.add(stop["booking_id"])
+        
+        new_served_requests = set()
+        for driver_run in new_driver_runs:
+            for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
+                if stop["action"] == "pickup":
+                    picked_requests.remove(stop["booking_id"])
+                else:
+                    dropped_requests.remove(stop["booking_id"])
+        for req_id in unserved_requests:
+            picked_requests.remove(req_id)
+            dropped_requests.remove(req_id)
+        if len(picked_requests) > 0 or len(dropped_requests) > 0:
+            print("Missing requests:", picked_requests, dropped_requests)
+            raise Exception("Error: Some requests were removed")
+        return True
 
     def simulate_manifest(self, current_time, driver_runs, intermediate_location=True):
         NetworkHandler.init(True, self.server_url)
@@ -144,6 +174,8 @@ class OnlineRTVSolver:
             state[PayloadParser.DRIVER_STATE_LOC] = next_immediate_loc
             state[PayloadParser.DRIVER_STATE_LOC_SERV] = current_order
             new_driver_runs.append({PayloadParser.DRIVER_STATE:state,PayloadParser.DRIVER_MANIFEST:manifest})
+        
+        self.check_consistency_of_manifests(driver_runs, new_driver_runs, [], [])
         return new_driver_runs
 
     def solve_pdptw_heuristic(self, payload, return_added_vmt=False):
@@ -166,6 +198,8 @@ class OnlineRTVSolver:
                 total_cost += cheapest_cost
             else:
                 unserved_requests.append(request["booking_id"])
+        
+        self.check_consistency_of_manifests(payload["driver_runs"], updated_driver_runs, unserved_requests, payload["requests"])
         if return_added_vmt:
             return updated_driver_runs, unserved_requests, total_cost
         return updated_driver_runs, unserved_requests
@@ -294,6 +328,7 @@ class OnlineRTVSolver:
 
 
     def serve_asap(self, payload):
+        unserved_requests = []
         updated_driver_runs = copy.deepcopy(payload["driver_runs"])
         for request in payload["requests"]:
             earliest_vehicle = None
@@ -306,8 +341,11 @@ class OnlineRTVSolver:
                     earliest_time = pick_up_time
                     earliest_vehicle = new_driver_run
                     earliest_vehicle_index = vehicle_index
-            updated_driver_runs[earliest_vehicle_index] = earliest_vehicle
-        return updated_driver_runs
+            if earliest_vehicle_index == -1:
+                unserved_requests.append(request["booking_id"])
+            else:
+                updated_driver_runs[earliest_vehicle_index] = earliest_vehicle
+        return updated_driver_runs, unserved_requests
 
     def get_stats(self, depot, manifest, travel_time_error_margin=5):
         feasible = True

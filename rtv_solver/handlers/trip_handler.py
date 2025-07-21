@@ -101,23 +101,28 @@ class TripHandler:
 
         last_trip_cost_index = len(TripHandler.trip_costs)
         
-        pool = mp.Pool(max_num_thread)
-        for trip in self.trips[trip_start:]:
-            trips = []
-            if isinstance(trip,Trip):
-                trips = [trip]
-            else:
-                shared_trip = trip
-                for sub_trip_no in shared_trip.trips:
-                    sub_trip = self.trips[sub_trip_no]
-                    trips.append(sub_trip)
-            selected_vehicle_ids = vehicles.keys()
-            if trip_start > 0:
-                selected_vehicle_ids = self.common_vehicles_of_trips(trips)
-            for vehicle_id in selected_vehicle_ids:
-                pool.apply_async(TripHandler.create_trip_cost, args=(vehicles[vehicle_id],trip.number,trips,), callback=TripHandler.process_result)
-        pool.close()
-        pool.join()
+        remaining_trip_count = len(self.trips) - trip_start
+        block_size = 1000
+        for block_start in range(0, remaining_trip_count, block_size):
+            self.check_rtv_timeout()
+            block_end = min(block_start + block_size, len(self.trips))
+            pool = mp.Pool(max_num_thread)
+            for trip in self.trips[block_start:block_end]:
+                trips = []
+                if isinstance(trip,Trip):
+                    trips = [trip]
+                else:
+                    shared_trip = trip
+                    for sub_trip_no in shared_trip.trips:
+                        sub_trip = self.trips[sub_trip_no]
+                        trips.append(sub_trip)
+                selected_vehicle_ids = vehicles.keys()
+                if trip_start > 0:
+                    selected_vehicle_ids = self.common_vehicles_of_trips(trips)
+                for vehicle_id in selected_vehicle_ids:
+                    pool.apply_async(TripHandler.create_trip_cost, args=(vehicles[vehicle_id],trip.number,trips,), callback=TripHandler.process_result)
+            pool.close()
+            pool.join()
 
         for vehicle_id in vehicles:
             if vehicle_id not in self.vehicle_to_trips_cost_map:
@@ -202,8 +207,9 @@ class TripHandler:
                 pool.join()
             else:
                 tried_combinations = []
+                shared_trips_to_process = []
                 prev_shared_trips = self.shared_trips_map[cardinality-1]
-                pool = mp.Pool(max_num_thread)
+                logging.debug("Starting to process shared trips of cardinality {0}".format(cardinality))
                 for shared_trip1_index in range(len(prev_shared_trips)):
                     shared_trip1 = self.trips[prev_shared_trips[shared_trip1_index]]
                     for shared_trip2_index in range(shared_trip1_index+1,len(prev_shared_trips)):
@@ -227,9 +233,19 @@ class TripHandler:
                                         temp_trip = self.trips[trip_no]
                                         trips[temp_trip.id] = temp_trip
                                     if len(self.common_vehicles_of_trips(trips.values())) > 0:
-                                        pool.apply_async(TripHandler.can_share_trips,args=(trips,trip_nos,trip,current_cost,shared_trip1.sequence,SHAREABLE_COST_FACTOR,), callback=TripHandler.process_shared_trip_result)
-                pool.close()
-                pool.join()
+                                        args=(trips,trip_nos,trip,current_cost,shared_trip1.sequence,SHAREABLE_COST_FACTOR,)
+                                        shared_trips_to_process.append(args)
+
+                block_size = 1000
+                logging.debug("Number of shared trip combinations to process: {0}, time: {1}".format(len(shared_trips_to_process),time.time()-st))
+                for block_start in range(0, len(shared_trips_to_process), block_size):
+                    self.check_rtv_timeout()
+                    block_end = min(block_start + block_size, len(shared_trips_to_process))
+                    pool = mp.Pool(max_num_thread)
+                    for args in shared_trips_to_process[block_start:block_end]:
+                        pool.apply_async(TripHandler.can_share_trips, args=args, callback=TripHandler.process_shared_trip_result)
+                    pool.close()
+                    pool.join()
             
             self.update_shared_trip_numbers(cardinality)
             if len(self.shared_trips_map[cardinality]) == 0:
@@ -237,6 +253,7 @@ class TripHandler:
             self.generate_trip_costs(vehicles,max_num_thread,trip_start)
             logging.debug("time to generate cardinal {0} trips: {1}".format(cardinality,time.time()-st))
             logging.debug("Number of cardinal {0} trips: {1}".format(cardinality,len(self.shared_trips_map[cardinality])))
+            logging.debug("Number of trip costs: {0}".format(len(TripHandler.trip_costs)))
             cardinality+=1
     
     def log_with_timestamp(self,timestamp,message):
@@ -281,8 +298,8 @@ class TripHandler:
                 m.addConstr(x_r[request_no]+gp.quicksum(x_t[i] for i in cost_map_indices) == 1,"req_{0}".format(request.id))
                 
                 # all the previously assigned requests should be picked up
-                # if request.id in active_requests:
-                #     m.addConstr(x_r[request_no] == 0,"active_req_{0}".format(request.id))
+                if request.id in active_requests:
+                    m.addConstr(x_r[request_no] == 0,"active_req_{0}".format(request.id))
                 request_no+=1
 
             m.setParam('TimeLimit', self.solver_timeout)

@@ -54,7 +54,7 @@ class RequestHandler:
                 }
             requests.append(t_req)
             
-        self.requests = pd.DataFrame(requests).sort_values(by = [PICKUP_TIME])
+        self.requests = pd.DataFrame(requests).astype({ID: 'string'}).sort_values(by = [PICKUP_TIME])
         self.requests.drop_duplicates(subset=ID, keep="first")
         # with ThreadPool(10) as pool:
         #     for index,_ in self.requests.iterrows():
