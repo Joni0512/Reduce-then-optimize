@@ -237,7 +237,7 @@ class OnlineRTVSolver:
         swaped_driver_runs, reduced_cost, no_of_swaps = swap_handler.run_swap()
         while no_of_swaps > 0 and reduced_cost > 0 and time.time() - start_time < self.RTV_TIMEOUT:
             updated_driver_runs = swaped_driver_runs
-            swaped_driver_runs, reduced_cost, no_of_swaps = swap_handler.run_swap()
+            swaped_driver_runs, reduced_cost, no_of_swaps = swap_handler.run_swap(rerunning=True)
 
         return swaped_driver_runs, unserved_requests
 

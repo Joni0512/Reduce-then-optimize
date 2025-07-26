@@ -75,14 +75,14 @@ class SwapHandler:
             active_requests_in_manifest = driver_run_requests[run_id]
             manifest_cost = SwapHandler.get_manifest_cost(driver_run)
             initial_cost += manifest_cost
-            SwapHandler.manifest_options.append((run_id,active_requests_in_manifest,manifest_cost,driver_run))
+            SwapHandler.manifest_options.append((run_id,active_requests_in_manifest,manifest_cost,driver_run,0))
 
             for booking_id in active_requests_in_manifest:
                 driver_run_without_request = SwapHandler.remove_request_from_driver_run(driver_run, booking_id, self.DWELL_PICKUP, self.DWELL_ALIGHT)
                 cost = SwapHandler.get_manifest_cost(driver_run_without_request)
                 requests_in_new_manifest = active_requests_in_manifest.copy()
                 requests_in_new_manifest.remove(booking_id)
-                SwapHandler.manifest_options.append((run_id, requests_in_new_manifest, cost, driver_run_without_request))
+                SwapHandler.manifest_options.append((run_id, requests_in_new_manifest, cost, driver_run_without_request,0))
 
                 for other_booking_id in self.active_requests:
                     if other_booking_id in active_requests_in_manifest:
@@ -102,6 +102,7 @@ class SwapHandler:
         pool.join()
 
         # Filter out invalid manifest options
+        SwapHandler.infeasible_manifest_options = [option for option in SwapHandler.manifest_options if option[2] == -1]
         SwapHandler.manifest_options = [option for option in SwapHandler.manifest_options if option[2] != -1]
 
         no_options = len(SwapHandler.manifest_options)
@@ -156,7 +157,7 @@ class SwapHandler:
         new_cost = 0
         no_of_swaps = 0
         selected_driver_runs = {}
-        for run_id, active_requests, cost, driver_run in selected_options:
+        for run_id, active_requests, cost, driver_run, time_taken in selected_options:
             new_cost += cost
             selected_driver_runs[run_id] = driver_run
             prev_requests_in_manifest = driver_run_requests[run_id]
@@ -177,9 +178,9 @@ class SwapHandler:
         return self.new_driver_runs, initial_cost-new_cost, no_of_swaps
 
     def create_manifest_option(depot_node, run_id, requests, driver_run, request, DWELL_PICKUP, DWELL_ALIGHT):
-        cost, new_driver_run = SwapHandler.insert_request_to_driver_run(
+        cost, new_driver_run, time_taken = SwapHandler.insert_request_to_driver_run(
             depot_node, driver_run, request, DWELL_PICKUP, DWELL_ALIGHT)
-        return (run_id, requests, cost, new_driver_run)
+        return (run_id, requests, cost, new_driver_run, time_taken)
 
     def process_result(result):
         SwapHandler.manifest_options.append(result)
@@ -273,11 +274,51 @@ class SwapHandler:
 
         end_time = state["end_time"]
         objective = "vmt"
+
+        earliest_pickup_time = pickup_stop["time_window_start"]
+        latest_pickup_time = pickup_stop["time_window_end"]
+        earliest_dropoff_time = dropoff_stop["time_window_start"]
+        latest_dropoff_time = dropoff_stop["time_window_end"]
+
+        pick_earliest_index = 0
+        pick_latest_index = 0
+        for i, stop in enumerate(remaining_stops):
+            if stop["time_window_end"] >= earliest_pickup_time:
+                break
+            else:
+                pick_earliest_index = i + 1
+        
+        for i, stop in enumerate(remaining_stops):
+            if stop["time_window_start"] > latest_pickup_time:
+                break
+            else:
+                pick_latest_index = i + 1
+        if pick_latest_index == len(remaining_stops):
+            pick_latest_index += 1
+
+        drop_earliest_index = 0
+        drop_latest_index = 0
+        for i, stop in enumerate(remaining_stops):
+            if stop["time_window_end"] >= earliest_dropoff_time:
+                break
+            else:
+                drop_earliest_index = i + 1
+        for i, stop in enumerate(remaining_stops):
+            if stop["time_window_start"] > latest_dropoff_time:
+                break
+            else:
+                drop_latest_index = i + 1
+        if drop_latest_index == len(remaining_stops):
+            drop_latest_index += 1
+
+        st_time = time.time()
         args_list = [(i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective,depot_node, end_time, DWELL_PICKUP, DWELL_ALIGHT) 
-                     for i in range(len(remaining_stops) + 1) 
-                     for j in range(i + 1, len(remaining_stops) + 2)]
+                     for i in range(pick_earliest_index,pick_latest_index) 
+                     for j in range(max(i,drop_earliest_index) + 1, min(len(remaining_stops) +1 ,drop_latest_index) + 1)]
         
         results = [SwapHandler.evaluate_insertion(args) for args in args_list]
+
+        time_taken_to_evaluate = time.time() - st_time
 
         best_cost = float("inf")
         best_insertion = None
@@ -288,12 +329,12 @@ class SwapHandler:
 
 
         if best_insertion is None:
-            return -1,None
+            return -1,None, time_taken_to_evaluate
 
         new_driver_run = copy.deepcopy(driver_run)
         new_driver_run[PayloadParser.DRIVER_MANIFEST] = completed_stops + best_insertion
         new_driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_T_LOCS] = len(new_driver_run[PayloadParser.DRIVER_MANIFEST])
-        return best_cost,new_driver_run
+        return best_cost,new_driver_run,time_taken_to_evaluate
 
 
     def evaluate_insertion(args):
