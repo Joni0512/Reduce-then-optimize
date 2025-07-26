@@ -3,16 +3,18 @@ from .handlers.network_handler import NetworkHandler
 from .handlers.vehicle_handler import VehicleHandler
 from .handlers.trip_handler import TripHandler
 from .handlers.payload_parser import PayloadParser
+from .handlers.swap_handler import SwapHandler
 from .structure.node import Node
 import copy
 import multiprocessing
 import sys
 from multiprocessing import Pool
 import time
+import numpy as np
 
 class OnlineRTVSolver:
 
-    def __init__(self,server_url,SHAREABLE_COST_FACTOR=2,RTV_TIMEOUT=3000, LARGEST_TSP = 10, MAX_CARDINALITY = 8, ):
+    def __init__(self,server_url,SHAREABLE_COST_FACTOR=10,RTV_TIMEOUT=30, LARGEST_TSP = 8, MAX_CARDINALITY = 10, ):
         self.ILP_SOLVER_TIMEOUT = 120 # seconds
         self.RTV_TIMEOUT = RTV_TIMEOUT #seconds
         self.PENALTY = 1000000 # penalty for not serving a trip
@@ -91,11 +93,11 @@ class OnlineRTVSolver:
             return self.solve_pdptw_heuristic(payload)
         for vehicle_id in trip_handler.vehicle_assignment:
             vehicle = vehicle_handler.vehicles[vehicle_id]
-            trips = trip_handler.vehicle_assignment[vehicle_id]
+            trips, prev_sequence = trip_handler.vehicle_assignment[vehicle_id]
             for trip in trips:
                 if trip.request_id in unserved_requests:
                     unserved_requests.remove(trip.request_id)
-            VehicleHandler.add_new_trips(vehicle, trips, add=True)
+            VehicleHandler.add_new_trips(vehicle, trips, prev_sequence=prev_sequence, add=True)
 
         # create updated driver runs
         updated_driver_runs = []
@@ -204,8 +206,43 @@ class OnlineRTVSolver:
             return updated_driver_runs, unserved_requests, total_cost
         return updated_driver_runs, unserved_requests
 
+    def solve_pdptw(self, payload):
+        remaining_requests = []
+        for driver_run in payload["driver_runs"]:
+            current_order = driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_LOC_SERV]
+            remaining_manifest = driver_run[PayloadParser.DRIVER_MANIFEST][current_order:]
+            unique_requests = set()
+            for stop in remaining_manifest:
+                if stop["booking_id"] not in unique_requests:
+                    unique_requests.add(stop["booking_id"])
+            remaining_requests.append(len(unique_requests))
+        
+        remaining_requests = np.array(remaining_requests)
+        if remaining_requests.max() <= self.MAX_CARDINALITY:
+            updated_driver_runs, unserved_requests = self.solve_pdptw_rtv(payload)
+            if len(unserved_requests) == 0:
+                return updated_driver_runs, unserved_requests
+
+        # Use heuristic if any vehicle has too many remaining requests
+
+        # Get the initial solution with insertion heuristic
+        updated_driver_runs, unserved_requests = self.solve_pdptw_heuristic(payload)
+        if len(unserved_requests) > 0:
+            # Return without further optimization if there are unserved requests
+            return updated_driver_runs, unserved_requests
+
+        # If all requests are served, try to optimize the solution further
+        start_time = time.time()
+        swap_handler = SwapHandler(self.server_url,updated_driver_runs,payload["depot"],self.DWELL_PICKUP, self.DWELL_ALIGHT, self.MAX_THREAD_CNT)
+        swaped_driver_runs, reduced_cost, no_of_swaps = swap_handler.run_swap()
+        while no_of_swaps > 0 and reduced_cost > 0 and time.time() - start_time < self.RTV_TIMEOUT:
+            updated_driver_runs = swaped_driver_runs
+            swaped_driver_runs, reduced_cost, no_of_swaps = swap_handler.run_swap()
+
+        return swaped_driver_runs, unserved_requests
+
     def evaluate_insertion(args):
-        i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective, depot, end_time = args
+        i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective, depot, end_time, dwell_pickup, dwell_alight = args
         new_manifest = copy.deepcopy(remaining_stops[:i] + [pickup_stop] + remaining_stops[i:j] + [dropoff_stop] + remaining_stops[j:])
         current_time = start_time
         current_node = start_node
@@ -228,10 +265,10 @@ class OnlineRTVSolver:
                 return float("inf"), None
             if stop["action"] == "pickup":
                 current_load += stop["am"]
-                current_time += 180
+                current_time += dwell_pickup
             else:
                 current_load -= stop["am"]
-                current_time += 60
+                current_time += dwell_alight
             if current_load > state["am_capacity"]:
                 return float("inf"), None
             order += 1
@@ -301,7 +338,7 @@ class OnlineRTVSolver:
         end_time = state["end_time"]
         st_th = time.time()
         pool = Pool(processes=max(1,min(len(remaining_stops), 8)))
-        args_list = [(i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective, depot_node, end_time) 
+        args_list = [(i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective, depot_node, end_time, self.DWELL_PICKUP, self.DWELL_ALIGHT) 
                      for i in range(len(remaining_stops) + 1) 
                      for j in range(i + 1, len(remaining_stops) + 2)]
         results = pool.map(OnlineRTVSolver.evaluate_insertion, args_list)

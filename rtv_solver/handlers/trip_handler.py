@@ -85,10 +85,10 @@ class TripHandler:
         distance = NetworkHandler.travel_distance(origin,destination)
         return distance <= self.walk_distance_cutoff
 
-    def create_trip_cost(vehicle,trip_no,trips):
-        added_cost, feasibility = VehicleHandler.add_new_trips(vehicle, trips, add=False)
+    def create_trip_cost(vehicle,trip_no,trips,prev_sequence):
+        added_cost, feasibility, sequence = VehicleHandler.add_new_trips(vehicle, trips, prev_sequence=prev_sequence, add=False)
         if feasibility:
-            return TripCost(trip_no,vehicle.id,added_cost)
+            return TripCost(trip_no,vehicle.id,added_cost,sequence)
         return None
         
     def process_result(trip_cost):
@@ -101,18 +101,19 @@ class TripHandler:
 
         last_trip_cost_index = len(TripHandler.trip_costs)
         
-        remaining_trip_count = len(self.trips) - trip_start
         block_size = 1000
-        for block_start in range(0, remaining_trip_count, block_size):
+        for block_start in range(trip_start, len(self.trips), block_size):
             self.check_rtv_timeout()
             block_end = min(block_start + block_size, len(self.trips))
             pool = mp.Pool(max_num_thread)
             for trip in self.trips[block_start:block_end]:
                 trips = []
+                prev_trip_number = None
                 if isinstance(trip,Trip):
                     trips = [trip]
                 else:
                     shared_trip = trip
+                    prev_trip_number = shared_trip.prev_trip_number
                     for sub_trip_no in shared_trip.trips:
                         sub_trip = self.trips[sub_trip_no]
                         trips.append(sub_trip)
@@ -120,7 +121,15 @@ class TripHandler:
                 if trip_start > 0:
                     selected_vehicle_ids = self.common_vehicles_of_trips(trips)
                 for vehicle_id in selected_vehicle_ids:
-                    pool.apply_async(TripHandler.create_trip_cost, args=(vehicles[vehicle_id],trip.number,trips,), callback=TripHandler.process_result)
+                    prev_sequence = []
+                    if prev_trip_number is not None:
+                        prev_costs = self.trip_to_vehicle_cost_map[prev_trip_number]
+                        for prev_cost_index in prev_costs:
+                            prev_trip_cost = TripHandler.trip_costs[prev_cost_index]
+                            if prev_trip_cost.vehicle_id == vehicle_id:
+                                prev_sequence = prev_trip_cost.sequence
+                                break
+                    pool.apply_async(TripHandler.create_trip_cost, args=(vehicles[vehicle_id],trip.number,trips,prev_sequence,), callback=TripHandler.process_result)
             pool.close()
             pool.join()
 
@@ -146,10 +155,10 @@ class TripHandler:
                     self.trip_to_vehicle_cost_map[sub_trip_no].append(trip_cost_index)
             trip_cost_index+=1
 
-    def can_share_trips(trips,trip_nos,new_trip,current_cost,current_sequence,SHAREABLE_COST_FACTOR):
+    def can_share_trips(prev_trip_no,trips,trip_nos,new_trip,current_cost,current_sequence,SHAREABLE_COST_FACTOR):
         feasible, cost, sequence = VehicleHandler.can_serve_trips(trips,new_trip,current_sequence)
         if feasible and cost <= SHAREABLE_COST_FACTOR*current_cost:
-            return SharedTrip(0,trip_nos,cost,sequence)
+            return SharedTrip(prev_trip_no,0,trip_nos,cost,sequence)
         return None
     
     def process_shared_trip_result(shared_trip):
@@ -180,6 +189,16 @@ class TripHandler:
                 return common_vehicles
         return common_vehicles
 
+    def create_rr_graph(self):
+        self.rr_graph = {}
+        for trip_no in self.ondemand_only_trip_map.values():
+            self.rr_graph[trip_no] = set()
+        for shared_trip_index in self.shared_trips_map[2]:
+            shared_trip = self.trips[shared_trip_index]
+            trip_no1, trip_no2 = shared_trip.trips
+            self.rr_graph[trip_no1].add(trip_no2)
+            self.rr_graph[trip_no2].add(trip_no1)
+
     def generate_shared_trips(self,vehicles,max_cardinality,max_num_thread,SHAREABLE_COST_FACTOR):
         cardinality = 2
         self.selected_combinations = []
@@ -202,52 +221,82 @@ class TripHandler:
                         trip = self.trips[trip_no]
                         trips[trip.id] = trip
                     if len(self.common_vehicles_of_trips(trips.values())) > 0:
-                        pool.apply_async(TripHandler.can_share_trips,args=(trips,set(trip_nos),trip1,current_cost,[],SHAREABLE_COST_FACTOR,), callback=TripHandler.process_shared_trip_result)
+                        pool.apply_async(TripHandler.can_share_trips,args=(trip_nos[0],trips,set(trip_nos),trip1,current_cost,[],SHAREABLE_COST_FACTOR,), callback=TripHandler.process_shared_trip_result)
                 pool.close()
                 pool.join()
             else:
-                tried_combinations = []
+                tried_combinations = {}
                 shared_trips_to_process = []
                 prev_shared_trips = self.shared_trips_map[cardinality-1]
+                block_size = 500
                 logging.debug("Starting to process shared trips of cardinality {0}".format(cardinality))
-                for shared_trip1_index in range(len(prev_shared_trips)):
-                    shared_trip1 = self.trips[prev_shared_trips[shared_trip1_index]]
-                    for shared_trip2_index in range(shared_trip1_index+1,len(prev_shared_trips)):
-                        shared_trip2 = self.trips[prev_shared_trips[shared_trip2_index]]
-                        uncommon_trips = shared_trip2.trips.difference(shared_trip1.trips)
-                        if len(uncommon_trips) == 1 and len(self.common_vehicles_of_trips([shared_trip1,shared_trip2])) > 0:
-                            trip = self.trips[uncommon_trips.pop()]
-                            current_cost = trip.cost+shared_trip1.cost
-                            trip_nos = shared_trip1.trips.copy()
-                            trip_nos.add(trip.number)
-                            if trip_nos not in tried_combinations:
-                                tried_combinations.append(trip_nos)
-                                sub_combination_found = True
-                                for combination in itertools.combinations(trip_nos,cardinality-1):
-                                    if set(combination) not in self.selected_combinations:
-                                        sub_combination_found = False
-                                        break
-                                if sub_combination_found:
-                                    trips = {}
-                                    for trip_no in trip_nos:
-                                        temp_trip = self.trips[trip_no]
-                                        trips[temp_trip.id] = temp_trip
-                                    if len(self.common_vehicles_of_trips(trips.values())) > 0:
-                                        args=(trips,trip_nos,trip,current_cost,shared_trip1.sequence,SHAREABLE_COST_FACTOR,)
-                                        shared_trips_to_process.append(args)
+                for shared_trip1_index in prev_shared_trips:
+                    shared_trip1 = self.trips[shared_trip1_index]
+                    for request_id in self.ondemand_only_trip_map:
+                        # check for timeout every block_size iterations
+                        if len(shared_trips_to_process) % block_size == 0:
+                            self.check_rtv_timeout()
+                        
+                        trip_no = self.ondemand_only_trip_map[request_id]
+                        trip = self.trips[trip_no]
 
-                block_size = 1000
+                        # Check if the trip is already part of the shared trip
+                        if trip_no in shared_trip1.trips:
+                            continue
+
+                        trip_nos = shared_trip1.trips.copy()
+                        trip_nos.add(trip_no)
+
+                        # Check if this combination of trip numbers has already been tried
+                        trips_signature = tuple(sorted(trip_nos))
+                        if trips_signature in tried_combinations:
+                            continue
+                        tried_combinations[trips_signature] = 0
+
+
+
+                        if len(self.trip_to_vehicle_cost_map[shared_trip1_index]) == 0:
+                            continue
+
+                        # Check if this trip can share a ride with all other trips in shared_trip1
+                        rr_check_fail = False
+                        for temp_trip_no in shared_trip1.trips:
+                            if trip_no not in self.rr_graph[temp_trip_no]:
+                                rr_check_fail = True
+                                break
+                            if temp_trip_no not in self.rr_graph[trip_no]:
+                                rr_check_fail = True
+                                break
+                        # If any of the rideshare checks fail, skip this combination
+                        if rr_check_fail:
+                            continue
+                        
+                        if len(self.common_vehicles_of_trips([shared_trip1,trip])) > 0:
+                            current_cost = trip.cost+shared_trip1.cost
+                            for trip_no in trip_nos:
+                                temp_trip = self.trips[trip_no]
+                                trips[temp_trip.id] = temp_trip
+                            if len(self.common_vehicles_of_trips(trips.values())) > 0:
+                                args=(shared_trip1_index,trips,trip_nos,trip,current_cost,shared_trip1.sequence,SHAREABLE_COST_FACTOR,)
+                                shared_trips_to_process.append(args)
+                                
+                                new_shared_trip = SharedTrip(shared_trip1_index,0,trip_nos,current_cost,[])
+                                TripHandler.process_shared_trip_result(new_shared_trip)
+
                 logging.debug("Number of shared trip combinations to process: {0}, time: {1}".format(len(shared_trips_to_process),time.time()-st))
-                for block_start in range(0, len(shared_trips_to_process), block_size):
-                    self.check_rtv_timeout()
-                    block_end = min(block_start + block_size, len(shared_trips_to_process))
-                    pool = mp.Pool(max_num_thread)
-                    for args in shared_trips_to_process[block_start:block_end]:
-                        pool.apply_async(TripHandler.can_share_trips, args=args, callback=TripHandler.process_shared_trip_result)
-                    pool.close()
-                    pool.join()
+                # for block_start in range(0, len(shared_trips_to_process), block_size):
+                #     self.check_rtv_timeout()
+                #     block_end = min(block_start + block_size, len(shared_trips_to_process))
+                #     pool = mp.Pool(max_num_thread)
+                #     for args in shared_trips_to_process[block_start:block_end]:
+                #         pool.apply_async(TripHandler.can_share_trips, args=args, callback=TripHandler.process_shared_trip_result)
+                #     pool.close()
+                #     pool.join()
+                # print("Time to process shared trips of cardinality {0}: {1}".format(cardinality,time.time()-st))
             
             self.update_shared_trip_numbers(cardinality)
+            if cardinality == 2:
+                self.create_rr_graph()
             if len(self.shared_trips_map[cardinality]) == 0:
                 break
             self.generate_trip_costs(vehicles,max_num_thread,trip_start)
@@ -330,7 +379,7 @@ class TripHandler:
                                 for sub_trip_no in trip.trips:
                                     trips.append(self.trips[sub_trip_no])
                             self.trip_sizes.append(len(trips))
-                            self.vehicle_assignment[vehicle_id] = trips
+                            self.vehicle_assignment[vehicle_id] = (trips, trip_cost.sequence)
 
                 for request in requests:
                     found_assignment = False
