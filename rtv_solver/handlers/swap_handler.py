@@ -52,8 +52,10 @@ class SwapHandler:
         self.DWELL_ALIGHT = DWELL_ALIGHT
         self.depot = payload_object.depot
 
-    def run_swap(self):
+    def run_swap(self, rerunning=False):
         logging.debug("Started swap round")
+        if rerunning:
+            self.driver_runs = copy.deepcopy(self.new_driver_runs)
         driver_run_requests = {}
         for driver_run in self.driver_runs:
             state = driver_run[PayloadParser.DRIVER_STATE]
@@ -76,6 +78,17 @@ class SwapHandler:
             manifest_cost = SwapHandler.get_manifest_cost(driver_run)
             initial_cost += manifest_cost
             SwapHandler.manifest_options.append((run_id,active_requests_in_manifest,manifest_cost,driver_run,0))
+
+            for other_booking_id in self.active_requests:
+                if other_booking_id in active_requests_in_manifest:
+                    continue
+                request = self.request_dic[other_booking_id]
+                requests_after = active_requests_in_manifest.copy()
+                requests_after.add(other_booking_id)
+
+                args = (self.depot, run_id, requests_after, driver_run, request, self.DWELL_PICKUP, self.DWELL_ALIGHT)
+                pool.apply_async(SwapHandler.create_manifest_option, args=args, callback=SwapHandler.process_result)
+
 
             for booking_id in active_requests_in_manifest:
                 driver_run_without_request = SwapHandler.remove_request_from_driver_run(driver_run, booking_id, self.DWELL_PICKUP, self.DWELL_ALIGHT)
@@ -232,7 +245,7 @@ class SwapHandler:
             remaining_stops.append(stop)
             current_node = stop_node
 
-        state[PayloadParser.DRIVER_STATE_T_LOCS] = len(new_manifest)
+        state[PayloadParser.DRIVER_STATE_T_LOCS] = len(new_manifest + remaining_stops)
         
         return {
             PayloadParser.DRIVER_STATE: state,

@@ -11,10 +11,11 @@ import sys
 from multiprocessing import Pool
 import time
 import numpy as np
+import logging
 
 class OnlineRTVSolver:
 
-    def __init__(self,server_url,SHAREABLE_COST_FACTOR=10,RTV_TIMEOUT=30, LARGEST_TSP = 8, MAX_CARDINALITY = 10, ):
+    def __init__(self,server_url,SHAREABLE_COST_FACTOR=10,RTV_TIMEOUT=30, LARGEST_TSP = 8, MAX_CARDINALITY = 8, ):
         self.ILP_SOLVER_TIMEOUT = 120 # seconds
         self.RTV_TIMEOUT = RTV_TIMEOUT #seconds
         self.PENALTY = 1000000 # penalty for not serving a trip
@@ -89,7 +90,7 @@ class OnlineRTVSolver:
         try:
             trip_handler = TripHandler(vehicle_handler.vehicles,batch, active_requests, iteration, self.ILP_SOLVER_TIMEOUT,self.PENALTY,self.MAX_CARDINALITY,self.MAX_THREAD_CNT,self.SHAREABLE_COST_FACTOR,self.REBALANCING,self.RTV_TIMEOUT)
         except Exception as e:
-            print("Error in TripHandler:", e)
+            logging.error("Error in TripHandler:", e)
             return self.solve_pdptw_heuristic(payload)
         for vehicle_id in trip_handler.vehicle_assignment:
             vehicle = vehicle_handler.vehicles[vehicle_id]
@@ -206,7 +207,7 @@ class OnlineRTVSolver:
             return updated_driver_runs, unserved_requests, total_cost
         return updated_driver_runs, unserved_requests
 
-    def solve_pdptw(self, payload):
+    def solve_pdptw(self, payload, skip_swapping=True):
         remaining_requests = []
         for driver_run in payload["driver_runs"]:
             current_order = driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_LOC_SERV]
@@ -225,13 +226,18 @@ class OnlineRTVSolver:
 
         # Use heuristic if any vehicle has too many remaining requests
 
+        logging.debug("Inserting with heuristic...")
         # Get the initial solution with insertion heuristic
         updated_driver_runs, unserved_requests = self.solve_pdptw_heuristic(payload)
         if len(unserved_requests) > 0:
+            logging.debug("Unserved requests after heuristic: %d", len(unserved_requests))
             # Return without further optimization if there are unserved requests
             return updated_driver_runs, unserved_requests
 
+        if skip_swapping:
+            return updated_driver_runs, unserved_requests
         # If all requests are served, try to optimize the solution further
+        logging.debug("Optimizing solution with swap heuristic...")
         start_time = time.time()
         swap_handler = SwapHandler(self.server_url,updated_driver_runs,payload["depot"],self.DWELL_PICKUP, self.DWELL_ALIGHT, self.MAX_THREAD_CNT)
         swaped_driver_runs, reduced_cost, no_of_swaps = swap_handler.run_swap()
