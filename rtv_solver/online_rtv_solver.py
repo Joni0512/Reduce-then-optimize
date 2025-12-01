@@ -1,10 +1,10 @@
-from .handlers.request_handler import RequestHandler
-from .handlers.network_handler import NetworkHandler
-from .handlers.vehicle_handler import VehicleHandler
-from .handlers.trip_handler import TripHandler
-from .handlers.payload_parser import PayloadParser
-from .handlers.swap_handler import SwapHandler
-from .structure.node import Node
+from handlers.request_handler import RequestHandler
+from handlers.network_handler import NetworkHandler
+from handlers.vehicle_handler import VehicleHandler
+from handlers.trip_handler import TripHandler
+from handlers.payload_parser import PayloadParser
+from handlers.swap_handler import SwapHandler
+from structure.node import Node
 import copy
 import multiprocessing
 import sys
@@ -167,7 +167,6 @@ class OnlineRTVSolver:
                 if next_immediate_time > current_time:
                     break
                 
-            
             if len(manifest) > current_order and next_immediate_time < current_time and intermediate_location:
                 next_immediate_node = NetworkHandler.manifest_location(next_immediate_loc)
                 target_node = NetworkHandler.manifest_location(manifest[current_order]["loc"])
@@ -281,7 +280,7 @@ class OnlineRTVSolver:
             stop["order"] = order
             index += 1
 
-        if current_time+NetworkHandler.travel_time(current_node,depot) > end_time:
+        if current_time + NetworkHandler.travel_time(current_node,depot) > end_time:
             return float("inf"), None
         if objective == "pick_up_time":
             return new_manifest[i]["scheduled_time"], new_manifest

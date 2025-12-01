@@ -37,7 +37,7 @@ class OutputHandler:
             sorted_vehicle_ids = list(vehicle_locations.keys())
             sorted_vehicle_ids.sort()
             location_file.write(",".join([str(vehicle_locations[vehicle_id]) for vehicle_id in sorted_vehicle_ids])+"\n")
-        timestamp = time.mktime(current_time.timetuple())
+        timestamp = time.mktime(time.gmtime(current_time)) # prior JW: current_time.timetuple())
         with open(self.output_directory+"vehicles_timestamp.csv", 'a+') as timestamp_file:
             timestamp_file.write(str(timestamp)+"\n")
 
@@ -57,5 +57,5 @@ class OutputHandler:
                 for bus_run in busslines[bus_line_name].bus_runs:
                     bus_file.write("{0}:{1}\n".format(bus_line_name,",".join([str(load) for load in bus_run.load])))
 
-    def convert_seconds_to_timestamp(self, seconds):
-        return time.strftime('%H:%M:%S', time.gmtime(seconds))
+    def convert_seconds_to_timestamp(self, second:float):
+        return time.strftime('%H:%M:%S', time.gmtime(second))

@@ -5,6 +5,7 @@ from rtv_solver.structure.node import Node
 from rtv_solver.handlers.network_handler import NetworkHandler
 from dateutil import parser
 from multiprocessing.pool import ThreadPool
+from datetime import timedelta
 
 PICKUP_TIME = 'pickup_time_window_start'
 ID = 'id'
@@ -125,9 +126,9 @@ class RequestHandler:
         print(end_time,len(batch))
         return batch,end_time
     
-    def get_lookahead_trips(self,end_time,rh_factor,batch_interval):
+    def get_lookahead_trips(self,end_time,rh_factor,batch_interval:timedelta):
         batch = []
-        horizen_end_time = end_time + rh_factor*batch_interval
+        horizen_end_time = end_time + rh_factor * batch_interval.total_seconds()
         for _, row in self.requests.iloc[self.next_index:].iterrows():
             request = self.get_request(row)
             if request.pick_up_time > horizen_end_time or request.pick_up_time < end_time:
