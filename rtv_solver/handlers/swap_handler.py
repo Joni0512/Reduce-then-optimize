@@ -384,7 +384,7 @@ class SwapHandler:
             stop["order"] = order
             index += 1
 
-        if current_time+NetworkHandler.travel_time(current_node,depot) > end_time:
+        if current_time + NetworkHandler.travel_time(current_node,depot) > end_time:
             return float("inf"), None
         if objective == "pick_up_time":
             return new_manifest[i]["scheduled_time"], new_manifest

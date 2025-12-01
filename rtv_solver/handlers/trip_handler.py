@@ -38,29 +38,21 @@ class TripHandler:
         time_spent = time.time()-self.starting_time
         if time_spent > self.rtv_timeout:
             raise Exception("RTV generation timedout: {0} > {1}".format(time_spent,self.rtv_timeout))
-
-    def get_trip_cost(self,origin,destination):
-        return NetworkHandler.travel_distance(origin,destination)
     
     def generate_ondemand_only_trips(self,requests,iteration):
         for request in requests:
-            origin = request.origin
-            destination = request.destination
-            dwell_pickup, dwell_alight, latest_pick_up_time = request.dwell_pickup, request.dwell_alight, request.latest_pick_up_time
-            earliest_pick_up_time = request.pick_up_time
-            # earliest_pick_up_time = current_time
-            # if request.pick_up_time > current_time:
-            #     earliest_pick_up_time = request.pick_up_time
-            trip = self.create_trip(request,request.am_capacity, request.wc_capacity,origin,destination,earliest_pick_up_time,latest_pick_up_time ,request.earliest_arrival_time,request.latest_arrival_time,dwell_pickup, dwell_alight,iteration,allow_walk=False)
+            trip = self.create_trip(request,iteration,allow_walk=False)
             self.trips.append(trip)
             self.ondemand_only_trip_map[request.id] = trip.number
 
-    def create_trip(self,request,am_capacity, wc_capacity,origin,destination,pick_up_time,latest_pick_up_time,earliest_arrival_time,latest_arrival_time,dwell_pickup, dwell_alight,iteration, bus_combination=None,first_last_mile_type=None,allow_walk=True):
-        if allow_walk and self.can_walk(origin,destination):
+    def create_trip(self,request,iteration, bus_combination=None,first_last_mile_type=None,allow_walk=True):
+        # check if distance can be walked and decline trip in that case
+        distance = NetworkHandler.travel_distance(request.origin,request.destination)
+        if allow_walk and distance <= self.walk_distance_cutoff:
             return None
         trip_no = self.get_new_trip_no()
-        cost = self.get_trip_cost(origin,destination)
-        return Trip(request.id,trip_no,am_capacity, wc_capacity, pick_up_time, latest_pick_up_time, earliest_arrival_time,latest_arrival_time, origin, destination,cost,dwell_pickup, dwell_alight, iteration, bus_combination=bus_combination,first_last_mile_type=first_last_mile_type)
+        cost = distance # distance considered as cost
+        return Trip(request.id,trip_no,request.am_capacity, request.wc_capacity, request.pick_up_time, request.latest_pick_up_time, request.earliest_arrival_time,request.latest_arrival_time, request.origin, request.destination,cost,request.dwell_pickup, request.dwell_alight, iteration, bus_combination=bus_combination,first_last_mile_type=first_last_mile_type)
     
     def create_trip_for_picked_requests(boarded_requests,iteration):
         trip_no = -1
@@ -80,10 +72,6 @@ class TripHandler:
         destination = request.destination
         origin = bustrip.destination_stop_node
         return self.create_trip(request,origin,destination,bustrip.arrival_time, request.arrival_time,bus_combination=bustrip.id,first_last_mile_type=1)
-    
-    def can_walk(self,origin,destination):
-        distance = NetworkHandler.travel_distance(origin,destination)
-        return distance <= self.walk_distance_cutoff
 
     def create_trip_cost(vehicle,trip_no,trips,prev_sequence):
         added_cost, feasibility, sequence = VehicleHandler.add_new_trips(vehicle, trips, prev_sequence=prev_sequence, add=False)
