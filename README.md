@@ -6,6 +6,13 @@
 pip install rtv-solver
 ```
 
+If one wants to debug the codebase, it needs to be made sure that the user runs the python package not from the lastest version that is online, but rather from the local version. Caution on the difference between rtv-solver as the online package and rtv_solver as the packaging in the repository.
+
+```
+pip uninstall rtv-solver
+pip install -e ~/rtv_solver (for editable run)
+```
+
 ## Code example
 
 ### Initialize
