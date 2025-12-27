@@ -1,9 +1,10 @@
 class Trip:
     """
-    Trip combines the information
+    Trip-related information
     TODO typing?, cost double? <> relation to TripCost
     """
     def __init__(self, request_id, number, am_capacity, wc_capacity, pick_up_time, latest_pick_up_time, earliest_arrival_time,latest_arrival_time, origin, destination, cost, dwell_pickup, dwell_alight, iteration, bus_combination = None, first_last_mile_type = 0, vehicle=None):
+        # Static trip information
         self.origin = origin
         self.destination = destination
         self.pick_up_time = pick_up_time
@@ -11,8 +12,6 @@ class Trip:
         self.bus_combination = bus_combination
         self.first_last_mile_type = first_last_mile_type
         self.vehicle = vehicle
-        self.picked = False
-        self.shared_trips = {}
         self.request_id = request_id
         self.cost = cost
         self.dwell_pickup = dwell_pickup
@@ -26,9 +25,12 @@ class Trip:
             self.id = "{0}-{1}".format(iteration,request_id)
         else:
             self.id = "{0}:{1}-{2}".format(request_id,bus_combination,first_last_mile_type)
+        # simulation state
+        self.picked = False
+        self.shared_trips = {}
 
     def __str__(self):
-        return f"<Trip: {ID: {self.id}, pickup: {self.pick_up_time}, origin: {self.origin}, destination: {self.destination}}>"
+        return f"<Trip {self.id}: pickup: {self.pick_up_time}, origin: {self.origin}, destination: {self.destination}>"
 
     # NOTE: all function never used
     def get_shared_trips(self):
