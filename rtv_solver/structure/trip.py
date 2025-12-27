@@ -1,4 +1,8 @@
 class Trip:
+    """
+    Trip combines the information
+    TODO typing?, cost double? <> relation to TripCost
+    """
     def __init__(self, request_id, number, am_capacity, wc_capacity, pick_up_time, latest_pick_up_time, earliest_arrival_time,latest_arrival_time, origin, destination, cost, dwell_pickup, dwell_alight, iteration, bus_combination = None, first_last_mile_type = 0, vehicle=None):
         self.origin = origin
         self.destination = destination
@@ -24,8 +28,9 @@ class Trip:
             self.id = "{0}:{1}-{2}".format(request_id,bus_combination,first_last_mile_type)
 
     def __str__(self):
-        return "{{ID: {0}, time: {1}, origin: {2}, destination: {3}}}".format(self.id,self.pick_up_time,self.origin,self.destination)
+        return f"<Trip: {ID: {self.id}, pickup: {self.pick_up_time}, origin: {self.origin}, destination: {self.destination}}>"
 
+    # NOTE: all function never used
     def get_shared_trips(self):
         trips = []
         for cardinality in self.shared_trips:

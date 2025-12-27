@@ -14,4 +14,4 @@ class Request:
         self.priority = priority
 
     def __str__(self):
-        return "{{ID: {0}, time: {1}, origin: {2}, destination: {3}}}".format(self.id,self.pick_up_time,self.origin,self.destination)
+        return f"<Request: ID: {self.id}, pickup: {self.pick_up_time}, origin: {self.origin}, destination: {self.destination}, priority: {self.priority}>"

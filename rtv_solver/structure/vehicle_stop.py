@@ -1,4 +1,16 @@
+from enum import Enum
+
+# TODO when code runs cleanly, turn conditionals to use Enum
+class StopType(Enum):
+    PICKUP = 0
+    DROPOFF = 1
+    REBALANCE = 2
+    DEPOT = 3
+
 class VehicleStop:
+    """
+    Docstring for VehicleStop
+    """
     def __init__(self, trip_id, node, type, dwell):
         self.trip_id = trip_id
         self.node = node
