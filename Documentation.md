@@ -1,6 +1,42 @@
 # Documentation
 
-## JSON object structure
+# Performance of Online_RTV_solver
+
+Option a) ThreadPoolExecutor 
+1. solve_pdptw_heuristic: 10m 33.6s
+2. solve_pdptw_rtv: 89m 27.3s
+3. check_feasibility: 75m 49.8s
+4. (reduced) solve_pdptw_rtv: 38m 16.3s
+
+Option b) ProcessPoolExecutor
+1. solve_pdptw_heuristic: 
+2. solve_pdptw_rtv: 
+3. check_feasibility: 
+4. (reduced) solve_pdptw_rtv: 
+
+## Runtime - JSON object structure
+
+VehicleStop
+``` js
+    {
+        'run_id': 0, 
+        'booking_id': '1.0', 
+        'order': 1, 
+        'action': 'pickup', 
+        'loc': {
+            'lat': 35.707904816, 
+            'lon': -77.90247345, 
+            'node_id': 1
+        },
+        'scheduled_time': 19822, 
+        'am': 1, 
+        'wc': 0, 
+        'time_window_start': 19822, 
+        'time_window_end': 21622
+    }
+```
+
+## Import - JSON object structure
 
 File: `inputs/wilson/random_weekeday_2.pkl`
 Structure used in code on branch `wilson` and `rh-ml`
@@ -62,13 +98,13 @@ The structure used in Chattanooga is different to the one used in `wilson`'.
 - Smaller set of `driver_runs` key-value pairs, no separation of `state` and `manifest`
 - Addition of `date`
 - Addition of `time_matrix` with arrays of time values (assumption: pre-calculation of the distances between all possible nodes)
-- Addition of `requests - "pickup_node_id" ^ "dropoff_node_id"` (assumption: nodes are pre-calculated distances )
+- Addition of `requests - "pickup_node_id" ^ "dropoff_node_id"` (assumption: nodes are IDs for pre-calculated distances and match array index)
 - (Order is different to the JSON, but does not bother its processing.)
 
 Assumptions validated!
 
-`time_matrix`: asymmetric 385 x 385 matrix, main diagonal is always 0 and transposed values are similar (meaning: A-B not equal distance to B-A)
-192 requests with a 2 nodes (pickup / dropoff) and 1 depot - 192 * 2 + 1 = 385 combinations
+`time_matrix`: asymmetric 385 x 385 matrix, main diagonal is always 0 and transposed values are close enough (A-B not equidistant to B-A)
+192 requests with a 2 nodes (pickup / dropoff) and 1 depot --> 192 * 2 + 1 = 385 combinations
 ``` js
 {
     "driver_runs":[
@@ -104,8 +140,7 @@ Assumptions validated!
    "depot":{
         "pt":{
             "lat":35.723017652422435,
-            "lon":-77.90871990823223
-        },
+            "lon":-77.90871990823223},
         "node_id":0
     },
     "date": "2023-10-19",

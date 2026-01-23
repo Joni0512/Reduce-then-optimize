@@ -3,16 +3,34 @@ class Trip:
     Trip-related information
     TODO typing?, cost double? <> relation to TripCost
     """
-    def __init__(self, request_id, number, am_capacity, wc_capacity, pick_up_time, latest_pick_up_time, earliest_arrival_time,latest_arrival_time, origin, destination, cost, dwell_pickup, dwell_alight, iteration, bus_combination = None, first_last_mile_type = 0, vehicle=None):
+    def __init__(
+            self, 
+            request_id, 
+            trip_number, 
+            am_capacity, 
+            wc_capacity, 
+            pick_up_time, 
+            latest_pick_up_time, 
+            earliest_arrival_time,
+            latest_arrival_time, 
+            origin, 
+            destination, 
+            cost, 
+            dwell_pickup, 
+            dwell_alight, 
+            iteration, 
+            bus_combination = None, 
+            first_last_mile_type = 0, 
+            vehicle = None):
         # Static trip information
         self.origin = origin
         self.destination = destination
         self.pick_up_time = pick_up_time
-        self.number = number
-        self.bus_combination = bus_combination
+        self.number: int = trip_number
+
         self.first_last_mile_type = first_last_mile_type
         self.vehicle = vehicle
-        self.request_id = request_id
+        self.request_id: int = request_id
         self.cost = cost
         self.dwell_pickup = dwell_pickup
         self.dwell_alight = dwell_alight
@@ -21,6 +39,8 @@ class Trip:
         self.latest_arrival_time = latest_arrival_time
         self.am_capacity = am_capacity
         self.wc_capacity = wc_capacity
+        # what is the bus used for?
+        self.bus_combination = bus_combination
         if bus_combination == None:
             self.id = "{0}-{1}".format(iteration,request_id)
         else:
@@ -32,17 +52,17 @@ class Trip:
     def __str__(self):
         return f"<Trip {self.id}: pickup: {self.pick_up_time}, origin: {self.origin}, destination: {self.destination}>"
 
-    # NOTE: all function never used
+    # NOTE: all methods below never used
     def get_shared_trips(self):
         trips = []
         for cardinality in self.shared_trips:
             trips.extend(self.shared_trips[cardinality])
         return trips
     
-    def get_shared_trips_of_cardinality(self,cardinality):
+    def get_shared_trips_of_cardinality(self, cardinality):
         return self.shared_trips[cardinality]
 
-    def add_shared_trip(self,cardinality,trip_id):
+    def add_shared_trip(self, cardinality, trip_id):
         if cardinality not in self.shared_trips:
             self.shared_trips[cardinality] = []
         self.shared_trips[cardinality].append(trip_id)

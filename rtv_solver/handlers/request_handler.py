@@ -7,76 +7,74 @@ from dateutil import parser
 from multiprocessing.pool import ThreadPool
 from datetime import timedelta
 
-PICKUP_TIME = 'pickup_time_window_start'
-ID = 'id'
-PICKUP_LAT = 'pickup_latitude'
-PICKUP_LON = 'pickup_longitude'
-DROPOFF_LAT = 'dropoff_latitude'
-DROPOFF_LON = 'dropoff_longitude'
-DWELL_PICKUP = 'dwell_pickup'
-DWELL_ALIGHT = 'dwell_alight'
-PICKUP_WINDOW_END = 'pickup_time_window_end'
-ARRIVAL_WINDOW_START = 'dropoff_time_window_start'
-ARRIVAL_WINDOW_END = 'dropoff_time_window_end'
-PICKUP_NODE_ID = 'pickup_node_id'
-DROPOFF_NODE_ID = 'dropoff_node_id'
-
 class RequestHandler:
+    # keys for request dictionary
+    PICKUP_TIME = 'pickup_time_window_start'
+    REQ_ID = 'id'
+    PICKUP_LAT = 'pickup_latitude'
+    PICKUP_LON = 'pickup_longitude'
+    DROPOFF_LAT = 'dropoff_latitude'
+    DROPOFF_LON = 'dropoff_longitude'
+    DWELL_PICKUP = 'dwell_pickup'
+    DWELL_ALIGHT = 'dwell_alight'
+    PICKUP_WINDOW_END = 'pickup_time_window_end'
+    ARRIVAL_WINDOW_START = 'dropoff_time_window_start'
+    ARRIVAL_WINDOW_END = 'dropoff_time_window_end'
+    PICKUP_NODE_ID = 'pickup_node_id'
+    DROPOFF_NODE_ID = 'dropoff_node_id'
+
     def __init__(self, request_data, dwell_pickup, dwell_alight):
-        requests = []
-        for req in request_data:
-            pickup_time_window_start = req[PICKUP_TIME]
-            pickup_time_window_end = req[PICKUP_WINDOW_END]
-            dropoff_time_window_start = req[ARRIVAL_WINDOW_START]
-            dropoff_time_window_end = req[ARRIVAL_WINDOW_END]
-            origin = req['pickup_pt']
-            dest = req['dropoff_pt']
-            pick_up_lat,pick_up_lon = origin['lat'],origin['lon']
-            drop_lat,drop_lon = dest['lat'],dest['lon']
-            pickup_node_id = NetworkHandler.get_next_node_id(pick_up_lat,pick_up_lon)
-            # if 'node_id' in origin:
-            #     pickup_node_id = origin['node_id']
-            dropoff_node_id = NetworkHandler.get_next_node_id(drop_lat,drop_lon)
-            # if 'node_id' in dest:
-            #     dropoff_node_id = dest['node_id']
-            # pick_up_lat,pick_up_lon = NetworkHandler.get_nearest_node(pick_up_lat,pick_up_lon)
-            # drop_lat,drop_lon = NetworkHandler.get_nearest_node(drop_lat,drop_lon)
-            t_req = {'am':req['am'],'wc':req['wc'],ID:req['booking_id'],
-                PICKUP_LAT: pick_up_lat,PICKUP_LON: pick_up_lon,
-                DROPOFF_LAT: drop_lat,DROPOFF_LON: drop_lon,
-                PICKUP_TIME: pickup_time_window_start,
-                PICKUP_WINDOW_END: pickup_time_window_end,
-                ARRIVAL_WINDOW_START: dropoff_time_window_start,
-                ARRIVAL_WINDOW_END: dropoff_time_window_end,
-                DWELL_PICKUP: dwell_pickup,
-                DWELL_ALIGHT: dwell_alight,
-                PICKUP_NODE_ID: pickup_node_id,
-                DROPOFF_NODE_ID: dropoff_node_id
-                }
-            requests.append(t_req)
-            
-        self.requests = pd.DataFrame(requests).astype({ID: 'string'}).sort_values(by = [PICKUP_TIME])
-        self.requests.drop_duplicates(subset=ID, keep="first")
-        # with ThreadPool(10) as pool:
-        #     for index,_ in self.requests.iterrows():
-        #         pool.apply_async(self.update_request_location,args=(index,))
-        #     pool.close()
-        #     pool.join()
+        """create a sorted list of all requests in a pd.dataframe """
+        requests = [self.build_request(req, dwell_pickup, dwell_alight) for req in request_data]  
+        self.requests = pd.DataFrame(requests).astype({RequestHandler.REQ_ID: 'string'}).sort_values(by = [RequestHandler.PICKUP_TIME])
+        self.requests.drop_duplicates(subset=RequestHandler.REQ_ID, keep="first")
 
         self.count = self.requests.shape[0]
         self.next_index = 0
         logging.info('Total No of requests: {0}'.format(self.count))
 
+    @staticmethod
+    def build_request(req, dwell_pickup, dwell_alight):
+        # simplified code to build a single request dictionary from the raw request data
+        pickup = req['pickup_pt']
+        dropoff = req['dropoff_pt']
+
+        pickup_lat, pickup_lon = pickup['lat'], pickup['lon']
+        dropoff_lat, dropoff_lon = dropoff['lat'], dropoff['lon']
+
+        return {
+            RequestHandler.REQ_ID: req['booking_id'],
+
+            RequestHandler.PICKUP_LAT: pickup_lat,
+            RequestHandler.PICKUP_LON: pickup_lon,
+            RequestHandler.PICKUP_NODE_ID: NetworkHandler.get_next_node_id(pickup_lat, pickup_lon),
+
+            RequestHandler.DROPOFF_LAT: dropoff_lat,
+            RequestHandler.DROPOFF_LON: dropoff_lon,
+            RequestHandler.DROPOFF_NODE_ID: NetworkHandler.get_next_node_id(dropoff_lat, dropoff_lon),
+
+            RequestHandler.PICKUP_TIME: req[RequestHandler.PICKUP_TIME],
+            RequestHandler.PICKUP_WINDOW_END: req[RequestHandler.PICKUP_WINDOW_END],
+            RequestHandler.ARRIVAL_WINDOW_START: req[RequestHandler.ARRIVAL_WINDOW_START],
+            RequestHandler.ARRIVAL_WINDOW_END: req[RequestHandler. ARRIVAL_WINDOW_END],
+
+            'am': req['am'],
+            'wc': req['wc'],
+            RequestHandler.DWELL_PICKUP: dwell_pickup,
+            RequestHandler.DWELL_ALIGHT: dwell_alight,
+        }
+
+
     def update_request_location(self,index):
         row = self.requests.iloc[index]
-        lat,lon = NetworkHandler.get_nearest_node(row[PICKUP_LAT],row[PICKUP_LON])
-        self.requests.at[index,PICKUP_LAT] = lat
-        self.requests.at[index,PICKUP_LON] = lon
+        lat,lon = NetworkHandler.get_nearest_node(row[RequestHandler.PICKUP_LAT],row[RequestHandler.PICKUP_LON])
+        self.requests.at[index,RequestHandler.PICKUP_LAT] = lat
+        self.requests.at[index,RequestHandler.PICKUP_LON] = lon
 
-        lat,lon = NetworkHandler.get_nearest_node(row[DROPOFF_LAT],row[DROPOFF_LON])
-        self.requests.at[index,DROPOFF_LAT] = lat
-        self.requests.at[index,DROPOFF_LON] = lon
-
+        lat,lon = NetworkHandler.get_nearest_node(row[RequestHandler.DROPOFF_LAT],row[RequestHandler.DROPOFF_LON])
+        self.requests.at[index,RequestHandler.DROPOFF_LAT] = lat
+        self.requests.at[index,RequestHandler.DROPOFF_LON] = lon
+    
     def earliest_start_time(self):
         start_time = self.get_request_by_iloc(0).pick_up_time
         logging.debug('Start time of first request: {0}'.format(start_time))
@@ -87,31 +85,53 @@ class RequestHandler:
         logging.debug('Start time of last request: {0}'.format(start_time))
         return start_time
 
-    def get_request(self,request_data):
-        pickup_node_id = None
-        dropoff_node_id = None
-        if PICKUP_NODE_ID in request_data:
-            pickup_node_id = request_data[PICKUP_NODE_ID]
-        if DROPOFF_NODE_ID in request_data:
-            dropoff_node_id = request_data[DROPOFF_NODE_ID]
-        origin = Node(request_data[PICKUP_LAT],request_data[PICKUP_LON],pickup_node_id)
-        destination = Node(request_data[DROPOFF_LAT],request_data[DROPOFF_LON],dropoff_node_id)
-        id = request_data[ID]
-        pick_up_time = request_data[PICKUP_TIME]
-        latest_pick_up_time = request_data[PICKUP_WINDOW_END]
-        earliest_arrival_time = request_data[ARRIVAL_WINDOW_START]
-        latest_arrival_time = request_data[ARRIVAL_WINDOW_END]
-        dwell_pickup = int(request_data[DWELL_PICKUP])
-        dwell_alight = int(request_data[DWELL_ALIGHT])
+    @staticmethod
+    def get_request(request_data):
+        pickup_node_id = request_data.get(RequestHandler.PICKUP_NODE_ID)
+        dropoff_node_id = request_data.get(RequestHandler.DROPOFF_NODE_ID)
+
+        origin = Node(
+            request_data[RequestHandler.PICKUP_LAT],
+            request_data[RequestHandler.PICKUP_LON],
+            pickup_node_id,
+        )
+        destination = Node(
+            request_data[RequestHandler.DROPOFF_LAT],
+            request_data[RequestHandler.DROPOFF_LON],
+            dropoff_node_id,
+        )
+
+        request_id = request_data[RequestHandler.REQ_ID]
+
+        pickup_time = request_data[RequestHandler.PICKUP_TIME]
+        latest_pickup_time = request_data[RequestHandler.PICKUP_WINDOW_END]
+        earliest_arrival_time = request_data[RequestHandler.ARRIVAL_WINDOW_START]
+        latest_arrival_time = request_data[RequestHandler.ARRIVAL_WINDOW_END]
+
+        dwell_pickup = int(request_data[RequestHandler.DWELL_PICKUP])
+        dwell_alight = int(request_data[RequestHandler.DWELL_ALIGHT])
         am_capacity = request_data['am']
         wc_capacity = request_data['wc']
-        return Request(id,am_capacity,wc_capacity,pick_up_time,latest_pick_up_time,earliest_arrival_time,latest_arrival_time,origin,destination,dwell_pickup,dwell_alight)
 
-    def get_request_by_iloc(self,iloc):
+        return Request(
+            request_id,
+            am_capacity,
+            wc_capacity,
+            pickup_time,
+            latest_pickup_time,
+            earliest_arrival_time,
+            latest_arrival_time,
+            origin,
+            destination,
+            dwell_pickup,
+            dwell_alight,
+        )
+
+    def get_request_by_iloc(self, iloc):
         request_data = self.requests.iloc[iloc]
         return self.get_request(request_data)
 
-    def get_batch(self,end_time,max_batch_size):
+    def get_batch(self, end_time, max_batch_size):
         batch = []
         ending_index = min(self.next_index+max_batch_size,self.requests.shape[0])
         for _, row in self.requests.iloc[self.next_index:ending_index].iterrows():
@@ -120,11 +140,11 @@ class RequestHandler:
                 break
             batch.append(request)
             self.next_index+=1
-        time_of_next_request = self.requests.iloc[min(self.next_index,self.requests.shape[0]-1)][PICKUP_TIME]
+        time_of_next_request = self.requests.iloc[min(self.next_index,self.requests.shape[0]-1)][RequestHandler.PICKUP_TIME]
         if time_of_next_request <= end_time and len(batch) > 0:
-            end_time = min(end_time,batch[-1].pick_up_time)
-        print(end_time,len(batch))
-        return batch,end_time
+            end_time = min(end_time, batch[-1].pick_up_time)
+        print("T:", end_time, "batch:",len(batch))
+        return batch, end_time
     
     def get_lookahead_trips(self,end_time,rh_factor,batch_interval:timedelta):
         batch = []
@@ -137,6 +157,7 @@ class RequestHandler:
         return batch
 
     def get_all_requests(self):
+        # TODO why do we not just return the dataframe
         batch = []
         for _, row in self.requests.iterrows():
             request = self.get_request(row)
@@ -150,9 +171,9 @@ class RequestHandler:
         coordinates = {}
         nodes = []
         for _,request_data in self.requests.iterrows():
-            lat,lon = round(request_data['pickup_latitude'],round_at),round(request_data['pickup_longitude'],round_at)
+            lat,lon = round(request_data[RequestHandler.PICKUP_LAT],round_at),round(request_data[RequestHandler.PICKUP_LON],round_at)
             coordinates[(lat,lon)] = None
-            lat,lon = round(request_data['dropoff_latitude'],round_at),round(request_data['dropoff_longitude'],round_at)
+            lat,lon = round(request_data[RequestHandler.DROPOFF_LAT],round_at),round(request_data[RequestHandler.DROPOFF_LON],round_at)
             coordinates[(lat,lon)] = None
         for key in coordinates:
             nodes.append(Node(key[0],key[1]))

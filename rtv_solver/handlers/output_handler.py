@@ -14,7 +14,7 @@ class OutputHandler:
         with open(self.output_directory+"completed_stops.csv", 'a+') as location_file:
             location_file.write("lat,lon,action,scheduled_time,booking_id,run_id\n")
 
-    def record_output(self,current_time,requests,trip_handler,total_time):
+    def record_output(self, current_time, requests, trip_handler, total_time):
         with open(self.output_directory+"shareability.csv", 'a+') as shareability_file:
             shareability_file.write(",".join([str(i) for i in trip_handler.trip_sizes])+"\n")
 
@@ -33,11 +33,12 @@ class OutputHandler:
                     assignment_file.write('{0}\n'.format(request_id))
 
     def record_vehicles(self,vehicle_locations,current_time):
+        # NOTE what are we recording here?
         with open(self.output_directory+"vehicles.csv", 'a+') as location_file:
             sorted_vehicle_ids = list(vehicle_locations.keys())
             sorted_vehicle_ids.sort()
             location_file.write(",".join([str(vehicle_locations[vehicle_id]) for vehicle_id in sorted_vehicle_ids])+"\n")
-        timestamp = time.mktime(time.gmtime(current_time)) # prior JW: current_time.timetuple())
+        timestamp = time.mktime(time.gmtime(current_time))
         with open(self.output_directory+"vehicles_timestamp.csv", 'a+') as timestamp_file:
             timestamp_file.write(str(timestamp)+"\n")
 

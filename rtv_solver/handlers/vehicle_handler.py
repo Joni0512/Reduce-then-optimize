@@ -83,7 +83,7 @@ class VehicleHandler:
             next_immediate_node = vehicle.next_immediate_node
         return next_immediate_node,time_at_next_immediate_node
 
-    def get_state(self,driver_run,start_of_the_day):
+    def get_state(self, driver_run):
         new_state = driver_run[PayloadParser.DRIVER_STATE]
         current_order = new_state[PayloadParser.DRIVER_STATE_LOC_SERV]
         manifest = driver_run[PayloadParser.DRIVER_MANIFEST][:current_order]
@@ -91,11 +91,11 @@ class VehicleHandler:
         next_immediate_node,time_at_next_immediate_node = VehicleHandler.get_current_location_time(vehicle)
         new_state[PayloadParser.DRIVER_STATE_LOC] = {"lat":next_immediate_node.lat,"lon":next_immediate_node.lon}
         new_state[PayloadParser.DRIVER_STATE_DT_SEC] = time_at_next_immediate_node
-        manifest.extend(VehicleHandler.get_manifest(vehicle,current_order,start_of_the_day))
+        manifest.extend(VehicleHandler.get_manifest(vehicle,current_order))
         new_driver_run = {PayloadParser.DRIVER_STATE:new_state,PayloadParser.DRIVER_MANIFEST:manifest}
         return new_driver_run
     
-    def get_manifest(vehicle,current_order):
+    def get_manifest(vehicle, current_order):
         manifest = []
         last_node, time_at_last_node = VehicleHandler.get_current_location_time(vehicle)
         for vehicle_stop in vehicle.stop_sequence:
