@@ -1,10 +1,10 @@
-from handlers.request_handler import RequestHandler
-from handlers.network_handler import NetworkHandler
-from handlers.vehicle_handler import VehicleHandler
-from handlers.trip_handler import TripHandler
-from handlers.payload_parser import PayloadParser
-from handlers.swap_handler import SwapHandler
-from structure.node import Node
+from rtv_solver.handlers.request_handler import RequestHandler
+from rtv_solver.handlers.network_handler import NetworkHandler
+from rtv_solver.handlers.vehicle_handler import VehicleHandler
+from rtv_solver.handlers.trip_handler import TripHandler
+from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.handlers.swap_handler import SwapHandler
+from rtv_solver.structure.node import Node
 import copy
 import multiprocessing
 import sys
@@ -13,9 +13,16 @@ import time
 import numpy as np
 import logging
 
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+
 class OnlineRTVSolver:
 
-    def __init__(self,server_url,SHAREABLE_COST_FACTOR=10,RTV_TIMEOUT=30, LARGEST_TSP = 8, MAX_CARDINALITY = 8, ):
+    def __init__(self,
+                 server_url: str, 
+                 SHAREABLE_COST_FACTOR: int = 10,
+                 RTV_TIMEOUT: int = 120, 
+                 LARGEST_TSP: int = 8, 
+                 MAX_CARDINALITY: int = 2, ):
         self.ILP_SOLVER_TIMEOUT = 120 # seconds
         self.RTV_TIMEOUT = RTV_TIMEOUT #seconds
         self.PENALTY = 1000000 # penalty for not serving a trip
@@ -82,16 +89,17 @@ class OnlineRTVSolver:
         boarded_trips = TripHandler.create_trip_for_picked_requests(boarded_requests,iteration)
 
         vehicle_handler = VehicleHandler(payload_object.depot, payload_object.driver_runs,None,LARGEST_TSP=self.LARGEST_TSP)
-        vehicle_handler.add_manifest_to_vehicles(payload_object.driver_runs,boarded_requests,boarded_trips,self.DWELL_ALIGHT, self.DWELL_PICKUP)
+        vehicle_handler.add_manifest_to_vehicles(payload_object.driver_runs,boarded_requests,boarded_trips, self.DWELL_ALIGHT, self.DWELL_PICKUP)
 
         NetworkHandler.initialize_travel_time_matrix()
         iteration+=1
         unserved_requests = set([req.id for req in batch]) - set(active_requests.keys())
         try:
-            trip_handler = TripHandler(vehicle_handler.vehicles,batch, active_requests, iteration, self.ILP_SOLVER_TIMEOUT,self.PENALTY,self.MAX_CARDINALITY,self.MAX_THREAD_CNT,self.SHAREABLE_COST_FACTOR,self.REBALANCING,self.RTV_TIMEOUT)
+            trip_handler = TripHandler(self.server_url, vehicle_handler.vehicles,batch, active_requests, iteration, self.ILP_SOLVER_TIMEOUT,self.PENALTY,self.MAX_CARDINALITY,self.MAX_THREAD_CNT,self.SHAREABLE_COST_FACTOR,self.REBALANCING, self.RTV_TIMEOUT)
         except Exception as e:
-            logging.error("Error in TripHandler:", e)
-            return self.solve_pdptw_heuristic(payload)
+            # logging.error("Error in TripHandler:", e)
+            raise
+            # return self.solve_pdptw_heuristic(payload) # TODO - does not help me much because I already calculated it above, 
         for vehicle_id in trip_handler.vehicle_assignment:
             vehicle = vehicle_handler.vehicles[vehicle_id]
             trips, prev_sequence = trip_handler.vehicle_assignment[vehicle_id]
@@ -117,27 +125,42 @@ class OnlineRTVSolver:
         return updated_driver_runs, list(unserved_requests) #,trip_handler,vehicle_handler,request_handler,payload_object
 
     def check_consistency_of_manifests(self, prev_driver_runs, new_driver_runs, unserved_requests, new_requests):
+        """ 
+        check if each requests are picked up AND dropped off exactly once,
+        unserved requests should not appear in the manifests
+        """
         picked_requests = set([req["booking_id"] for req in new_requests])
         dropped_requests = set([req["booking_id"] for req in new_requests])
+        print("picked:", picked_requests)
+        print("dropped:", dropped_requests)
         for driver_run in prev_driver_runs:
+            print("d:", driver_run)
             for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
+                print("stop:", stop)
                 if stop["action"] == "pickup":
                     picked_requests.add(stop["booking_id"])
                 else:
                     dropped_requests.add(stop["booking_id"])
         
-        new_served_requests = set()
+        new_served_requests = set() # NOTE what do for it?
         for driver_run in new_driver_runs:
+            print("d:", driver_run)
             for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
+                # TODO why is type of stop[booking_id] a string and the set of request_ids floats (wouldn't int suffice?)
+                stop_id = float(stop["booking_id"]) # prev: stop_id = stop["booking_id"] # quickfix for type mismatch - id in stop is stored as string instead of float
+                print("stop:", stop_id, stop)
                 if stop["action"] == "pickup":
-                    picked_requests.remove(stop["booking_id"])
+                    picked_requests.remove(stop_id)
                 else:
-                    dropped_requests.remove(stop["booking_id"])
+                    # TODO same problem that the dropoffs are not considered for shared trips, also happened in main.py
+                    dropped_requests.remove(stop_id)
         for req_id in unserved_requests:
+            req_id = float(req_id)
             picked_requests.remove(req_id)
             dropped_requests.remove(req_id)
         if len(picked_requests) > 0 or len(dropped_requests) > 0:
             print("Missing requests:", picked_requests, dropped_requests)
+            # TODO currently fail because the two picked-up requests are not earmarked for a dropoff stop
             raise Exception("Error: Some requests were removed")
         return True
 
@@ -247,6 +270,7 @@ class OnlineRTVSolver:
         return swaped_driver_runs, unserved_requests
 
     def evaluate_insertion(args):
+        """ accepsts a single set of args and evaluates the benefit or cost of the insertion into the existing route"""
         i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective, depot, end_time, dwell_pickup, dwell_alight = args
         new_manifest = copy.deepcopy(remaining_stops[:i] + [pickup_stop] + remaining_stops[i:j] + [dropoff_stop] + remaining_stops[j:])
         current_time = start_time
@@ -256,7 +280,7 @@ class OnlineRTVSolver:
         order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
         index = 0
         for stop in new_manifest:
-            next_node = Node(stop["loc"]["lat"], stop["loc"]["lon"], id=stop["loc"]["node_id"])
+            next_node = Node(stop["loc"]["lat"], stop["loc"]["lon"], identifier=stop["loc"]["node_id"])
             travel_time = NetworkHandler.travel_time(current_node, next_node)
             cost += travel_time
             current_node = next_node
@@ -291,7 +315,7 @@ class OnlineRTVSolver:
         driver_run_c = copy.deepcopy(driver_run)
 
         depot_node_id = NetworkHandler.get_next_node_id(depot["pt"]["lat"],depot["pt"]["lon"])
-        depot_node = Node(depot["pt"]["lat"],depot["pt"]["lon"], id=depot_node_id)
+        depot_node = Node(depot["pt"]["lat"], depot["pt"]["lon"], identifier=depot_node_id)
 
         pickup_stop = {'run_id': None, 'booking_id': request['booking_id'], 'order': -1, 'action': "pickup", 
             "loc": request["pickup_pt"], 'scheduled_time': -1, 
@@ -315,7 +339,7 @@ class OnlineRTVSolver:
         state_loc = state[PayloadParser.DRIVER_STATE_LOC]
         node_id = NetworkHandler.get_next_node_id(state_loc["lat"],state_loc["lon"])
         state_loc["node_id"] = node_id
-        start_node = Node(state_loc["lat"],state_loc["lon"],id=node_id)
+        start_node = Node(state_loc["lat"],state_loc["lon"],identifier=node_id)
         start_time = state[PayloadParser.DRIVER_STATE_DT_SEC]
         completed_stops = []
         remaining_stops = []
@@ -336,16 +360,44 @@ class OnlineRTVSolver:
         prev_cost = 0
         current_node = start_node
         for stop in remaining_stops:
-            next_node = Node(stop["loc"]["lat"],stop["loc"]["lon"],id=stop["loc"]["node_id"])
+            next_node = Node(stop["loc"]["lat"],stop["loc"]["lon"],identifier=stop["loc"]["node_id"])
             prev_cost += NetworkHandler.travel_time(current_node,next_node)
             current_node = next_node
 
         end_time = state["end_time"]
         st_th = time.time()
+
+        # replace with the ProcessPoolExecutor that was used in the TripHandler, NOTE for macOS this was the only thing that actually worked
+        # why does it recalculate so many steps multiple times
+        # trigger the process
+        # futures = []
+        # core_count = max(1,min(len(remaining_stops), 8))
+        # with ProcessPoolExecutor(max_workers=core_count) as executor:
+        #     # create all the options that we want to test exhaustively
+        #     for i in range(len(remaining_stops) + 1):
+        #         for j in range(i + 1, len(remaining_stops) + 2):
+        #             args = (i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective, depot_node, end_time, self.DWELL_PICKUP, self.DWELL_ALIGHT)   
+        #             futures.append(
+        #                 executor.submit(
+        #                     OnlineRTVSolver.evaluate_insertion,
+        #                     args
+        #                 )
+        #             )
+        # # Collect results
+        # results = []
+        # for future in as_completed(futures):
+        #     try:
+        #         result = future.result()
+        #         results.append(result)
+        #         # print(f"Result: {result}")
+        #     except Exception as e:
+        #         raise e
+        # OLD version
         pool = Pool(processes=max(1,min(len(remaining_stops), 8)))
-        args_list = [(i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective, depot_node, end_time, self.DWELL_PICKUP, self.DWELL_ALIGHT) 
-                     for i in range(len(remaining_stops) + 1) 
-                     for j in range(i + 1, len(remaining_stops) + 2)]
+        args_list = [(i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective, depot_node, end_time, self.DWELL_PICKUP,
+                    self.DWELL_ALIGHT) 
+                    for i in range(len(remaining_stops) + 1) 
+                    for j in range(i + 1, len(remaining_stops) + 2)]
         results = pool.map(OnlineRTVSolver.evaluate_insertion, args_list)
         pool.close()
         pool.join()
@@ -366,8 +418,7 @@ class OnlineRTVSolver:
         new_driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_T_LOCS] = len(new_driver_run[PayloadParser.DRIVER_MANIFEST])
         if objective == "pick_up_time":
             return best_cost,new_driver_run
-        return best_cost-prev_cost,new_driver_run
-
+        return best_cost-prev_cost, new_driver_run
 
     def serve_asap(self, payload):
         unserved_requests = []
