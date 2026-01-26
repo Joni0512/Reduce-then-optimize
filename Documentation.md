@@ -1,6 +1,7 @@
 # Documentation
 
-# Performance of Online_RTV_solver
+## Performance of Online_RTV_solver
+Deprecated as we are still using the mp.pool from the original code base.
 
 Option a) ThreadPoolExecutor 
 1. solve_pdptw_heuristic: 10m 33.6s
