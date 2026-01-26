@@ -22,6 +22,8 @@ class RequestHandler:
     ARRIVAL_WINDOW_END = 'dropoff_time_window_end'
     PICKUP_NODE_ID = 'pickup_node_id'
     DROPOFF_NODE_ID = 'dropoff_node_id'
+    CAPACITY_AMBULATORY = 'am'
+    CAPACITY_WHEELCHAIR = 'wc'
 
     def __init__(self, request_data, dwell_pickup, dwell_alight):
         """create a sorted list of all requests in a pd.dataframe """
@@ -37,9 +39,8 @@ class RequestHandler:
     def build_request(req, dwell_pickup, dwell_alight):
         # simplified code to build a single request dictionary from the raw request data
         pickup = req['pickup_pt']
-        dropoff = req['dropoff_pt']
-
         pickup_lat, pickup_lon = pickup['lat'], pickup['lon']
+        dropoff = req['dropoff_pt']
         dropoff_lat, dropoff_lon = dropoff['lat'], dropoff['lon']
 
         return {
@@ -58,8 +59,8 @@ class RequestHandler:
             RequestHandler.ARRIVAL_WINDOW_START: req[RequestHandler.ARRIVAL_WINDOW_START],
             RequestHandler.ARRIVAL_WINDOW_END: req[RequestHandler. ARRIVAL_WINDOW_END],
 
-            'am': req['am'],
-            'wc': req['wc'],
+            RequestHandler.CAPACITY_AMBULATORY: req[RequestHandler.CAPACITY_AMBULATORY],
+            RequestHandler.CAPACITY_WHEELCHAIR: req[RequestHandler.CAPACITY_WHEELCHAIR],
             RequestHandler.DWELL_PICKUP: dwell_pickup,
             RequestHandler.DWELL_ALIGHT: dwell_alight,
         }
@@ -101,30 +102,18 @@ class RequestHandler:
             dropoff_node_id,
         )
 
-        request_id = request_data[RequestHandler.REQ_ID]
-
-        pickup_time = request_data[RequestHandler.PICKUP_TIME]
-        latest_pickup_time = request_data[RequestHandler.PICKUP_WINDOW_END]
-        earliest_arrival_time = request_data[RequestHandler.ARRIVAL_WINDOW_START]
-        latest_arrival_time = request_data[RequestHandler.ARRIVAL_WINDOW_END]
-
-        dwell_pickup = int(request_data[RequestHandler.DWELL_PICKUP])
-        dwell_alight = int(request_data[RequestHandler.DWELL_ALIGHT])
-        am_capacity = request_data['am']
-        wc_capacity = request_data['wc']
-
         return Request(
-            request_id,
-            am_capacity,
-            wc_capacity,
-            pickup_time,
-            latest_pickup_time,
-            earliest_arrival_time,
-            latest_arrival_time,
+            request_data[RequestHandler.REQ_ID],
+            request_data[RequestHandler.PICKUP_TIME],
+            request_data[RequestHandler.PICKUP_WINDOW_END],
+            request_data[RequestHandler.ARRIVAL_WINDOW_START],
+            request_data[RequestHandler.ARRIVAL_WINDOW_END],
             origin,
             destination,
-            dwell_pickup,
-            dwell_alight,
+            int(request_data[RequestHandler.DWELL_PICKUP]),
+            int(request_data[RequestHandler.DWELL_ALIGHT]),
+            request_data[RequestHandler.CAPACITY_AMBULATORY],
+            request_data[RequestHandler.CAPACITY_WHEELCHAIR],
         )
 
     def get_request_by_iloc(self, iloc):

@@ -12,8 +12,7 @@ from multiprocessing import Pool
 import time
 import numpy as np
 import logging
-
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+import copy
 
 class OnlineRTVSolver:
 
@@ -36,6 +35,7 @@ class OnlineRTVSolver:
             multiprocessing.set_start_method("fork")
 
     def check_feasibility(self, payload):
+        # TODO get rid of the strings if possible
         NetworkHandler.init(True, self.SERVER_URL)
         feasible_time_slots = []
         request = payload["requests"][0]
@@ -97,6 +97,8 @@ class OnlineRTVSolver:
             trip_handler = TripHandler(vehicle_handler.vehicles,batch, active_requests, iteration, self.ILP_SOLVER_TIMEOUT,self.PENALTY,self.MAX_CARDINALITY,self.MAX_THREAD_CNT,self.SHAREABLE_COST_FACTOR,self.REBALANCING, self.RTV_TIMEOUT)
         except Exception as e:
             raise e
+        
+        vehicle_assignment = trip_handler.get_veh_assignment()
         for vehicle_id in trip_handler.vehicle_assignment:
             vehicle = vehicle_handler.vehicles[vehicle_id]
             trips, prev_sequence = trip_handler.vehicle_assignment[vehicle_id]
@@ -119,38 +121,41 @@ class OnlineRTVSolver:
             updated_driver_runs.append(new_driver_run)
 
         self.check_consistency_of_manifests(payload["driver_runs"], updated_driver_runs, unserved_requests, payload["requests"])
-        return updated_driver_runs, list(unserved_requests) #,trip_handler,vehicle_handler,request_handler,payload_object
+        return updated_driver_runs, list(unserved_requests) # ,trip_handler, vehicle_handler, request_handler, payload_object
 
     def check_consistency_of_manifests(self, prev_driver_runs, new_driver_runs, unserved_requests, new_requests):
         """ 
         check if each requests are picked up AND dropped off exactly once,
         unserved requests should not appear in the manifests
         """
+        # initialize all new requests that need to be picked, dropped or unserved
         picked_requests = set([req["booking_id"] for req in new_requests])
-        dropped_requests = set([req["booking_id"] for req in new_requests])
+        dropped_requests = copy.deepcopy(picked_requests) # set([req["booking_id"] for req in new_requests]) # simplified as it does not have to run the same loop twice
+        # get all requests that are already in the previous manifest
         for driver_run in prev_driver_runs:
             for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
-                print("stop:", stop)
+                # TODO why is type of stop[booking_id] a string and the set of request_ids floats (wouldn't int suffice?)
+                # float is quickfix for type mismatch - id in stop is stored as string instead of float
+                stop_id = float(stop["booking_id"]) # prev: stop_id = stop["booking_id"]
                 if stop["action"] == "pickup":
-                    picked_requests.add(stop["booking_id"])
+                    picked_requests.add(stop_id)
                 else:
-                    dropped_requests.add(stop["booking_id"])
-        
-        new_served_requests = set() # NOTE what do with this?
+                    dropped_requests.add(stop_id)
+        print("Served requests:", set(picked_requests))
+        # remove all requests that are picked up/dropped off
         for driver_run in new_driver_runs:
             for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
-                # TODO why is type of stop[booking_id] a string and the set of request_ids floats (wouldn't int suffice?)
-                stop_id = float(stop["booking_id"]) # prev: stop_id = stop["booking_id"] # quickfix for type mismatch - id in stop is stored as string instead of float
-                print("stop:", stop_id, stop["action"])
+                stop_id = float(stop["booking_id"]) 
                 if stop["action"] == "pickup":
                     picked_requests.remove(stop_id)
                 else:
-                    # TODO same problem that the dropoffs are not considered for shared trips, also happened in main.py
                     dropped_requests.remove(stop_id)
+        # remove all requests that are unserved            
         for req_id in unserved_requests:
             req_id = float(req_id)
             picked_requests.remove(req_id)
             dropped_requests.remove(req_id)
+
         if len(picked_requests) > 0 or len(dropped_requests) > 0:
             print("Missing requests:", picked_requests, dropped_requests)
             # TODO currently fail because the two picked-up requests are not earmarked for a dropoff stop
@@ -160,13 +165,16 @@ class OnlineRTVSolver:
     def simulate_manifest(self, current_time, driver_runs, intermediate_location=True):
         NetworkHandler.init(True, self.SERVER_URL)
         new_driver_runs = []
+        # TODO longterm: turn driver_run into an object that handles all the conditions and changes based on validated calls
         for driver_run in driver_runs:
             state = driver_run[PayloadParser.DRIVER_STATE]
-            current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
             manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
+
+            current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
             next_immediate_time = state[PayloadParser.DRIVER_STATE_DT_SEC]
             next_immediate_loc = state[PayloadParser.DRIVER_STATE_LOC]
             
+            # update time if manifest is already completed
             if len(manifest) == current_order and next_immediate_time < current_time:
                 next_immediate_time = current_time
 
@@ -174,7 +182,7 @@ class OnlineRTVSolver:
                 next_stop = manifest[current_order]
                 next_immediate_time = next_stop["scheduled_time"]
                 next_immediate_loc = next_stop["loc"]
-
+                # apply dwell time if applicable
                 if next_stop["action"] == "pickup":
                     next_immediate_time += self.DWELL_PICKUP
                 else:
@@ -188,10 +196,13 @@ class OnlineRTVSolver:
                 target_node = NetworkHandler.manifest_location(manifest[current_order]["loc"])
                 next_immediate_time, next_immediate_node = NetworkHandler.get_current_location_time(next_immediate_node,target_node,next_immediate_time,current_time)
                 next_immediate_loc = {"lat":next_immediate_node.lat,"lon":next_immediate_node.lon}
+
             state[PayloadParser.DRIVER_STATE_DT_SEC] = next_immediate_time
             state[PayloadParser.DRIVER_STATE_LOC] = next_immediate_loc
             state[PayloadParser.DRIVER_STATE_LOC_SERV] = current_order
-            new_driver_runs.append({PayloadParser.DRIVER_STATE:state,PayloadParser.DRIVER_MANIFEST:manifest})
+            new_driver_runs.append({
+                PayloadParser.DRIVER_STATE: state,
+                PayloadParser.DRIVER_MANIFEST: manifest})
         
         self.check_consistency_of_manifests(driver_runs, new_driver_runs, [], [])
         return new_driver_runs

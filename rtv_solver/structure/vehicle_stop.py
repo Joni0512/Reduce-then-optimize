@@ -3,10 +3,10 @@ from rtv_solver.structure.node import Node
 
 # TODO when code runs cleanly, turn conditionals to use Enum
 class StopType(Enum):
-    PICKUP = 0
-    DROPOFF = 1
-    REBALANCE = 2
-    DEPOT = 3
+    PICKUP = 'pickup'
+    DROPOFF = 'dropoff'
+    REBALANCE = 'rebalance'
+    DEPOT = 'depot'
 
 class VehicleStop:
     """

@@ -8,8 +8,8 @@ class Payload:
         self.travel_time_matrix = travel_time_matrix
         self.current_time: int = current_time
         self.requests: list[dict] = requests
-        self.boarded_requests: list[dict] = boarded_requests
-        self.active_requests: list[dict] = active_requests
+        self.boarded_requests: list[str] = boarded_requests
+        self.active_requests: list[str] = active_requests
         self.driver_runs: list[dict] = driver_runs
         self.depot: Node = depot
 

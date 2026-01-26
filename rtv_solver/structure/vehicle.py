@@ -2,6 +2,7 @@ from enum import Enum
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.payload_parser import PayloadParser # TODO move the definition of the dict-keys (strings to a different place) or rather the interfaces should not be required here anymore
+from rtv_solver.structure.sequence import StopSequence
 
 class VehicleStatus(Enum):
     # TODO add status instead of deleting vehicles when they are not active anymore; with an enum makes it easier
@@ -45,7 +46,7 @@ class Vehicle:
     def set_sequence(self, new_sequence: list[VehicleStop]):
         """method should update the sequence if stops are added but not reset how it is currently build
         NOTE rebuild in a way that gives us future control how the updates are made but still easier to debug"""
-        self.stop_sequence = new_sequence
+        self.stop_sequence = StopSequence(new_sequence)
         # TODO how code should work in order to manage the car properly, it should rather append stops and for dropoffs it should check whether it has previously been picked up  
 
     def get_current_location_time(self):
@@ -135,5 +136,4 @@ class Vehicle:
         trip_str = "{" + ', '.join([f"{trip_id}: {str(trip)}" for trip_id, trip in self.trips.items()]) + "}"
         picked_str = ', '.join([str(pick) for pick in self.picked])
         served_str = ', '.join([str(served) for served in self.served_trips])
-        stop_sequence_str = ', '.join([str(stop) for stop in self.stop_sequence])
-        return f"Vehicle ID {self.id}: time: {self.start_time}>{self.end_time}, trips: {trip_str}, picked: [{picked_str}], served: [{served_str}], last_node: {self.last_node}, stop_sequence: [{stop_sequence_str}]"
+        return f"Vehicle ID {self.id}: time: {self.start_time}>{self.end_time}, trips: {trip_str}, picked: [{picked_str}], served: [{served_str}], last_node: {self.last_node}, stop_sequence: [{self.stop_sequence}]"

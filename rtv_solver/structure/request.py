@@ -1,8 +1,6 @@
 class Request:
     def __init__(self, 
                  identifier, 
-                 am_capacity, 
-                 wc_capacity, 
                  pick_up_time, 
                  latest_pick_up_time, 
                  earliest_arrival_time,
@@ -11,6 +9,8 @@ class Request:
                  destination,
                  dwell_pickup,
                  dwell_alight,
+                 am_capacity, 
+                 wc_capacity, 
                  priority=1):
         self.origin = origin
         self.destination = destination

@@ -24,6 +24,7 @@ class TripHandler:
         self.vehicle_assignment = {}
         self.request_assignment = {}
         self.starting_time = time.time()
+
         self.generate_ondemand_only_trips(requests,iteration)
         self.generate_trip_costs(vehicles,MAX_THREAD_CNT,0)
         self.generate_shared_trips(vehicles,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR)
@@ -41,6 +42,9 @@ class TripHandler:
 
     def get_trip_cost(self,origin,destination):
         return NetworkHandler.travel_distance(origin,destination)
+    
+    def get_veh_assignment(self):
+        return self.vehicle_assignment  
     
     def generate_ondemand_only_trips(self,requests,iteration):
         for request in requests:
@@ -193,6 +197,7 @@ class TripHandler:
         self.rr_graph = {}
         for trip_no in self.ondemand_only_trip_map.values():
             self.rr_graph[trip_no] = set()
+        print("Debugging message") 
         for shared_trip_index in self.shared_trips_map[2]:
             shared_trip = self.trips[shared_trip_index]
             trip_no1, trip_no2 = shared_trip.trips
@@ -252,8 +257,6 @@ class TripHandler:
                         if trips_signature in tried_combinations:
                             continue
                         tried_combinations[trips_signature] = 0
-
-
 
                         if len(self.trip_to_vehicle_cost_map[shared_trip1_index]) == 0:
                             continue
@@ -364,7 +367,6 @@ class TripHandler:
             if m.Status == GRB.OPTIMAL or m.Status == GRB.SUBOPTIMAL:
                 logging.info("Total time spent on optimization: {0}".format(m.Runtime))
 
-
                 for vehicle_id in self.vehicle_to_trips_cost_map:
                     for i in self.vehicle_to_trips_cost_map[vehicle_id]:
                         if x_t[i].X == 1:
@@ -398,8 +400,11 @@ class TripHandler:
                         self.unassigned_trip_count+=1
             else:
                 self.unassigned_trip_count = request_count
-                raise Exception("Gurobi solver ended with code: {0}".format(m.Status))
-            logging.info('No of requests: {0}, unassigned requests: {1}, assigned requests: {2}'.format(request_count,self.unassigned_trip_count,self.taxi_only_trip_count))
+                raise Exception(f"Gurobi solver ended with code: {m.Status} - {GRB.Status[m.Status]}")
+            
+            decision_phrase = 'Assignment: requests / unassigned / assigned: {0} / {1} / {2}'.format(request_count, self.unassigned_trip_count, self.taxi_only_trip_count)
+            print(decision_phrase)
+            logging.info(decision_phrase)
 
     def get_rebalancing_trips(self,vehicles,requests):
         empty_vehicles = []
