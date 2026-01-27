@@ -44,10 +44,29 @@ class Trip:
         if bus_combination == None:
             self.id = "{0}-{1}".format(iteration,request_id)
         else:
-            self.id = "{0}:{1}-{2}".format(request_id,bus_combination,first_last_mile_type)
+            self.id = "{0}:{1}-{2}".format(request_id, bus_combination, first_last_mile_type)
         # simulation state
         self.picked = False
         self.shared_trips = {}
+
+    @classmethod
+    def from_request(self, request_id, trip_number, request, iteration):
+        return Trip(
+            request_id,
+            trip_number,
+            request.am_capacity,
+            request.wc_capacity,
+            request.pick_up_time,
+            request.latest_pick_up_time,
+            request.earliest_arrival_time,
+            request.latest_arrival_time,
+            request.origin,
+            request.destination,
+            None,
+            request.dwell_pickup,
+            request.dwell_alight,
+            iteration
+        )
 
     def __str__(self):
         return f"<Trip {self.id}: pickup: {self.pick_up_time}, origin: {self.origin}, destination: {self.destination}>"

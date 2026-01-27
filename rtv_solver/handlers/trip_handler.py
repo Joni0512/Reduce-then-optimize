@@ -1,6 +1,7 @@
 from rtv_solver.structure.trip import Trip
 from rtv_solver.structure.shared_trip import SharedTrip
 from rtv_solver.structure.trip_cost import TripCost
+from rtv_solver.structure.sequence import StopSequence
 from rtv_solver.handlers.vehicle_handler import VehicleHandler
 from rtv_solver.handlers.network_handler import NetworkHandler
 import numpy as np
@@ -12,7 +13,18 @@ from gurobipy import GRB
 import time
 
 class TripHandler:
-    def __init__(self,vehicles,requests,active_requests,iteration,solver_timeout,penalty,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR,REBALANCING,rtv_timeout):
+    def __init__(self,
+                 vehicles,
+                 requests,
+                 active_requests,
+                 iteration,
+                 solver_timeout,
+                 penalty,
+                 MAX_CARDINALITY,
+                 MAX_THREAD_CNT,
+                 SHAREABLE_COST_FACTOR,
+                 REBALANCING,
+                 rtv_timeout):
         self.trips = []
         self.shared_trips_map = {}
         self.ondemand_only_trip_map = {}
@@ -43,7 +55,7 @@ class TripHandler:
     def get_trip_cost(self,origin,destination):
         return NetworkHandler.travel_distance(origin,destination)
     
-    def get_veh_assignment(self):
+    def get_veh_assignment(self) -> dict[int, tuple[list[Trip], StopSequence]]:
         return self.vehicle_assignment  
     
     def generate_ondemand_only_trips(self,requests,iteration):
@@ -59,31 +71,78 @@ class TripHandler:
             self.trips.append(trip)
             self.ondemand_only_trip_map[request.id] = trip.number
 
-    def create_trip(self,request,am_capacity, wc_capacity,origin,destination,pick_up_time,latest_pick_up_time,earliest_arrival_time,latest_arrival_time,dwell_pickup, dwell_alight,iteration, bus_combination=None,first_last_mile_type=None,allow_walk=True):
+    def create_trip(self,
+                    request,
+                    am_capacity,
+                    wc_capacity,
+                    origin,
+                    destination,
+                    pick_up_time,
+                    latest_pick_up_time,
+                    earliest_arrival_time,
+                    latest_arrival_time,
+                    dwell_pickup, 
+                    dwell_alight,
+                    iteration, 
+                    bus_combination=None,
+                    first_last_mile_type=None,
+                    allow_walk=True):
         if allow_walk and self.can_walk(origin,destination):
             return None
         trip_no = self.get_new_trip_no()
         cost = self.get_trip_cost(origin,destination)
-        return Trip(request.id,trip_no,am_capacity, wc_capacity, pick_up_time, latest_pick_up_time, earliest_arrival_time,latest_arrival_time, origin, destination,cost,dwell_pickup, dwell_alight, iteration, bus_combination=bus_combination,first_last_mile_type=first_last_mile_type)
-    
+        return Trip(
+            request.id,
+            trip_no,
+            am_capacity, 
+            wc_capacity, 
+            pick_up_time, 
+            latest_pick_up_time, 
+            earliest_arrival_time,
+            latest_arrival_time, 
+            origin, 
+            destination,
+            cost,
+            dwell_pickup, 
+            dwell_alight, 
+            iteration, 
+            bus_combination=bus_combination,
+            first_last_mile_type=first_last_mile_type)
+
+    @staticmethod
     def create_trip_for_picked_requests(boarded_requests,iteration):
         trip_no = -1
         boarded_trips = []
         for request_id in boarded_requests:
             request = boarded_requests[request_id]
-            boarded_trips.append(Trip(request_id,trip_no,request.am_capacity, request.wc_capacity, request.pick_up_time, request.latest_pick_up_time, request.earliest_arrival_time,request.latest_arrival_time, request.origin, request.destination,None,request.dwell_pickup, request.dwell_alight, iteration))
-            trip_no-=1
+            boarded_trips.append(
+                Trip.from_request(request_id, trip_no, request, iteration))
+            trip_no -=1
         return boarded_trips
 
-    def get_first_mile_trip(self,request,bustrip):
+    def get_first_mile_trip(self, request, bustrip):
         origin = request.origin
         destination = bustrip.pick_up_stop_node
-        return self.create_trip(request,origin,destination,request.pick_up_time, bustrip.leaving_time,bus_combination=bustrip.id,first_last_mile_type=0)
+        return self.create_trip(
+            request,
+            origin,
+            destination,
+            request.pick_up_time, 
+            bustrip.leaving_time,
+            bus_combination=bustrip.id,
+            first_last_mile_type=0)
 
-    def get_last_mile_trip(self,request,bustrip):
+    def get_last_mile_trip(self, request, bustrip):
         destination = request.destination
         origin = bustrip.destination_stop_node
-        return self.create_trip(request,origin,destination,bustrip.arrival_time, request.arrival_time,bus_combination=bustrip.id,first_last_mile_type=1)
+        return self.create_trip(
+            request,
+            origin,
+            destination,
+            bustrip.arrival_time, 
+            request.arrival_time,
+            bus_combination=bustrip.id,
+            first_last_mile_type=1)
     
     def can_walk(self,origin,destination):
         distance = NetworkHandler.travel_distance(origin,destination)
@@ -92,7 +151,7 @@ class TripHandler:
     def create_trip_cost(vehicle,trip_no,trips,prev_sequence):
         added_cost, feasibility, sequence = VehicleHandler.add_new_trips(vehicle, trips, prev_sequence=prev_sequence, add=False)
         if feasibility:
-            return TripCost(trip_no,vehicle.id,added_cost,sequence)
+            return TripCost(trip_no, vehicle.id, added_cost,sequence)
         return None
         
     def process_result(trip_cost):
@@ -194,10 +253,10 @@ class TripHandler:
         return common_vehicles
 
     def create_rr_graph(self):
+        # FIXME where does the KeyError come from?
         self.rr_graph = {}
         for trip_no in self.ondemand_only_trip_map.values():
             self.rr_graph[trip_no] = set()
-        print("Debugging message") 
         for shared_trip_index in self.shared_trips_map[2]:
             shared_trip = self.trips[shared_trip_index]
             trip_no1, trip_no2 = shared_trip.trips

@@ -19,7 +19,7 @@ TYPE_DROP_OFF = 1
 
 class VehicleHandler:
     MAX_AM_CAPACITY = 0
-    MAX_VC_CAPACITY = 0
+    MAX_WC_CAPACITY = 0
     LARGEST_TSP = 10
     def __init__(self, depot, driver_runs, output_directory, LARGEST_TSP=10):
         self.vehicles = {}
@@ -52,7 +52,7 @@ class VehicleHandler:
             am_capacity = int(vehicle_data['am_capacity'])
             wc_capacity = int(vehicle_data['wc_capacity'])
             VehicleHandler.MAX_AM_CAPACITY = max(VehicleHandler.MAX_AM_CAPACITY,am_capacity)
-            VehicleHandler.MAX_VC_CAPACITY = max(VehicleHandler.MAX_AM_CAPACITY,wc_capacity)
+            VehicleHandler.MAX_WC_CAPACITY = max(VehicleHandler.MAX_WC_CAPACITY,wc_capacity)
             start_time = vehicle_data['start_time']
             end_time = vehicle_data['end_time']
             vehicle = Vehicle(id, start_loc, am_capacity, wc_capacity, start_time, end_time, start_loc)
@@ -353,7 +353,17 @@ class VehicleHandler:
             if vehicle.rebalancing:
                 existing_sequence = []
             tt_matrix, node_indices = NetworkHandler.get_travel_time_matrix(nodes)
-            sequence, cost, feasible, last_node, time_at_last_node = VehicleHandler.get_optimal_stop_sequence(next_immediate_node,time_at_next_immediate_node,vehicle.am_capacity,vehicle.wc_capacity,trips,trips_to_pick_up,trips_to_drop_off,existing_sequence,tt_matrix, node_indices)
+            sequence, cost, feasible, last_node, time_at_last_node = VehicleHandler.get_optimal_stop_sequence(
+                next_immediate_node,
+                time_at_next_immediate_node,
+                vehicle.am_capacity,
+                vehicle.wc_capacity,
+                trips,
+                trips_to_pick_up,
+                trips_to_drop_off,
+                existing_sequence,
+                tt_matrix,
+                node_indices)
             added_cost = cost - VehicleHandler.cost_of_serving_sequence(next_immediate_node,vehicle,tt_matrix, node_indices)
             
             if feasible:
@@ -389,13 +399,53 @@ class VehicleHandler:
     def cost_of_rebalancing(vehicle,destination):
         return NetworkHandler.travel_distance(vehicle.last_node,destination)
     
-    def get_optimal_stop_sequence(last_node,time_at_last_node,max_am_capacity,max_wc_capacity,trips,trips_to_pick_up,trips_to_drop_off,existing_sequence,tt_matrix, node_indices):
+    def get_optimal_stop_sequence(last_node,
+                                  time_at_last_node,
+                                  max_am_capacity,
+                                  max_wc_capacity,
+                                  trips,
+                                  trips_to_pick_up,
+                                  trips_to_drop_off,
+                                  existing_sequence,
+                                  tt_matrix,
+                                  node_indices):
         if len(trips_to_pick_up)+len(trips_to_drop_off) <= VehicleHandler.LARGEST_TSP:
-            return VehicleHandler.get_exact_stop_sequence(last_node,time_at_last_node,max_am_capacity,max_wc_capacity,trips,trips_to_pick_up,trips_to_drop_off,[],0,tt_matrix, node_indices)
+            return VehicleHandler.get_exact_stop_sequence(
+                last_node,
+                time_at_last_node,
+                max_am_capacity,
+                max_wc_capacity,
+                trips,
+                trips_to_pick_up,
+                trips_to_drop_off,
+                [],
+                0,
+                tt_matrix,
+                node_indices)
         else:
-            return VehicleHandler.get_heuristic_stop_sequence(last_node,time_at_last_node,max_am_capacity,max_wc_capacity,trips,trips_to_pick_up,trips_to_drop_off,existing_sequence,tt_matrix, node_indices)
+            return VehicleHandler.get_heuristic_stop_sequence(
+                last_node,
+                time_at_last_node,
+                max_am_capacity,
+                max_wc_capacity,
+                trips,
+                trips_to_pick_up,
+                trips_to_drop_off,
+                existing_sequence,
+                tt_matrix,
+                node_indices)
     
-    def get_exact_stop_sequence(last_node,time_at_last_node,max_am_capacity,max_wc_capacity,trips,trips_to_pick_up,trips_to_drop_off,sequence,cost,tt_matrix, node_indices):
+    def get_exact_stop_sequence(last_node,
+                                time_at_last_node,
+                                max_am_capacity,
+                                max_wc_capacity,
+                                trips,
+                                trips_to_pick_up,
+                                trips_to_drop_off,
+                                sequence,
+                                cost,
+                                tt_matrix,
+                                node_indices):
         if len(trips_to_pick_up) == 0 and len(trips_to_drop_off) == 0:
             return sequence, cost, True, last_node, time_at_last_node
         feasible = False
@@ -456,7 +506,17 @@ class VehicleHandler:
 
         return best_sequence, current_lowest_cost, feasible, best_last_node, best_time_at_last_node
 
-    def get_heuristic_stop_sequence(last_node,time_at_last_node,max_am_capacity,max_wc_capacity,trips,trips_to_pick_up,trips_to_drop_off,existing_sequence,tt_matrix, node_indices):
+    def get_heuristic_stop_sequence(
+            last_node,
+            time_at_last_node,
+            max_am_capacity,
+            max_wc_capacity,
+            trips,
+            trips_to_pick_up,
+            trips_to_drop_off,
+            existing_sequence,
+            tt_matrix,
+            node_indices):
         feasible = False
         best_sequence = None
         current_lowest_cost = -1
@@ -555,10 +615,30 @@ class VehicleHandler:
         for starting_location in starting_locations:
             sequence,cost,t_feasible = None,None,None
             if 2*len(trips) <= VehicleHandler.LARGEST_TSP:
-                sequence,cost,t_feasible,_,_ = VehicleHandler.get_exact_stop_sequence(starting_location,current_time,VehicleHandler.MAX_AM_CAPACITY,VehicleHandler.MAX_VC_CAPACITY,trips,trips_to_pick_up,trips_to_drop_off,[],0,tt_matrix, node_indices)
+                sequence, cost, t_feasible, _, _ = VehicleHandler.get_exact_stop_sequence(
+                    starting_location,
+                    current_time,
+                    VehicleHandler.MAX_AM_CAPACITY,
+                    VehicleHandler.MAX_WC_CAPACITY,
+                    trips,
+                    trips_to_pick_up,
+                    trips_to_drop_off,
+                    [],
+                    0,
+                    tt_matrix, 
+                    node_indices)
             else:
-                sequence,cost,t_feasible,_,_ = VehicleHandler.get_heuristic_stop_sequence(starting_location,current_time,VehicleHandler.MAX_AM_CAPACITY,VehicleHandler.MAX_VC_CAPACITY,trips,[new_trip.id],[new_trip.id],current_sequence,tt_matrix, node_indices)
-            
+                sequence, cost, t_feasible, _, _ = VehicleHandler.get_heuristic_stop_sequence(
+                    starting_location,
+                    current_time,
+                    VehicleHandler.MAX_AM_CAPACITY,
+                    VehicleHandler.MAX_WC_CAPACITY,
+                    trips,
+                    [new_trip.id],
+                    [new_trip.id],
+                    current_sequence,
+                    tt_matrix,
+                    node_indices)
             if t_feasible:
                 if not feasible or best_cost > cost:
                     feasible = t_feasible

@@ -15,7 +15,7 @@ import logging
 import copy
 
 class OnlineRTVSolver:
-
+    """solves entire problem for a given payload using RTV approach"""
     def __init__(self, config = None):
         self.config = config
         self.SERVER_URL = self.config.server_url
@@ -69,7 +69,7 @@ class OnlineRTVSolver:
         # initalize network and payload
         NetworkHandler.init(True, self.SERVER_URL)
         payload_object = PayloadParser.get_payload_object(payload)
-        # get requests of payload
+        # get all requests of payload
         request_handler = RequestHandler(payload_object.requests, self.DWELL_PICKUP, self.DWELL_ALIGHT)
         temp_batch = request_handler.get_all_requests()
         batch = []
@@ -99,9 +99,9 @@ class OnlineRTVSolver:
             raise e
         
         vehicle_assignment = trip_handler.get_veh_assignment()
-        for vehicle_id in trip_handler.vehicle_assignment:
+        for vehicle_id in vehicle_assignment:
             vehicle = vehicle_handler.vehicles[vehicle_id]
-            trips, prev_sequence = trip_handler.vehicle_assignment[vehicle_id]
+            trips, prev_sequence = vehicle_assignment[vehicle_id]
             for trip in trips:
                 if trip.request_id in unserved_requests:
                     unserved_requests.remove(trip.request_id)

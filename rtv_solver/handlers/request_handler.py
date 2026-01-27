@@ -3,78 +3,60 @@ import pandas as pd
 from rtv_solver.structure.request import Request
 from rtv_solver.structure.node import Node
 from rtv_solver.handlers.network_handler import NetworkHandler
-from dateutil import parser
-from multiprocessing.pool import ThreadPool
+from rtv_solver.handlers.payload_parser import PayloadParser
 from datetime import timedelta
 
 class RequestHandler:
-    # keys for request dictionary
-    PICKUP_TIME = 'pickup_time_window_start'
-    REQ_ID = 'id'
-    PICKUP_LAT = 'pickup_latitude'
-    PICKUP_LON = 'pickup_longitude'
-    DROPOFF_LAT = 'dropoff_latitude'
-    DROPOFF_LON = 'dropoff_longitude'
-    DWELL_PICKUP = 'dwell_pickup'
-    DWELL_ALIGHT = 'dwell_alight'
-    PICKUP_WINDOW_END = 'pickup_time_window_end'
-    ARRIVAL_WINDOW_START = 'dropoff_time_window_start'
-    ARRIVAL_WINDOW_END = 'dropoff_time_window_end'
-    PICKUP_NODE_ID = 'pickup_node_id'
-    DROPOFF_NODE_ID = 'dropoff_node_id'
-    CAPACITY_AMBULATORY = 'am'
-    CAPACITY_WHEELCHAIR = 'wc'
-
+    """"""
     def __init__(self, request_data, dwell_pickup, dwell_alight):
         """create a sorted list of all requests in a pd.dataframe """
-        requests = [self.build_request(req, dwell_pickup, dwell_alight) for req in request_data]  
-        self.requests = pd.DataFrame(requests).astype({RequestHandler.REQ_ID: 'string'}).sort_values(by = [RequestHandler.PICKUP_TIME])
-        self.requests.drop_duplicates(subset=RequestHandler.REQ_ID, keep="first")
+        requests = [self.build_request_dict(req, dwell_pickup, dwell_alight) for req in request_data]  
+        self.requests = pd.DataFrame(requests).astype({PayloadParser.REQ_BOOKING_ID: 'string'}).sort_values(by = [PayloadParser.REQ_PICKUP_WINDOW_START])
+        self.requests.drop_duplicates(subset=PayloadParser.REQ_BOOKING_ID, keep="first")
 
         self.count = self.requests.shape[0]
         self.next_index = 0
-        logging.info('Total No of requests: {0}'.format(self.count))
+        logging.info(f'Total No of requests: {0}'.format(self.count))
 
     @staticmethod
-    def build_request(req, dwell_pickup, dwell_alight):
+    def build_request_dict(req, dwell_pickup, dwell_alight):
         # simplified code to build a single request dictionary from the raw request data
-        pickup = req['pickup_pt']
+        pickup = req[PayloadParser.REQ_PICKUP_PT]
         pickup_lat, pickup_lon = pickup['lat'], pickup['lon']
-        dropoff = req['dropoff_pt']
+        dropoff = req[PayloadParser.REQ_DROPOFF_PT]
         dropoff_lat, dropoff_lon = dropoff['lat'], dropoff['lon']
 
         return {
-            RequestHandler.REQ_ID: req['booking_id'],
+            PayloadParser.REQ_BOOKING_ID: req[PayloadParser.REQ_BOOKING_ID],
 
-            RequestHandler.PICKUP_LAT: pickup_lat,
-            RequestHandler.PICKUP_LON: pickup_lon,
-            RequestHandler.PICKUP_NODE_ID: NetworkHandler.get_next_node_id(pickup_lat, pickup_lon),
+            PayloadParser.REQ_PICKUP_LAT: pickup_lat,
+            PayloadParser.REQ_PICKUP_LON: pickup_lon,
+            PayloadParser.REQ_PICKUP_NODE_ID: NetworkHandler.get_next_node_id(pickup_lat, pickup_lon),
 
-            RequestHandler.DROPOFF_LAT: dropoff_lat,
-            RequestHandler.DROPOFF_LON: dropoff_lon,
-            RequestHandler.DROPOFF_NODE_ID: NetworkHandler.get_next_node_id(dropoff_lat, dropoff_lon),
+            PayloadParser.REQ_DROPOFF_LAT: dropoff_lat,
+            PayloadParser.REQ_DROPOFF_LON: dropoff_lon,
+            PayloadParser.REQ_DROPOFF_NODE_ID: NetworkHandler.get_next_node_id(dropoff_lat, dropoff_lon),
 
-            RequestHandler.PICKUP_TIME: req[RequestHandler.PICKUP_TIME],
-            RequestHandler.PICKUP_WINDOW_END: req[RequestHandler.PICKUP_WINDOW_END],
-            RequestHandler.ARRIVAL_WINDOW_START: req[RequestHandler.ARRIVAL_WINDOW_START],
-            RequestHandler.ARRIVAL_WINDOW_END: req[RequestHandler. ARRIVAL_WINDOW_END],
+            PayloadParser.REQ_PICKUP_WINDOW_START: req[PayloadParser.REQ_PICKUP_WINDOW_START],
+            PayloadParser.REQ_PICKUP_WINDOW_END: req[PayloadParser.REQ_PICKUP_WINDOW_END],
+            PayloadParser.REQ_DROPOFF_WINDOW_START: req[PayloadParser.REQ_DROPOFF_WINDOW_START],
+            PayloadParser.REQ_DROPOFF_WINDOW_END: req[PayloadParser.REQ_DROPOFF_WINDOW_END],
 
-            RequestHandler.CAPACITY_AMBULATORY: req[RequestHandler.CAPACITY_AMBULATORY],
-            RequestHandler.CAPACITY_WHEELCHAIR: req[RequestHandler.CAPACITY_WHEELCHAIR],
-            RequestHandler.DWELL_PICKUP: dwell_pickup,
-            RequestHandler.DWELL_ALIGHT: dwell_alight,
+            PayloadParser.REQ_AMBULATORY: req[PayloadParser.REQ_AMBULATORY],
+            PayloadParser.REQ_WHEELCHAIR: req[PayloadParser.REQ_WHEELCHAIR],
+            PayloadParser.REQ_DWELL_PICKUP: dwell_pickup,
+            PayloadParser.REQ_DWELL_ALIGHT: dwell_alight,
         }
-
 
     def update_request_location(self,index):
         row = self.requests.iloc[index]
-        lat,lon = NetworkHandler.get_nearest_node(row[RequestHandler.PICKUP_LAT],row[RequestHandler.PICKUP_LON])
-        self.requests.at[index,RequestHandler.PICKUP_LAT] = lat
-        self.requests.at[index,RequestHandler.PICKUP_LON] = lon
+        lat,lon = NetworkHandler.get_nearest_node(row[PayloadParser.REQ_PICKUP_LAT],row[PayloadParser.REQ_PICKUP_LON])
+        self.requests.at[index,PayloadParser.REQ_PICKUP_LAT] = lat
+        self.requests.at[index,PayloadParser.REQ_PICKUP_LON] = lon
 
-        lat,lon = NetworkHandler.get_nearest_node(row[RequestHandler.DROPOFF_LAT],row[RequestHandler.DROPOFF_LON])
-        self.requests.at[index,RequestHandler.DROPOFF_LAT] = lat
-        self.requests.at[index,RequestHandler.DROPOFF_LON] = lon
+        lat,lon = NetworkHandler.get_nearest_node(row[PayloadParser.REQ_DROPOFF_LAT],row[PayloadParser.REQ_DROPOFF_LON])
+        self.requests.at[index,PayloadParser.REQ_DROPOFF_LAT] = lat
+        self.requests.at[index,PayloadParser.REQ_DROPOFF_LON] = lon
     
     def earliest_start_time(self):
         start_time = self.get_request_by_iloc(0).pick_up_time
@@ -87,40 +69,40 @@ class RequestHandler:
         return start_time
 
     @staticmethod
-    def get_request(request_data):
-        pickup_node_id = request_data.get(RequestHandler.PICKUP_NODE_ID)
-        dropoff_node_id = request_data.get(RequestHandler.DROPOFF_NODE_ID)
+    def get_request(request_data) -> Request:
+        pickup_node_id = request_data.get(PayloadParser.REQ_PICKUP_NODE_ID)
+        dropoff_node_id = request_data.get(PayloadParser.REQ_DROPOFF_NODE_ID)
 
         origin = Node(
-            request_data[RequestHandler.PICKUP_LAT],
-            request_data[RequestHandler.PICKUP_LON],
+            request_data[PayloadParser.REQ_PICKUP_LAT],
+            request_data[PayloadParser.REQ_PICKUP_LON],
             pickup_node_id,
         )
         destination = Node(
-            request_data[RequestHandler.DROPOFF_LAT],
-            request_data[RequestHandler.DROPOFF_LON],
+            request_data[PayloadParser.REQ_DROPOFF_LAT],
+            request_data[PayloadParser.REQ_DROPOFF_LON],
             dropoff_node_id,
         )
 
         return Request(
-            request_data[RequestHandler.REQ_ID],
-            request_data[RequestHandler.PICKUP_TIME],
-            request_data[RequestHandler.PICKUP_WINDOW_END],
-            request_data[RequestHandler.ARRIVAL_WINDOW_START],
-            request_data[RequestHandler.ARRIVAL_WINDOW_END],
+            request_data[PayloadParser.REQ_BOOKING_ID],
+            request_data[PayloadParser.REQ_PICKUP_WINDOW_START],
+            request_data[PayloadParser.REQ_PICKUP_WINDOW_END],
+            request_data[PayloadParser.REQ_DROPOFF_WINDOW_START],
+            request_data[PayloadParser.REQ_DROPOFF_WINDOW_END],
             origin,
             destination,
-            int(request_data[RequestHandler.DWELL_PICKUP]),
-            int(request_data[RequestHandler.DWELL_ALIGHT]),
-            request_data[RequestHandler.CAPACITY_AMBULATORY],
-            request_data[RequestHandler.CAPACITY_WHEELCHAIR],
+            int(request_data[PayloadParser.REQ_DWELL_PICKUP]),
+            int(request_data[PayloadParser.REQ_DWELL_ALIGHT]),
+            request_data[PayloadParser.REQ_AMBULATORY],
+            request_data[PayloadParser.REQ_WHEELCHAIR],
         )
 
     def get_request_by_iloc(self, iloc):
         request_data = self.requests.iloc[iloc]
         return self.get_request(request_data)
 
-    def get_batch(self, end_time, max_batch_size):
+    def get_batch(self, end_time, max_batch_size) -> tuple[list[Request], int]:
         batch = []
         ending_index = min(self.next_index+max_batch_size,self.requests.shape[0])
         for _, row in self.requests.iloc[self.next_index:ending_index].iterrows():
@@ -129,7 +111,7 @@ class RequestHandler:
                 break
             batch.append(request)
             self.next_index+=1
-        time_of_next_request = self.requests.iloc[min(self.next_index,self.requests.shape[0]-1)][RequestHandler.PICKUP_TIME]
+        time_of_next_request = self.requests.iloc[min(self.next_index,self.requests.shape[0]-1)][PayloadParser.REQ_PICKUP_WINDOW_START]
         if time_of_next_request <= end_time and len(batch) > 0:
             end_time = min(end_time, batch[-1].pick_up_time)
         print("T:", end_time, "batch:",len(batch))
@@ -160,9 +142,9 @@ class RequestHandler:
         coordinates = {}
         nodes = []
         for _,request_data in self.requests.iterrows():
-            lat,lon = round(request_data[RequestHandler.PICKUP_LAT],round_at),round(request_data[RequestHandler.PICKUP_LON],round_at)
+            lat,lon = round(request_data[PayloadParser.REQ_PICKUP_LAT],round_at),round(request_data[PayloadParser.REQ_PICKUP_LON],round_at)
             coordinates[(lat,lon)] = None
-            lat,lon = round(request_data[RequestHandler.DROPOFF_LAT],round_at),round(request_data[RequestHandler.DROPOFF_LON],round_at)
+            lat,lon = round(request_data[PayloadParser.REQ_DROPOFF_LAT],round_at),round(request_data[PayloadParser.REQ_DROPOFF_LON],round_at)
             coordinates[(lat,lon)] = None
         for key in coordinates:
             nodes.append(Node(key[0],key[1]))

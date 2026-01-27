@@ -4,11 +4,11 @@ import argparse
 from rtv_solver import OnlineRTVSolver, OfflineRTVSolver
 
 DEBUG_MODE = True # reduces number of vehicles and requests for easier debugging
-ONLINE_MODE = True # runs all requests in one go without rolling horizon batching
+ONLINE_MODE = False # runs all requests in one go without rolling horizon batching
 # TODO current code only works with wilson-format due to the keys that are being used in the dictionaries to handle data
 
 if __name__ == "__main__":
-    """Code is a normal Python script based on the jupyter-notebook in order to be able to debug it more easily."""
+    """Main script to run RTV solver in online or offline mode based on input data and configuration parameters with easy options for debugging and testing."""
     # TODO move config management to YAML config or Hydra
     parser = argparse.ArgumentParser(description='Arguments for the RTV solver main script')
     # technical setup
@@ -27,8 +27,8 @@ if __name__ == "__main__":
     parser.add_argument('--dwell_pickup', type=int,         default=180, help='Dwell time at pickup in seconds')
     parser.add_argument('--dwell_alight', type=int,         default=60, help='Dwell time at alight (dropoff) in seconds')
     parser.add_argument('--rh_factor', type=int,            default=0, help='Rolling horizon factor') # NOTE alternative to step_size, still used?
-    parser.add_argument('--step_size', type=int,            default=1800, help='Step size in seconds for rolling horizon')
-    parser.add_argument('--batch_interval', type=int,       default=3600, help='Batch interval in seconds')
+    parser.add_argument('--step_size', type=int,            default=3600, help='Step size in seconds for rolling horizon')
+    parser.add_argument('--batch_interval', type=int,       default=7200, help='Batch interval in seconds')
     # TODO COAML parameters 
     config = parser.parse_args()
 
@@ -69,4 +69,4 @@ if __name__ == "__main__":
         off_solver = OfflineRTVSolver(config)
         updated_driver_runs, unserved_requests = off_solver.solve_rtv(payload, config.batch_interval, config.step_size)
 
-    print(f"No. unserved requests: {len(unserved_requests)} with IDs:\n{unserved_requests}")
+    print(f"\033[1m {len(unserved_requests)}\033[0m unserved requests with IDs:\n{unserved_requests}")

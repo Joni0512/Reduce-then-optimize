@@ -9,16 +9,16 @@ class OfflineRTVSolver:
 
     def solve_rtv(self, payload, interval, step_size):
         online_rtv_solver = OnlineRTVSolver(self.config)
-        # determine the time horizon of the entire set of requests
-        start_time, end_time = PayloadParser.get_request_time_interval(payload)
+        # determine time interval of entire requests set
+        start_time, end_time = PayloadParser.get_requests_time_interval(payload)
         # start before the initial start_time to catch all requests in the first interval
         current_time = max(0,start_time - interval)
-        # get all vehicles
-        driver_runs = payload["driver_runs"]
 
         # track progress of the solver iterations
-        unserved_requests = []
         iteration = 0
+
+        unserved_requests = []
+        driver_runs = payload["driver_runs"]
 
         while current_time < end_time:
             print("=== Offline RTV Solver Iteration", iteration, "at time", current_time, "===")

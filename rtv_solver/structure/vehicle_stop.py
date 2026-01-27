@@ -1,17 +1,17 @@
 from enum import Enum
 from rtv_solver.structure.node import Node
 
-# TODO when code runs cleanly, turn conditionals to use Enum
-class StopType(Enum):
-    PICKUP = 'pickup'
-    DROPOFF = 'dropoff'
-    REBALANCE = 'rebalance'
-    DEPOT = 'depot'
-
 class VehicleStop:
     """
     VehicleStop combines the information of when, where and with which action a stop is performed and and how long it waits in the location to fulfill its action.
     """
+    # TODO when code runs cleanly, turn stringLiterals to use Enum
+    PICKUP = 'pickup'
+    DROPOFF = 'dropoff'
+    REBALANCE = 'rebalance'
+    DEPOT = 'depot'
+    UNKNOWN = 'unknown'
+
     def __init__(self, 
                  trip_id: str, 
                  node: Node, 
