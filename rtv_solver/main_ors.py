@@ -2,6 +2,7 @@ import pickle
 import argparse
 
 from rtv_solver import OnlineRTVSolver, OfflineRTVSolver
+from rtv_solver.handlers.payload_parser import PayloadParser
 
 DEBUG_MODE = True # reduces number of vehicles and requests for easier debugging
 ONLINE_MODE = False # runs all requests in one go without rolling horizon batching
@@ -13,7 +14,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments for the RTV solver main script')
     # technical setup
     parser.add_argument('--output_dir', type=str,           default="output_format/debug/", help='output directory')
-    parser.add_argument('--input_file', type=str,           default="rtv-solver/inputs/wilson_nc_initial.pkl", help='Request file')
+    parser.add_argument('--input_file', type=str,           default='rtv-solver/inputs/localDB_payload_oct.pkl')#default="rtv-solver/inputs/wilson_nc_initial.pkl", help='Request file')rtv-solver/inputs/localDB_payload_oct.pkl
     parser.add_argument('--server_url', type=str,           default="http://127.0.0.1:5001/", help='Server URL')
     parser.add_argument('--max_thread_cnt', type=int,       default=16, help='Maximum thread count for parallel processing')
     parser.add_argument('--rtv_timeout', type=int,          default=120, help='RTV construction timeout in seconds')
@@ -32,29 +33,30 @@ if __name__ == "__main__":
     # TODO COAML parameters 
     config = parser.parse_args()
 
-    # load data from 
+    # load data from file and update to canonical format for the entire system
     file = open(config.input_file, 'rb')
     data = pickle.load(file)
     file.close()
+    data = PayloadParser.normalize_to_canonical(data)
 
     if DEBUG_MODE: # check if the basic functionality of the online RTV solver works (foundation for offline RTV solver)
         # reduce the complexity by only considering a single vehicle
-        driver_runs_total = data["driver_runs"]
+        driver_runs_total = data[PayloadParser.DRIVERS]
         driver_runs_reduced = driver_runs_total[:1]
 
         # create a simplified set of requests, consider all requests that start before end_requests
         current_time = 5*3600 + 30*60
         step = 10*60
         selected_requests = []
-        for request in data["requests"]:
-            if request["pickup_time_window_start"] < current_time + step:
+        for request in data[PayloadParser.REQUESTS]:
+            if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + step:
                 selected_requests.append(request)
 
         # create a new payload with selected requests
         payload = {
-            "depot": data["depot"],
-            "requests": selected_requests,
-            "driver_runs": driver_runs_reduced}
+            PayloadParser.DEPOT: data[PayloadParser.DEPOT],
+            PayloadParser.REQUESTS: selected_requests,
+            PayloadParser.DRIVERS: driver_runs_reduced}
         
         # change config for debugging
         config.rtv_timeout = 600000

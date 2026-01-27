@@ -90,6 +90,7 @@ Manifest is used for all trips that have actually been carried out (probably in 
         "manifest":[]
         }
     ]
+}
 ```
 
 
@@ -157,4 +158,5 @@ Assumptions validated!
             ...
         ]
     ]
+}
 ```

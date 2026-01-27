@@ -2,6 +2,8 @@ from rtv_solver.structure.payload import Payload
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.structure.vehicle_stop import VehicleStop
 
+import copy
+
 class PayloadParser:
     # keys for payload dictionary that can be used globally
     TIME_MATRIX = "time_matrix"
@@ -178,3 +180,56 @@ class PayloadParser:
             PayloadParser.REQ_DROPOFF_PT:           request_data[PayloadParser.REQ_DROPOFF_PT],
         }
         return request
+
+    @staticmethod
+    def is_canonical_structure(data: dict) -> bool:
+        """
+        Detects whether the JSON already matches the canonical structure in the 'wilson' format.
+        """
+        return (
+            "driver_runs" in data
+            and len(data["driver_runs"]) > 0
+            and "state" in data["driver_runs"][0]
+        )
+
+    @staticmethod
+    def normalize_to_canonical(data: dict) -> dict:
+        """
+        Converts the newer JSON structure from 'chattanooga' into the canonical structure expected by the system.
+        """
+        if PayloadParser.is_canonical_structure(data):
+            return data  # Nothing to do
+
+        normalized = copy.deepcopy(data)
+
+        depot_loc = normalized[PayloadParser.DEPOT][PayloadParser.DEPOT_PT]
+
+        new_driver_runs = []
+        for run in normalized[PayloadParser.DRIVERS]:
+            state = {
+                # copy old state
+                PayloadParser.DRIVER_STATE_RUN_ID: run[PayloadParser.DRIVER_STATE_RUN_ID],
+                PayloadParser.DRIVER_STATE_START_TIME: run[PayloadParser.DRIVER_STATE_START_TIME],
+                PayloadParser.DRIVER_STATE_END_TIME: run[PayloadParser.DRIVER_STATE_END_TIME],
+                PayloadParser.DRIVER_STATE_AM_CAP: run[PayloadParser.DRIVER_STATE_AM_CAP],
+                PayloadParser.DRIVER_STATE_WC_CAP: run[PayloadParser.DRIVER_STATE_WC_CAP],
+
+                # injected defaults
+                PayloadParser.DRIVER_STATE_LOC_SERV: 0,
+                PayloadParser.DRIVER_STATE_DT_SEC: 0,
+
+                # initialize location at depot
+                PayloadParser.DRIVER_STATE_LOC: {
+                    "lat": depot_loc["lat"],
+                    "lon": depot_loc["lon"],
+                }
+            }
+
+            new_driver_runs.append({
+                PayloadParser.DRIVER_STATE: state,
+                PayloadParser.DRIVER_MANIFEST: []
+            })
+
+        normalized[PayloadParser.DRIVERS] = new_driver_runs
+
+        return normalized
