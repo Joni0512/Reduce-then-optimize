@@ -71,22 +71,23 @@ class TripHandler:
             self.trips.append(trip)
             self.ondemand_only_trip_map[request.id] = trip.number
 
-    def create_trip(self,
-                    request,
-                    am_capacity,
-                    wc_capacity,
-                    origin,
-                    destination,
-                    pick_up_time,
-                    latest_pick_up_time,
-                    earliest_arrival_time,
-                    latest_arrival_time,
-                    dwell_pickup, 
-                    dwell_alight,
-                    iteration, 
-                    bus_combination=None,
-                    first_last_mile_type=None,
-                    allow_walk=True):
+    def create_trip(
+            self,
+            request,
+            am_capacity,
+            wc_capacity,
+            origin,
+            destination,
+            pick_up_time,
+            latest_pick_up_time,
+            earliest_arrival_time,
+            latest_arrival_time,
+            dwell_pickup, 
+            dwell_alight,
+            iteration, 
+            bus_combination=None,
+            first_last_mile_type=None,
+            allow_walk=True):
         if allow_walk and self.can_walk(origin,destination):
             return None
         trip_no = self.get_new_trip_no()
@@ -115,8 +116,7 @@ class TripHandler:
         boarded_trips = []
         for request_id in boarded_requests:
             request = boarded_requests[request_id]
-            boarded_trips.append(
-                Trip.from_request(request_id, trip_no, request, iteration))
+            boarded_trips.append(Trip.from_request(request_id, trip_no, request, iteration))
             trip_no -=1
         return boarded_trips
 
