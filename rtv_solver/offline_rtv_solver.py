@@ -18,29 +18,29 @@ class OfflineRTVSolver:
         iteration = 0
 
         unserved_requests = []
-        driver_runs = payload["driver_runs"]
+        driver_runs = payload[PayloadParser.DRIVERS]
 
         while current_time < end_time:
             print("=== Offline RTV Solver Iteration", iteration, "at time", current_time, "===")
             
             # select requests that are to be considered in the current interval
             selected_requests = {}
-            for request in payload["requests"]:
-                if request["pickup_time_window_start"] < current_time + interval and request["pickup_time_window_start"] >= current_time:
-                    selected_requests[request["booking_id"]] = request
+            for request in payload[PayloadParser.REQUESTS]:
+                if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + interval and request[PayloadParser.REQ_DROPOFF_WINDOW_START] >= current_time:
+                    selected_requests[request[PayloadParser.REQ_BOOKING_ID]] = request
             
             # remove requests that are already part of vehicles (NOTE covered through manifests in OnlineSolver?)
             for dr in driver_runs:
-                for stop in dr["manifest"]:
-                    if stop["booking_id"] in selected_requests:
-                        del selected_requests[stop["booking_id"]]
+                for stop in dr[PayloadParser.DRIVER_MANIFEST]:
+                    if stop[PayloadParser.MANIFEST_BOOKING_ID] in selected_requests:
+                        del selected_requests[stop[PayloadParser.MANIFEST_BOOKING_ID]]
             selected_requests = list(selected_requests.values())
 
             # create a new payload with the selected requests
             new_payload = {
-                "depot": payload["depot"],
-                "requests": selected_requests,
-                "driver_runs": driver_runs}
+                PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
+                PayloadParser.REQUESTS: selected_requests,
+                PayloadParser.DRIVERS: driver_runs}
 
             # solve the RTV problem and update manifests
             if len(selected_requests) == 0:

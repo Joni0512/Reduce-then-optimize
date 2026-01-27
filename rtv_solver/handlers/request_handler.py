@@ -117,7 +117,7 @@ class RequestHandler:
         print("T:", end_time, "batch:",len(batch))
         return batch, end_time
     
-    def get_lookahead_trips(self,end_time,rh_factor,batch_interval:timedelta):
+    def get_lookahead_trips(self, end_time, rh_factor, batch_interval: timedelta):
         batch = []
         horizen_end_time = end_time + rh_factor * batch_interval.total_seconds()
         for _, row in self.requests.iloc[self.next_index:].iterrows():
@@ -135,7 +135,7 @@ class RequestHandler:
             batch.append(request)
         return batch
     
-    def unique_nodes(self):
+    def get_unique_nodes(self):
         return self.requests.origin.unique()
     
     def get_all_nodes(self,round_at):

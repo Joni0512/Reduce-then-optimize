@@ -9,25 +9,28 @@ from datetime import datetime
 from datetime import timedelta
 import pickle
 
+# TODO check in how we can remove these strings
 START_TIME = 'start_time'
 CAPACITY = 'capacity'
 START_NODE = 'node'
 ID = 'id'
 
+# TODO remove these numbers and replace with string-literals as fixed in VehicleStop
 TYPE_PICK_UP = 0
 TYPE_DROP_OFF = 1
 
 class VehicleHandler:
     MAX_AM_CAPACITY = 0
     MAX_WC_CAPACITY = 0
-    LARGEST_TSP = 10
-    def __init__(self, depot, driver_runs, output_directory, LARGEST_TSP=10):
+    LARGEST_TSP = 0
+    
+    def __init__(self, depot, driver_runs, output_directory, largest_tsp=10):
         self.vehicles = {}
         self.count = 0
         self.earliest_start_time = None
         self.load_vehicles(depot, driver_runs)
         self.output_directory = output_directory
-        VehicleHandler.LARGEST_TSP = LARGEST_TSP
+        VehicleHandler.LARGEST_TSP = largest_tsp
         logging.info('Total No of vehicles: {0}'.format(self.count))
 
     def save_snapshot(self):
@@ -45,33 +48,46 @@ class VehicleHandler:
         start_loc = depot
         for driver_run in driver_runs:
             vehicle_data = driver_run
-            if "state" in vehicle_data:
-                vehicle_data = driver_run["state"]
+            if PayloadParser.DRIVER_STATE in vehicle_data:
+                vehicle_data = driver_run[PayloadParser.DRIVER_STATE]
             self.count+=1
-            id = int(vehicle_data['run_id'])
-            am_capacity = int(vehicle_data['am_capacity'])
-            wc_capacity = int(vehicle_data['wc_capacity'])
+            id = int(vehicle_data[PayloadParser.DRIVER_STATE_RUN_ID])
+            am_capacity = int(vehicle_data[PayloadParser.DRIVER_STATE_AM_CAP])
+            wc_capacity = int(vehicle_data[PayloadParser.DRIVER_STATE_WC_CAP])
             VehicleHandler.MAX_AM_CAPACITY = max(VehicleHandler.MAX_AM_CAPACITY,am_capacity)
             VehicleHandler.MAX_WC_CAPACITY = max(VehicleHandler.MAX_WC_CAPACITY,wc_capacity)
-            start_time = vehicle_data['start_time']
-            end_time = vehicle_data['end_time']
-            vehicle = Vehicle(id, start_loc, am_capacity, wc_capacity, start_time, end_time, start_loc)
+            start_time = vehicle_data[PayloadParser.DRIVER_STATE_START_TIME]
+            end_time = vehicle_data[PayloadParser.DRIVER_STATE_END_TIME]
+            vehicle = Vehicle(id, 
+                              start_loc, 
+                              am_capacity, 
+                              wc_capacity, 
+                              start_time, 
+                              end_time, 
+                              start_loc)
             self.vehicles[id] = vehicle
             if self.earliest_start_time == None or self.earliest_start_time > start_time:
                 self.earliest_start_time = start_time
 
     def read_vehicles(self, filename,starting_date, max_number_of_vehicles):
         dateparse = lambda x: datetime.strptime(x, '%H:%M:%S')
-        data = pd.read_csv(filename,parse_dates=[START_TIME],date_parser=dateparse).sort_values(by = [START_TIME])
+        data = pd.read_csv(
+            filename,
+            parse_dates=[START_TIME],
+            date_parser=dateparse).sort_values(by = [START_TIME])
         for _, row in data.iterrows():
             self.count+=1
-            capacity = min(int(row[CAPACITY]),self.MAX_CAPACITY)
+            capacity = min(int(row[CAPACITY]), self.MAX_CAPACITY)
             id = int(row[ID])
-            start_time = starting_date + timedelta(hours=row[START_TIME].hour,minutes=row[START_TIME].minute,seconds=row[START_TIME].second)
+            start_time = starting_date + timedelta(hours=row[START_TIME].hour,
+                                                   minutes=row[START_TIME].minute,seconds=row[START_TIME].second)
             nearest_lat,nearest_lon = NetworkHandler.get_nearest_node(float(row.lat),float(row.lon))
-            vehicle = Vehicle(id,Node(nearest_lat,nearest_lon) , capacity, start_time)
+            vehicle = Vehicle(id,
+                              Node(nearest_lat,nearest_lon), 
+                              capacity, 
+                              start_time)
             self.vehicles[id] = vehicle
-            self.MAX_CAPACITY = max(capacity,self.MAX_CAPACITY)
+            self.MAX_CAPACITY = max(capacity, self.MAX_CAPACITY)
             if self.count == max_number_of_vehicles:
                 break
 
@@ -89,7 +105,8 @@ class VehicleHandler:
         manifest = driver_run[PayloadParser.DRIVER_MANIFEST][:current_order]
         vehicle = self.vehicles[new_state[PayloadParser.DRIVER_STATE_RUN_ID]]
         next_immediate_node,time_at_next_immediate_node = VehicleHandler.get_current_location_time(vehicle)
-        new_state[PayloadParser.DRIVER_STATE_LOC] = {"lat":next_immediate_node.lat,"lon":next_immediate_node.lon}
+        new_state[PayloadParser.DRIVER_STATE_LOC] = {"lat": next_immediate_node.lat,
+                                                     "lon": next_immediate_node.lon}
         new_state[PayloadParser.DRIVER_STATE_DT_SEC] = time_at_next_immediate_node
         manifest.extend(VehicleHandler.get_manifest(vehicle,current_order))
         new_driver_run = {PayloadParser.DRIVER_STATE:new_state,PayloadParser.DRIVER_MANIFEST:manifest}
@@ -114,49 +131,70 @@ class VehicleHandler:
             stop_time = time_at_last_node + NetworkHandler.travel_time(last_node,node)
             if stop_time <= time_window_start:
                 stop_time = time_window_start
-            stop = {'run_id': vehicle.id, 'booking_id': trip.request_id, 'order': current_order, 'action': action, 
-                        "loc": {'lat': node.lat, 'lon': node.lon, 'node_id': node.id}, 'scheduled_time': stop_time, 
-                        'am': trip.am_capacity, 'wc': trip.wc_capacity, 'time_window_start': time_window_start, 
-                        'time_window_end':time_window_end}
+            stop = {
+                PayloadParser.MANIFEST_RUN_ID: vehicle.id, 
+                PayloadParser.MANIFEST_BOOKING_ID: trip.request_id, 
+                PayloadParser.MANIFEST_ORDER: current_order, 
+                PayloadParser.MANIFEST_ACTION: action, 
+                PayloadParser.MANIFEST_LOC: {
+                    'lat': node.lat, 
+                    'lon': node.lon, 
+                    'node_id': node.id}, 
+                PayloadParser.MANIFEST_SCHED_TIME: stop_time, 
+                PayloadParser.MANIFEST_AMBULATORY: trip.am_capacity, 
+                PayloadParser.MANIFEST_WHEELCHAIR: trip.wc_capacity, 
+                PayloadParser.MANIFEST_TIME_WINDOW_START: time_window_start, 
+                PayloadParser.MANIFEST_TIME_WINDOW_END: time_window_end}
             last_node, time_at_last_node = node, stop_time + dwell
             manifest.append(stop)
         return manifest
 
-    def add_manifest_to_vehicle(self, vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup):
-        state = driver_run['state']
-        current_order = state['locations_already_serviced']
+    def add_manifest_to_vehicle(
+            self, 
+            vehicle, 
+            driver_run, 
+            boarded_requests, 
+            boarded_trips, 
+            dwell_alight, 
+            dwell_pickup):
+        state = driver_run[PayloadParser.DRIVER_STATE]
+        current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
         vehicle.started = True
-        time_at_next_immediate_node = state["location_dt_seconds"]
-        next_immediate_node = NetworkHandler.manifest_location(state['loc'],node_id=NetworkHandler.get_next_node_id(state['loc']['lat'],state['loc']['lon']))
+        time_at_next_immediate_node = state[PayloadParser.DRIVER_STATE_DT_SEC]
+        next_immediate_node = NetworkHandler.manifest_location(state['loc'],node_id = NetworkHandler.get_next_node_id(state['loc']['lat'],state['loc']['lon']))
 
-        manifest = driver_run["manifest"]
+        manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
         if len(manifest) > 0:
             for stop in manifest:
-                if stop["order"] > current_order:
+                if stop[PayloadParser.MANIFEST_ORDER] > current_order:
                     break
-                if stop["action"] == "pickup":
-                    vehicle.am_capacity -= stop["am"]
-                    vehicle.wc_capacity -= stop["wc"]
+                if stop[PayloadParser.MANIFEST_ACTION] == "pickup":
+                    vehicle.am_capacity -= stop[PayloadParser.MANIFEST_AMBULATORY]
+                    vehicle.wc_capacity -= stop[PayloadParser.MANIFEST_WHEELCHAIR]
                 else:
-                    vehicle.am_capacity += stop["am"]
-                    vehicle.wc_capacity += stop["wc"]
+                    vehicle.am_capacity += stop[PayloadParser.MANIFEST_AMBULATORY]
+                    vehicle.wc_capacity += stop[PayloadParser.MANIFEST_WHEELCHAIR]
             
             # Adding existing route to the vehicle
             filtered_manifest = []
             for stop in manifest:
-                booking_id = stop['booking_id']
-                if booking_id in boarded_requests and stop['action']=="dropoff":
+                booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
+                if booking_id in boarded_requests and stop[PayloadParser.MANIFEST_ACTION]=="dropoff":
                     filtered_manifest.append(stop)
 
             for stop in filtered_manifest:
                 trip_of_stop = None
                 for trip in boarded_trips:
-                    if trip.request_id == stop['booking_id']:
+                    if trip.request_id == stop[PayloadParser.MANIFEST_BOOKING_ID]:
                         trip_of_stop = trip
                         break
                 vehicle.trips[trip_of_stop.id] = trip_of_stop
                 vehicle.picked.append(trip_of_stop.id)
-                vehicle_stop = VehicleStop(trip_of_stop.id, trip_of_stop.destination, TYPE_DROP_OFF, trip_of_stop.dwell_alight)
+                vehicle_stop = VehicleStop(
+                    trip_of_stop.id, 
+                    trip_of_stop.destination, 
+                    TYPE_DROP_OFF, 
+                    trip_of_stop.dwell_alight)
                 vehicle.stop_sequence.append(vehicle_stop)
 
             # if len(vehicle.stop_sequence) > 0:
@@ -176,7 +214,7 @@ class VehicleHandler:
             vehicle = self.vehicles[vehicle_id]
             driver_run = None
             for run in driver_runs:
-                if int(run['state']['run_id']) == vehicle_id:
+                if int(run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_RUN_ID]) == vehicle_id:
                     driver_run = run
                     break
             self.add_manifest_to_vehicle(vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup)
@@ -364,10 +402,13 @@ class VehicleHandler:
                 existing_sequence,
                 tt_matrix,
                 node_indices)
-            added_cost = cost - VehicleHandler.cost_of_serving_sequence(next_immediate_node,vehicle,tt_matrix, node_indices)
+            added_cost = cost - VehicleHandler.cost_of_serving_sequence(next_immediate_node,
+                                                                        vehicle,
+                                                                        tt_matrix,
+                                                                        node_indices)
             
             if feasible:
-                feasible = VehicleHandler.can_return_to_deport(vehicle,last_node,time_at_last_node)
+                feasible = VehicleHandler.can_return_to_deport(vehicle, last_node, time_at_last_node)
             if feasible and add:
                 vehicle.rebalancing = False
                 vehicle.last_node = next_immediate_node
@@ -376,7 +417,7 @@ class VehicleHandler:
                     vehicle.trips[trip.id] = trip
                 vehicle.stop_sequence = sequence
                 next_stop = vehicle.stop_sequence[0]
-                travel_time = NetworkHandler.travel_time_from_matrix(vehicle.last_node,next_stop.node,tt_matrix, node_indices)
+                travel_time = NetworkHandler.travel_time_from_matrix(vehicle.last_node, next_stop.node,tt_matrix, node_indices)
                 vehicle.time_at_next = vehicle.time_at_last + travel_time
                 next_trip = vehicle.trips[next_stop.trip_id]
                 if next_stop.type == TYPE_PICK_UP and vehicle.time_at_next < next_trip.pick_up_time:

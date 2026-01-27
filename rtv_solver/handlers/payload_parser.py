@@ -7,6 +7,7 @@ class PayloadParser:
     TIME_MATRIX = "time_matrix"
 
     DEPOT = "depot"
+    DEPOT_PT = 'pt'
 
     REQUESTS = "requests"
     REQ_BOOKING_ID = "booking_id" # translate all to Booking_ID
