@@ -5,6 +5,7 @@ from rtv_solver.handlers.trip_handler import TripHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.swap_handler import SwapHandler
 from rtv_solver.structure.node import Node
+from rtv_solver.structure.vehicle_stop import VehicleStop
 import copy
 import multiprocessing
 import sys
@@ -15,7 +16,7 @@ import logging
 import copy
 
 class OnlineRTVSolver:
-    """solves entire problem for a given payload using RTV approach"""
+    """solves entire RTV problem for a given payload """
     def __init__(self, config = None):
         self.config = config
         self.SERVER_URL = self.config.server_url
@@ -43,7 +44,7 @@ class OnlineRTVSolver:
         origin = Node(pickup_pt["lat"], pickup_pt["lon"])
         destination = Node(dropoff_pt["lat"], dropoff_pt["lon"])
         request_travel_time = NetworkHandler.travel_time(origin, destination)
-        for time_window in request["time_windows"]: # where does the 'time_windows' come from?
+        for time_window in request["time_windows"]: # NOTE where does the 'time_windows' come from?
             request_copy = copy.deepcopy(request)
             request_copy[PayloadParser.REQ_PICKUP_WINDOW_START] = time_window["pickup_time_window_start"]
             request_copy[PayloadParser.REQ_PICKUP_WINDOW_END] = time_window["pickup_time_window_end"]
@@ -67,13 +68,14 @@ class OnlineRTVSolver:
         else:
             return payload
 
-    def solve_pdptw_rtv(self, payload):
+    def solve_pdptw_rtv(self, payload, iteration = 0):
         # initalize network and payload
         NetworkHandler.init(True, self.SERVER_URL)
         payload_object = PayloadParser.get_payload_object(payload)
         # get all requests of payload
         request_handler = RequestHandler(payload_object.requests, self.DWELL_PICKUP, self.DWELL_ALIGHT)
         temp_batch = request_handler.get_all_requests()
+        # filter active and boarded requests
         batch = []
         active_requests = {}
         boarded_requests = {}
@@ -86,23 +88,21 @@ class OnlineRTVSolver:
                     active_requests[req_id] = req
                 batch.append(req)
 
-        iteration = 0
-        boarded_trips = TripHandler.create_trip_for_picked_requests(boarded_requests,iteration)
+        boarded_trips = TripHandler.create_trip_for_picked_requests(boarded_requests, iteration)
 
-        vehicle_handler = VehicleHandler(
-            payload_object.depot, 
-            payload_object.driver_runs,
-            None,
-            largest_tsp=self.LARGEST_TSP)
-        vehicle_handler.add_manifest_to_vehicles(
-            payload_object.driver_runs,
-            boarded_requests,
-            boarded_trips, 
-            self.DWELL_ALIGHT, 
-            self.DWELL_PICKUP)
-
+        vehicle_handler = VehicleHandler(payload_object.depot, 
+                                         payload_object.driver_runs,
+                                         None,
+                                         largest_tsp=self.LARGEST_TSP)
+        vehicle_handler.add_manifest_to_vehicles(payload_object.driver_runs,
+                                                 boarded_requests,
+                                                 boarded_trips, 
+                                                 self.DWELL_ALIGHT, 
+                                                 self.DWELL_PICKUP)
+        
         NetworkHandler.initialize_travel_time_matrix()
-        iteration+=1
+        
+        iteration += 1 
         unserved_requests = set([req.id for req in batch]) - set(active_requests.keys())
         try:
             trip_handler = TripHandler(
@@ -142,11 +142,10 @@ class OnlineRTVSolver:
             new_driver_run = {PayloadParser.DRIVER_STATE:state,PayloadParser.DRIVER_MANIFEST:new_manifest}
             updated_driver_runs.append(new_driver_run)
 
-        self.check_consistency_of_manifests(
-            payload[PayloadParser.DRIVERS], 
-            updated_driver_runs, 
-            unserved_requests, 
-            payload[PayloadParser.REQUESTS])
+        self.check_consistency_of_manifests(payload[PayloadParser.DRIVERS], 
+                                            updated_driver_runs,
+                                            unserved_requests, 
+                                            payload[PayloadParser.REQUESTS])
         return updated_driver_runs, list(unserved_requests) # ,trip_handler, vehicle_handler, request_handler, payload_object
 
     def check_consistency_of_manifests(self, 
@@ -167,7 +166,7 @@ class OnlineRTVSolver:
                 # TODO why is type of stop[booking_id] a string and the set of request_ids floats (wouldn't int suffice?)
                 # float is quickfix for type mismatch - id in stop is stored as string instead of float
                 stop_id = float(stop[PayloadParser.MANIFEST_BOOKING_ID]) # prev: stop_id = stop["booking_id"]
-                if stop[PayloadParser.MANIFEST_ACTION] == "pickup":
+                if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                     picked_requests.add(stop_id)
                 else:
                     dropped_requests.add(stop_id)
@@ -176,7 +175,7 @@ class OnlineRTVSolver:
         for driver_run in new_driver_runs:
             for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
                 stop_id = float(stop[PayloadParser.MANIFEST_BOOKING_ID]) 
-                if stop[PayloadParser.MANIFEST_ACTION] == "pickup":
+                if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                     picked_requests.remove(stop_id)
                 else:
                     dropped_requests.remove(stop_id)
@@ -213,7 +212,7 @@ class OnlineRTVSolver:
                 next_immediate_time = next_stop[PayloadParser.MANIFEST_SCHED_TIME]
                 next_immediate_loc = next_stop[PayloadParser.MANIFEST_LOC]
                 # apply dwell time if applicable
-                if next_stop[PayloadParser.MANIFEST_ACTION] == "pickup":
+                if next_stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                     next_immediate_time += self.DWELL_PICKUP
                 else:
                     next_immediate_time += self.DWELL_ALIGHT
@@ -337,7 +336,7 @@ class OnlineRTVSolver:
                 stop[PayloadParser.MANIFEST_TIME_WINDOW_END] = current_time + 30
             if current_time > stop[PayloadParser.MANIFEST_TIME_WINDOW_END]:
                 return float("inf"), None
-            if stop[PayloadParser.MANIFEST_ACTION] == "pickup":
+            if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                 current_load += stop[PayloadParser.MANIFEST_AMBULATORY]
                 current_time += dwell_pickup
             else:
@@ -369,7 +368,7 @@ class OnlineRTVSolver:
             PayloadParser.MANIFEST_RUN_ID: None, 
             PayloadParser.MANIFEST_BOOKING_ID: request[PayloadParser.REQ_BOOKING_ID], 
             PayloadParser.MANIFEST_ORDER: -1, 
-            PayloadParser.MANIFEST_ACTION: "pickup", 
+            PayloadParser.MANIFEST_ACTION: VehicleStop.ACT_PICKUP, 
             PayloadParser.MANIFEST_LOC: request[PayloadParser.REQ_PICKUP_PT], 
             PayloadParser.MANIFEST_SCHED_TIME: -1, 
             PayloadParser.MANIFEST_AMBULATORY: request[PayloadParser.REQ_AMBULATORY], 
@@ -380,7 +379,7 @@ class OnlineRTVSolver:
             PayloadParser.MANIFEST_RUN_ID: None, 
             PayloadParser.MANIFEST_BOOKING_ID: request[PayloadParser.REQ_BOOKING_ID], 
             PayloadParser.MANIFEST_ORDER: -1, 
-            PayloadParser.MANIFEST_ACTION: "dropoff", 
+            PayloadParser.MANIFEST_ACTION: VehicleStop.ACT_DROPOFF, 
             PayloadParser.MANIFEST_LOC: request[PayloadParser.REQ_DROPOFF_PT], 
             PayloadParser.MANIFEST_SCHED_TIME: -1, 
             PayloadParser.MANIFEST_AMBULATORY: request[PayloadParser.REQ_AMBULATORY], 
@@ -410,7 +409,7 @@ class OnlineRTVSolver:
         remaining_stops = []
         for stop in manifest:
             if stop[PayloadParser.MANIFEST_ORDER] <= state[PayloadParser.DRIVER_STATE_LOC_SERV]:
-                if stop[PayloadParser.MANIFEST_ACTION] == "pickup":
+                if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                     load += stop[PayloadParser.MANIFEST_AMBULATORY]
                 else:
                     load -= stop[PayloadParser.MANIFEST_AMBULATORY]
@@ -527,7 +526,7 @@ class OnlineRTVSolver:
                 if served_time > stop[PayloadParser.MANIFEST_TIME_WINDOW_END]:
                     feasible = False
                     print("Error: Served after window end")
-                if action == "pickup":
+                if action == VehicleStop.ACT_PICKUP:
                     load += stop[PayloadParser.MANIFEST_AMBULATORY]
                     current_time += 180
                     if "pick_up" in request_stops[booking_id]:

@@ -5,7 +5,12 @@ from rtv_solver.structure.vehicle_stop import VehicleStop
 import copy
 
 class PayloadParser:
+    """
+    Handles the parsing of the initial payloads in both directions, importing and transforming data. 
+    TODO combine all methods to also rebuild manifest and the updates to the data storage
+    """
     # keys for payload dictionary that can be used globally
+    DATE = "date"
     TIME_MATRIX = "time_matrix"
 
     DEPOT = "depot"
@@ -78,7 +83,7 @@ class PayloadParser:
             else:
                 current_time = min(start_times)
         
-        # build lists of active and boarded requests from vehicle manifests
+        # build list of active and boarded requests from vehicle manifests
         active_requests_data = {}
         boarded_requests_data = {}
         for driver_run in driver_runs:
@@ -90,14 +95,14 @@ class PayloadParser:
                 for index, stop in enumerate(driver_manifest):
                     stop_order = stop[PayloadParser.MANIFEST_ORDER]
                     booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
-                    if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.PICKUP:
+                    if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                         request = PayloadParser.build_request_from_manifest_index(driver_manifest, index)
                         if stop_order <= driver_state[PayloadParser.DRIVER_STATE_LOC_SERV]:
                             boarded_requests_data[booking_id] = request
                         else:
                             added_active_requests.append(booking_id)
                             active_requests_data[booking_id] = request
-                    else: # StopType.DROPOFF.value
+                    else: # VehicleStop.DROPOFF
                         if stop_order <= driver_state[PayloadParser.DRIVER_STATE_LOC_SERV] and booking_id in boarded_requests_data:
                             del boarded_requests_data[booking_id]
         
@@ -125,11 +130,11 @@ class PayloadParser:
         start_time = 24*3600
         end_time = 0
 
-        for request in payload["requests"]:
-            if request["pickup_time_window_start"] < start_time:
-                start_time = request["pickup_time_window_start"]
-            if request["dropoff_time_window_end"] > end_time:
-                end_time = request["dropoff_time_window_end"]
+        for request in payload[PayloadParser.REQUESTS]:
+            if request[PayloadParser.REQ_PICKUP_WINDOW_START] < start_time:
+                start_time = request[PayloadParser.REQ_PICKUP_WINDOW_START]
+            if request[PayloadParser.REQ_DROPOFF_WINDOW_END] > end_time:
+                end_time = request[PayloadParser.REQ_DROPOFF_WINDOW_END]
         return start_time, end_time
     
     # TODO comment the code parts below in order to explain their purpose
@@ -141,13 +146,13 @@ class PayloadParser:
             if drop_off_stop[PayloadParser.MANIFEST_BOOKING_ID] == booking_id:
                 return PayloadParser.build_request_from_stops(stop, drop_off_stop)
   
-    @staticmethod  
-    def build_request_from_manifest_dropoff(manifest, dropoff_stop):
-        # seems to be deprecated as it is not used anywhere
-        booking_id = dropoff_stop[PayloadParser.MANIFEST_BOOKING_ID]
-        for pickup_stop in manifest:
-            if pickup_stop[PayloadParser.MANIFEST_BOOKING_ID] == booking_id and pickup_stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.PICKUP:
-                return PayloadParser.build_request_from_stops(pickup_stop, dropoff_stop)
+    # @staticmethod  
+    # def build_request_from_manifest_dropoff(manifest, dropoff_stop):
+    #     # seems to be deprecated as it is not used anywhere
+    #     booking_id = dropoff_stop[PayloadParser.MANIFEST_BOOKING_ID]
+    #     for pickup_stop in manifest:
+    #         if pickup_stop[PayloadParser.MANIFEST_BOOKING_ID] == booking_id and pickup_stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.PICKUP:
+    #             return PayloadParser.build_request_from_stops(pickup_stop, dropoff_stop)
 
     @staticmethod
     def build_request_from_stops(pickup_stop, dropoff_stop):
@@ -195,7 +200,7 @@ class PayloadParser:
     @staticmethod
     def normalize_to_canonical(data: dict) -> dict:
         """
-        Converts the newer JSON structure from 'chattanooga' into the canonical structure expected by the system.
+        Converts the newer JSON structure from 'chattanooga' into the canonical structure expected by the system. For structural differences, see 'Documentation.md'.
         """
         if PayloadParser.is_canonical_structure(data):
             return data  # Nothing to do

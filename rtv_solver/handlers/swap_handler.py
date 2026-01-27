@@ -1,6 +1,7 @@
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.structure.node import Node
+from rtv_solver.structure.vehicle_stop import VehicleStop
 import numpy as np
 import logging
 import multiprocessing as mp
@@ -51,7 +52,7 @@ class SwapHandler:
                 booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
                 stop_loc = stop[PayloadParser.MANIFEST_LOC]
                 request = self.request_dic[booking_id]
-                if stop[PayloadParser.MANIFEST_ACTION] == "pickup":
+                if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                     stop_loc["node_id"] = request[PayloadParser.REQ_PICKUP_PT]["node_id"]
                 else:
                     stop_loc["node_id"] = request[PayloadParser.REQ_DROPOFF_PT]["node_id"]
@@ -76,7 +77,7 @@ class SwapHandler:
             driver_run_requests[run_id] = set()
             for stop in manifest[current_order:]:
                 booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
-                if stop[PayloadParser.MANIFEST_ACTION] == "pickup":
+                if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                     driver_run_requests[run_id].add(booking_id)
         
         SwapHandler.manifest_options = []
@@ -255,7 +256,7 @@ class SwapHandler:
             current_order += 1
             stop[PayloadParser.MANIFEST_ORDER] = current_order
 
-            if stop[PayloadParser.MANIFEST_ACTION] == "pickup":
+            if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                 current_time += DWELL_PICKUP
             else:
                 current_time += DWELL_ALIGHT
@@ -278,7 +279,7 @@ class SwapHandler:
             PayloadParser.MANIFEST_RUN_ID: None, 
             PayloadParser.MANIFEST_BOOKING_ID: request[PayloadParser.REQ_BOOKING_ID], 
             PayloadParser.MANIFEST_ORDER: -1, 
-            PayloadParser.MANIFEST_ACTION: "pickup", 
+            PayloadParser.MANIFEST_ACTION: VehicleStop.ACT_PICKUP, 
             PayloadParser.MANIFEST_LOC: request[PayloadParser.REQ_PICKUP_PT], 
             PayloadParser.MANIFEST_SCHED_TIME: -1, 
             PayloadParser.MANIFEST_AMBULATORY: request[PayloadParser.REQ_AMBULATORY], 
@@ -290,7 +291,7 @@ class SwapHandler:
             PayloadParser.MANIFEST_RUN_ID: None, 
             PayloadParser.MANIFEST_BOOKING_ID: request[PayloadParser.REQ_BOOKING_ID], 
             PayloadParser.MANIFEST_ORDER: -1, 
-            PayloadParser.MANIFEST_ACTION: "dropoff", 
+            PayloadParser.MANIFEST_ACTION: VehicleStop.ACT_DROPOFF, 
             PayloadParser.MANIFEST_LOC: request[PayloadParser.REQ_DROPOFF_PT], 
             PayloadParser.MANIFEST_SCHED_TIME: -1, 
             PayloadParser.MANIFEST_AMBULATORY: request[PayloadParser.REQ_AMBULATORY], 
@@ -309,7 +310,7 @@ class SwapHandler:
         remaining_stops = []
         for stop in manifest:
             if stop[PayloadParser.MANIFEST_ORDER] <= state[PayloadParser.DRIVER_STATE_LOC_SERV]:
-                if stop[PayloadParser.MANIFEST_ACTION] == "pickup":
+                if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                     load += stop[PayloadParser.MANIFEST_AMBULATORY]
                 else:
                     load -= stop[PayloadParser.MANIFEST_AMBULATORY]
@@ -405,7 +406,7 @@ class SwapHandler:
                 stop[PayloadParser.MANIFEST_TIME_WINDOW_END] = current_time + 30
             if current_time > stop[PayloadParser.MANIFEST_TIME_WINDOW_END]:
                 return float("inf"), None
-            if stop[PayloadParser.MANIFEST_ACTION] == "pickup":
+            if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                 current_load += stop[PayloadParser.MANIFEST_AMBULATORY]
                 current_time += dwell_pickup
             else:

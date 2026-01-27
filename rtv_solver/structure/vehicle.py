@@ -69,7 +69,7 @@ class Vehicle:
 
     def return_to_depot(self):
         """handle steps to build stop to return to depot."""
-        stop = VehicleStop(None,self.depot,3,0)
+        stop = VehicleStop(None, self.depot, VehicleStop.ACT_DEPOT, 0)
         stop.stop_time = self.final_stop_time + NetworkHandler.travel_time(self.last_node,self.depot)
         stop.vehicle_id = self.id    
         return stop
@@ -91,7 +91,7 @@ class Vehicle:
             for stop in manifest:
                 if stop["order"] > current_order:
                     break
-                if stop["action"] == "pickup":
+                if stop["action"] == VehicleStop.ACT_PICKUP:
                     self.am_capacity -= stop["am"]
                     self.wc_capacity -= stop["wc"]
                 else: # dropoff
@@ -102,7 +102,7 @@ class Vehicle:
             filtered_manifest = []
             for stop in manifest:
                 booking_id = stop['booking_id']
-                if booking_id in boarded_requests and stop['action']=="dropoff":
+                if booking_id in boarded_requests and stop['action'] == VehicleStop.ACT_DROPOFF:
                     filtered_manifest.append(stop)
 
             for stop in filtered_manifest:
@@ -116,7 +116,7 @@ class Vehicle:
                 self.picked.append(trip_of_stop.id)
                 vehicle_stop = VehicleStop(trip_of_stop.id, 
                                            trip_of_stop.destination, 
-                                           1, # TYPE_DROP_OFF = 1, TODO replace with ENUM for VehicleStop
+                                           VehicleStop.ACT_DROPOFF,
                                            trip_of_stop.dwell_alight)
                 self.stop_sequence.append(vehicle_stop)
 
@@ -124,7 +124,7 @@ class Vehicle:
             #     next_stop = vehicle.stop_sequence[0]
             #     vehicle.time_at_next = time_at_next_immediate_node + NetworkHandler.travel_time(next_immediate_node,next_stop.node)
             #     next_trip = vehicle.trips[next_stop.trip_id]
-            #     if next_stop.type == TYPE_DROP_OFF and vehicle.time_at_next < next_trip.earliest_arrival_time:
+            #     if next_stop.type == VehicleStop.ACT_DROPOFF and vehicle.time_at_next < next_trip.earliest_arrival_time:
             #         vehicle.time_at_next = next_trip.earliest_arrival_time
 
         self.next_immediate_node = next_immediate_node

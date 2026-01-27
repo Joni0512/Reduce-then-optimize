@@ -14,7 +14,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments for the RTV solver main script')
     # technical setup
     parser.add_argument('--output_dir', type=str,           default="output_format/debug/", help='output directory')
-    parser.add_argument('--input_file', type=str,           default='rtv-solver/inputs/localDB_payload_oct.pkl')#default="rtv-solver/inputs/wilson_nc_initial.pkl", help='Request file')rtv-solver/inputs/localDB_payload_oct.pkl
+    parser.add_argument('--input_file', type=str,           default="rtv-solver/inputs/wilson_nc_initial.pkl", help='Request file') 
+    # alternative: rtv-solver/inputs/localDB_payload_oct.pkl
     parser.add_argument('--server_url', type=str,           default="http://127.0.0.1:5001/", help='Server URL')
     parser.add_argument('--max_thread_cnt', type=int,       default=16, help='Maximum thread count for parallel processing')
     parser.add_argument('--rtv_timeout', type=int,          default=120, help='RTV construction timeout in seconds')

@@ -6,22 +6,23 @@ class VehicleStop:
     VehicleStop combines the information of when, where and with which action a stop is performed and and how long it waits in the location to fulfill its action.
     """
     # TODO when code runs cleanly, turn stringLiterals to use Enum
-    PICKUP = 'pickup'
-    DROPOFF = 'dropoff'
-    REBALANCE = 'rebalance'
-    DEPOT = 'depot'
-    UNKNOWN = 'unknown'
+    ACT_PICKUP = 'pickup'
+    ACT_DROPOFF = 'dropoff'
+    ACT_REBALANCE = 'rebalance'
+    ACT_DEPOT = 'depot'
+    ACT_UNKNOWN = 'unknown'
 
     def __init__(self, 
                  trip_id: str, 
                  node: Node, 
-                 type: int, 
+                 type: str, 
                  dwell: int):
         self.trip_id: int = trip_id
         self.node: Node = node
-        self.type: str = type # TODO change to StopType Enum for easier handling
+        assert type in [VehicleStop.ACT_PICKUP, VehicleStop.ACT_DROPOFF, VehicleStop.ACT_DEPOT, VehicleStop.ACT_REBALANCE]
+        self.type: str = type
         self.dwell: int = dwell
-        # TODO all information below should be directly inferrable from the trip?
+        # NOTE all information below should be directly inferrable from the trip?
         self.stop_time: int = None
         self.request_id: int = None
         self.vehicle_id: int = None
@@ -32,21 +33,7 @@ class VehicleStop:
         self.request_id = rid
 
     def __str__(self):
-        return f"<VehicleStop - Trip {self.trip_id}, node: {self.node}, type: {self.translate_type()}, dwell: {self.dwell}>"
-
-    def translate_type(self):
-        type_name = "UNKNOWN"
-        if self.type == 0:
-            type_name = "PICKUP"
-        if self.type == 1:
-            type_name = "DROPOFF"
-        elif self.type == 2:
-            type_name = "REBALANCE"
-        elif self.type == 3:
-            type_name = "DEPOT"
-        assert type_name != "UNKNOWN", "Invalid stop type"
-        return type_name
+        return f"<VehicleStop - Trip {self.trip_id}, node: {self.node}, type: {self.type}, dwell: {self.dwell}>"
         
     def get_log(self):
-        type_name = self.translate_type()
-        return "{0},{1},{2},{3},{4},{5}".format(self.node.lat, self.node.lon, type_name, self.stop_time, self.request_id, self.vehicle_id)
+        return "{0},{1},{2},{3},{4},{5}".format(self.node.lat, self.node.lon, self.type, self.stop_time, self.request_id, self.vehicle_id)

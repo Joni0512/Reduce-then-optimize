@@ -111,7 +111,7 @@ class TripHandler:
             first_last_mile_type=first_last_mile_type)
 
     @staticmethod
-    def create_trip_for_picked_requests(boarded_requests,iteration):
+    def create_trip_for_picked_requests(boarded_requests, iteration):
         trip_no = -1
         boarded_trips = []
         for request_id in boarded_requests:
