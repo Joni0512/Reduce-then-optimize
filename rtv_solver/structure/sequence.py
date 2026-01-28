@@ -34,10 +34,14 @@ class StopSequence(list):
                 raise ValueError(f"Trip {trip_id} must have one pickup and one dropoff, got {type_1} twice")
             if (type_1 == VehicleStop.ACT_PICKUP and idx_1 > idx_2) or (type_2 == VehicleStop.ACT_PICKUP and idx_2 > idx_1):
                 raise ValueError(f"Trip {trip_id} pickup must occur before dropoff")
-            
-    def __str__(self):
-        """print out the sequence in order to make it readable in-line"""
-        seq_str = "\n \t" + "\n\t".join([str(node) for node in self.nodes])
+
+    @staticmethod
+    def sequence_to_string(sequence_list):
+        """print out the sequence in order to make it readable in-line - staticMethod makes it more usable in other locations"""
+        seq_str = "\n \t" + "\n\t".join([str(node) for node in sequence_list])
         return seq_str
+
+    def __str__(self):
+        return str(self.sequence_to_string(self.nodes))
 
 

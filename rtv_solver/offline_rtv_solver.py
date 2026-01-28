@@ -53,7 +53,9 @@ class OfflineRTVSolver:
             else:    
                 new_driver_runs, unserved = online_rtv_solver.solve_pdptw_rtv(new_payload, iteration = iteration)
                 unserved_requests.extend(unserved)
-            current_time += step_size # take step, possibly only a partial increment compared to the interval size
+                
+            # increment time (might not be the size of the batch) and iteration
+            current_time += step_size 
             iteration += 1
 
             # update vehicles based on decisions in the previous step until current time (might not be the entire interval)

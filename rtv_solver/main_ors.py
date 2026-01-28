@@ -23,7 +23,7 @@ if __name__ == "__main__":
     parser.add_argument('--ilp_timeout', type=int,          default=120, help='ILP solver timeout in seconds')
     parser.add_argument('--ilp_penalty', type=int,          default=1000000, help='Penalty for not serving a trip')
     # experiment parameters
-    parser.add_argument('--max_cardinality', type=int,      default=3, help='Maximum trips to be shared when creating trips') # alt: total trips in same vehicle
+    parser.add_argument('--max_cardinality', type=int,      default=2, help='Maximum trips to be shared when creating trips') # alt: total trips in same vehicle
     parser.add_argument('--largest_tsp', type=int,          default=8, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
     parser.add_argument('--share_cost_factor', type=int,    default=10, help='Shareable cost factor in [???]')
     parser.add_argument('--rebalancing', type=bool,         default=False, help='Whether to enable rebalancing of vehicles')
@@ -52,7 +52,7 @@ if __name__ == "__main__":
 
     if DEBUG_MODE: # check if the basic functionality of the online RTV solver works (foundation for offline RTV solver)
         logging.getLogger().setLevel(logging.DEBUG)
-        config.rtv_timeout = 600000
+        config.rtv_timeout = 600000 # if I am clicking through inputs, it never breaks due to timeout
         
         # reduce the complexity by only considering a single vehicle
         driver_runs_total = data[PayloadParser.DRIVERS]

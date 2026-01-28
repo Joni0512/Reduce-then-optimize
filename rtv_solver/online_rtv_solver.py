@@ -128,7 +128,7 @@ class OnlineRTVSolver:
         except Exception as e:
             raise e
         
-        # assign vehicles and add trips to each vehicle 
+        # assign vehicles and add trips / sequence to each vehicle 
         vehicle_assignment = trip_handler.get_veh_assignment()
         for vehicle_id in vehicle_assignment:
             vehicle = vehicle_handler.vehicles[vehicle_id]
