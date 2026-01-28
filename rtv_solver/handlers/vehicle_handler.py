@@ -438,7 +438,7 @@ class VehicleHandler:
             sequence, cost, feasible, last_node, time_at_last_node = VehicleHandler.get_optimal_stop_sequence(
                 next_immediate_node, time_at_next_immediate_node, vehicle.am_capacity, vehicle.wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, existing_sequence, tt_matrix, node_indices)
             added_cost = cost - VehicleHandler.cost_of_serving_sequence(next_immediate_node, vehicle, tt_matrix, node_indices)
-            print(f"{add}: {sequence, cost, added_cost, feasible, last_node, time_at_last_node}")
+            logging.debug(f"{add}: {sequence, cost, added_cost, feasible, last_node, time_at_last_node}")
             
             if feasible: # check if vehicle can still return to depot
                 feasible = VehicleHandler.can_return_to_depot(vehicle, last_node, time_at_last_node)
@@ -485,7 +485,7 @@ class VehicleHandler:
             last_node, time_at_last_node, max_am_capacity, max_wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, existing_sequence, tt_matrix, node_indices):
         if (len(trips_to_pick_up) + len(trips_to_drop_off)) <= VehicleHandler.LARGEST_TSP:
             return VehicleHandler.get_exact_stop_sequence(
-                last_node, time_at_last_node, max_am_capacity, max_wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, StopSequence(), 0, tt_matrix, node_indices)
+                last_node, time_at_last_node, max_am_capacity, max_wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, [], 0, tt_matrix, node_indices)
         else:
             return VehicleHandler.get_heuristic_stop_sequence(
                 last_node, time_at_last_node, max_am_capacity, max_wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, existing_sequence, tt_matrix, node_indices)
