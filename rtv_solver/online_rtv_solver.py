@@ -182,7 +182,7 @@ class OnlineRTVSolver:
                     picked_requests.add(stop_id)
                 else:
                     dropped_requests.add(stop_id)
-        logging.info("Served requests:", set(picked_requests))
+        logging.info(f"Served requests: {set(picked_requests)}")
         # remove all requests that are picked up/dropped off
         for driver_run in new_driver_runs:
             for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:

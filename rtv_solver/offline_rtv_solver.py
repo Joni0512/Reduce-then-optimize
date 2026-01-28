@@ -22,7 +22,7 @@ class OfflineRTVSolver:
         driver_runs = payload[PayloadParser.DRIVERS]
 
         while current_time < end_time:
-            logging.info(f"=== Offline RTV Solver Iteration {iteration} at time {current_time} ===")
+            logging.info(f"Offline RTV Solver Iteration {iteration} at time {current_time}")
             
             # select requests that are to be considered in the current interval with pickup_window [current_time, current_time + interval]
             selected_requests = {}

@@ -48,7 +48,7 @@ if __name__ == "__main__":
         logging.FileHandler(config.output_dir + 'main.log'),
         logging.StreamHandler()]
         )   
-    logging.info(f'Start RTV simulation with step size // batch interval: {config.step_size} // {config.batch_interval}')
+    logging.info(f' --- Start: RTV simulation with step size // batch interval: {config.step_size} // {config.batch_interval}')
 
     if DEBUG_MODE: # check if the basic functionality of the online RTV solver works (foundation for offline RTV solver)
         # reduce the complexity by only considering a single vehicle

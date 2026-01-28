@@ -66,6 +66,7 @@ class TripHandler:
         return self.vehicle_assignment  
     
     def generate_ondemand_only_trips(self, requests, iteration):
+        logging.debug(f'Generating trips for {len(requests)} requests.')
         for request in requests:
             origin = request.origin
             destination = request.destination
