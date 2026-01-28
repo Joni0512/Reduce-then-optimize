@@ -1,5 +1,6 @@
 import pickle
 import argparse
+import logging
 
 from rtv_solver import OnlineRTVSolver, OfflineRTVSolver
 from rtv_solver.handlers.payload_parser import PayloadParser
@@ -7,7 +8,7 @@ from rtv_solver.handlers.payload_parser import PayloadParser
 DEBUG_MODE = True # reduces number of vehicles and requests for easier debugging
 ONLINE_MODE = False # runs all requests in one go without rolling horizon batching
 # TODO current code only works with wilson-format due to the keys that are being used in the dictionaries to handle data
-
+# TODO add logging again
 if __name__ == "__main__":
     """Main script to run RTV solver in online or offline mode based on input data and configuration parameters with easy options for debugging and testing."""
     # TODO move config management to YAML config or Hydra
@@ -29,8 +30,8 @@ if __name__ == "__main__":
     parser.add_argument('--dwell_pickup', type=int,         default=180, help='Dwell time at pickup in seconds')
     parser.add_argument('--dwell_alight', type=int,         default=60, help='Dwell time at alight (dropoff) in seconds')
     parser.add_argument('--rh_factor', type=int,            default=0, help='Rolling horizon factor') # NOTE alternative to step_size, still used?
-    parser.add_argument('--step_size', type=int,            default=3600, help='Step size in seconds for rolling horizon')
-    parser.add_argument('--batch_interval', type=int,       default=7200, help='Batch interval in seconds')
+    parser.add_argument('--step_size', type=int,            default=300, help='Step size in seconds for rolling horizon')
+    parser.add_argument('--batch_interval', type=int,       default=3600, help='Batch interval in seconds')
     # TODO COAML parameters 
     config = parser.parse_args()
 
@@ -40,6 +41,15 @@ if __name__ == "__main__":
     file.close()
     data = PayloadParser.normalize_to_canonical(data)
 
+    logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(config.output_dir + 'main.log'),
+        logging.StreamHandler()]
+        )   
+    logging.info(f'Start RTV simulation with step size // batch interval: {config.step_size} // {config.batch_interval}')
+
     if DEBUG_MODE: # check if the basic functionality of the online RTV solver works (foundation for offline RTV solver)
         # reduce the complexity by only considering a single vehicle
         driver_runs_total = data[PayloadParser.DRIVERS]
@@ -47,7 +57,7 @@ if __name__ == "__main__":
 
         # create a simplified set of requests, consider all requests that start before end_requests
         current_time = 5*3600 + 30*60
-        step = 10*60
+        step = 20*60
         selected_requests = []
         for request in data[PayloadParser.REQUESTS]:
             if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + step:
@@ -72,4 +82,4 @@ if __name__ == "__main__":
         off_solver = OfflineRTVSolver(config)
         updated_driver_runs, unserved_requests = off_solver.solve_rtv(payload, config.batch_interval, config.step_size)
 
-    print(f"\033[1m {len(unserved_requests)}\033[0m unserved requests with IDs:\n{unserved_requests}")
+    logging.info(f"\033[1m {len(unserved_requests)}\033[0m unserved requests with IDs:\n{unserved_requests}")

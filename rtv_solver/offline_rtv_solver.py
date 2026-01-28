@@ -1,3 +1,4 @@
+import logging
 
 from rtv_solver.online_rtv_solver import OnlineRTVSolver
 from rtv_solver.handlers.payload_parser import PayloadParser
@@ -21,9 +22,9 @@ class OfflineRTVSolver:
         driver_runs = payload[PayloadParser.DRIVERS]
 
         while current_time < end_time:
-            print(f"=== Offline RTV Solver Iteration {iteration} at time {current_time} ===")
+            logging.info(f"=== Offline RTV Solver Iteration {iteration} at time {current_time} ===")
             
-            # select requests that are to be considered in the current interval [current_time, current_time + interval]
+            # select requests that are to be considered in the current interval with pickup_window [current_time, current_time + interval]
             selected_requests = {}
             for request in payload[PayloadParser.REQUESTS]:
                 if (
@@ -33,7 +34,7 @@ class OfflineRTVSolver:
                     ):
                     selected_requests[request[PayloadParser.REQ_BOOKING_ID]] = request
             
-            # remove requests that are already part of vehicles; covered by PayloadParser in OnlineRTVsolver
+            # remove requests that are already part of vehicles; covered by PayloadParser in OnlineRTVsolver # TODO check
             for dr in driver_runs:
                 for stop in dr[PayloadParser.DRIVER_MANIFEST]:
                     if stop[PayloadParser.MANIFEST_BOOKING_ID] in selected_requests:
