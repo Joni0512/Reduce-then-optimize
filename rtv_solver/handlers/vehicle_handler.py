@@ -3,7 +3,6 @@ import pandas as pd
 from rtv_solver.structure.vehicle import Vehicle
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.node import Node
-from rtv_solver.structure.sequence import StopSequence
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
 from datetime import datetime

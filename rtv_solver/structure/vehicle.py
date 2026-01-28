@@ -44,12 +44,12 @@ class Vehicle:
         self.stop_sequence: list[VehicleStop] = [] # TODO add StopSequence wherever this list is updated or used
         self.final_stop_time = start_time
 
-    def set_sequence(self, new_sequence: list[VehicleStop]):
-        # NOTE not used at all
-        """method updates the sequence if stops are added but not reset how it is currently build
-        NOTE rebuild in a way that gives us future control how the updates are made but still easier to debug"""
-        self.stop_sequence = StopSequence(new_sequence)
-        # TODO how code should work in order to manage the car properly, it should rather append stops and for dropoffs it should check whether it has previously been picked up  
+    # not yet used as it returned an error, but it was implemented incompletely (only at parts)
+    # def set_sequence(self, new_sequence: list[VehicleStop]):
+    #     """method updates the sequence if stops are added but not reset how it is currently build
+    #     NOTE rebuild in a way that gives us future control how the updates are made but still easier to debug"""
+    #     self.stop_sequence = StopSequence(new_sequence)
+    #     # TODO how code should work in order to manage the car properly, it should rather append stops and for dropoffs it should check whether it has previously been picked up  
 
     def get_current_location_time(self):
         next_immediate_node = self.last_node

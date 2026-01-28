@@ -51,10 +51,12 @@ if __name__ == "__main__":
     logging.info(f' --- Start: RTV simulation with step size // batch interval: {config.step_size} // {config.batch_interval}')
 
     if DEBUG_MODE: # check if the basic functionality of the online RTV solver works (foundation for offline RTV solver)
+        logging.getLogger().setLevel(logging.DEBUG)
+        config.rtv_timeout = 600000
+        
         # reduce the complexity by only considering a single vehicle
         driver_runs_total = data[PayloadParser.DRIVERS]
         driver_runs_reduced = driver_runs_total[:1]
-
         # create a simplified set of requests, consider all requests that start before end_requests
         current_time = 5*3600 + 30*60
         step = 20*60
@@ -62,15 +64,11 @@ if __name__ == "__main__":
         for request in data[PayloadParser.REQUESTS]:
             if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + step:
                 selected_requests.append(request)
-
         # create a new payload with selected requests
         payload = {
             PayloadParser.DEPOT: data[PayloadParser.DEPOT],
             PayloadParser.REQUESTS: selected_requests,
             PayloadParser.DRIVERS: driver_runs_reduced}
-        
-        # change config for debugging
-        config.rtv_timeout = 600000
     else: 
         payload = data
 
