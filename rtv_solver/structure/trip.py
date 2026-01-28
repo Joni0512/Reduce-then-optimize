@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 class Trip:
     """
     Trip-related information
-    TODO typing?, cost double? <> relation to TripCost
+    TODO typing?, cost double? <> relation to TripCost?
     """
     def __init__(
             self, 
@@ -22,35 +24,37 @@ class Trip:
             bus_combination = None, 
             first_last_mile_type = 0, 
             vehicle = None):
-        # Static trip information
+        # identifiers
+        self.request_id: int = request_id
+        self.number: int = trip_number
+        if bus_combination == None:
+            self.id = "{0}-{1}".format(iteration, request_id)
+        else:
+            self.id = "{0}:{1}-{2}".format(request_id, bus_combination, first_last_mile_type)
+        if vehicle is not None:
+            self.vehicle = vehicle # TODO add a check if and when this is assigned?
+        # Location information 
         self.origin = origin
         self.destination = destination
+        # Conditions for timing
         self.pick_up_time = pick_up_time
-        self.number: int = trip_number
-
-        self.first_last_mile_type = first_last_mile_type
-        self.vehicle = vehicle
-        self.request_id: int = request_id
-        self.cost = cost
-        self.dwell_pickup = dwell_pickup
-        self.dwell_alight = dwell_alight
         self.latest_pick_up_time = latest_pick_up_time
         self.earliest_arrival_time = earliest_arrival_time
         self.latest_arrival_time = latest_arrival_time
+        # Metadata of the trip
+        self.cost = cost
+        self.dwell_pickup = dwell_pickup
+        self.dwell_alight = dwell_alight
         self.am_capacity = am_capacity
         self.wc_capacity = wc_capacity
-        # what is the bus used for?
-        self.bus_combination = bus_combination
-        if bus_combination == None:
-            self.id = "{0}-{1}".format(iteration,request_id)
-        else:
-            self.id = "{0}:{1}-{2}".format(request_id, bus_combination, first_last_mile_type)
+        self.bus_combination = bus_combination # what is the bus used for?
+        self.first_last_mile_type = first_last_mile_type
         # simulation state
         self.picked = False
         self.shared_trips = {}
 
     @classmethod
-    def from_request(self, request_id, trip_number, request, iteration):
+    def from_request(cls, request_id, trip_number, request, iteration) -> Trip:
         return Trip(
             request_id,
             trip_number,
@@ -67,6 +71,20 @@ class Trip:
             request.dwell_alight,
             iteration
         )
+
+    # NOTE DEBUG Checks
+    @property
+    def vehicle(self):
+        print(f"Trip {self.id}: vehicle accessed")
+        return self._vehicle
+
+    @vehicle.setter
+    def vehicle(self, vehicle):
+        if vehicle is None:
+            raise ValueError("vehicle cannot be None")
+        if self._vehicle is not None:
+            raise RuntimeError("Vehicle already assigned")
+        self._vehicle = vehicle
 
     def __str__(self):
         return f"<Trip {self.id}: pickup: {self.pick_up_time}, origin: {self.origin}, destination: {self.destination}>"

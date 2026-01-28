@@ -2,6 +2,7 @@ from rtv_solver.structure.trip import Trip
 from rtv_solver.structure.shared_trip import SharedTrip
 from rtv_solver.structure.trip_cost import TripCost
 from rtv_solver.structure.sequence import StopSequence
+from rtv_solver.structure.request import Request
 from rtv_solver.handlers.vehicle_handler import VehicleHandler
 from rtv_solver.handlers.network_handler import NetworkHandler
 import numpy as np
@@ -11,6 +12,17 @@ import multiprocessing as mp
 import gurobipy as gp
 from gurobipy import GRB
 import time
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class TripHandlerConfig:
+    ilp_solver_timeout: float
+    penalty: float
+    max_cardinality: int
+    max_thread_cnt: int
+    shareable_cost_factor: float
+    rebalancing: bool
+    rtv_timeout: float
 
 class TripHandler:
     def __init__(self,
@@ -18,30 +30,25 @@ class TripHandler:
                  requests,
                  active_requests,
                  iteration,
-                 solver_timeout,
-                 penalty,
-                 MAX_CARDINALITY,
-                 MAX_THREAD_CNT,
-                 SHAREABLE_COST_FACTOR,
-                 REBALANCING,
-                 rtv_timeout):
+                 config: TripHandlerConfig):
         self.trips = []
         self.shared_trips_map = {}
         self.ondemand_only_trip_map = {}
-        self.solver_timeout = solver_timeout
-        self.rtv_timeout = rtv_timeout
         self.vehicle_to_trips_cost_map = {}
         self.trip_to_vehicle_cost_map = {}
         self.rebalancing_assignment = {}
         self.vehicle_assignment = {}
         self.request_assignment = {}
+        self.config = config
         self.starting_time = time.time()
 
-        self.generate_ondemand_only_trips(requests,iteration)
-        self.generate_trip_costs(vehicles,MAX_THREAD_CNT,0)
-        self.generate_shared_trips(vehicles,MAX_CARDINALITY,MAX_THREAD_CNT,SHAREABLE_COST_FACTOR)
-        self.assign_trips_gurobi(requests,active_requests,penalty)
-        if REBALANCING:
+        self.RTV_TIMEOUT = config.rtv_timeout
+
+        self.generate_ondemand_only_trips(requests, iteration)
+        self.generate_trip_costs(vehicles, config.max_thread_cnt, 0)
+        self.generate_shared_trips(vehicles, config.max_cardinality, config.max_thread_cnt, config.shareable_cost_factor)
+        self.assign_trips_gurobi(requests, active_requests, config.penalty)
+        if config.rebalancing:
             self.get_rebalancing_trips(vehicles,requests)
 
     def get_new_trip_no(self):
@@ -49,8 +56,8 @@ class TripHandler:
 
     def check_rtv_timeout(self):
         time_spent = time.time()-self.starting_time
-        if time_spent > self.rtv_timeout:
-            raise Exception("RTV generation timedout: {0} > {1}".format(time_spent,self.rtv_timeout))
+        if time_spent > self.RTV_TIMEOUT:
+            raise Exception("RTV generation timedout: {0} > {1}".format(time_spent,self.RTV_TIMEOUT))
 
     def get_trip_cost(self,origin,destination):
         return NetworkHandler.travel_distance(origin,destination)
@@ -58,7 +65,7 @@ class TripHandler:
     def get_veh_assignment(self) -> dict[int, tuple[list[Trip], StopSequence]]:
         return self.vehicle_assignment  
     
-    def generate_ondemand_only_trips(self,requests,iteration):
+    def generate_ondemand_only_trips(self, requests, iteration):
         for request in requests:
             origin = request.origin
             destination = request.destination
@@ -111,11 +118,11 @@ class TripHandler:
             first_last_mile_type=first_last_mile_type)
 
     @staticmethod
-    def create_trip_for_picked_requests(boarded_requests, iteration):
+    def create_trip_for_picked_requests(boarded_requests: dict[str, Request], iteration) -> list[Trip]:
+        # TODO why do we not assign the corresponding vehicle here as well?
         trip_no = -1
         boarded_trips = []
-        for request_id in boarded_requests:
-            request = boarded_requests[request_id]
+        for request_id, request in boarded_requests.items():
             boarded_trips.append(Trip.from_request(request_id, trip_no, request, iteration))
             trip_no -=1
         return boarded_trips
@@ -192,7 +199,7 @@ class TripHandler:
                             if prev_trip_cost.vehicle_id == vehicle_id:
                                 prev_sequence = prev_trip_cost.sequence
                                 break
-                    pool.apply_async(TripHandler.create_trip_cost, args=(vehicles[vehicle_id],trip.number,trips,prev_sequence,), callback=TripHandler.process_result)
+                    pool.apply_async(TripHandler.create_trip_cost, args=(vehicles[vehicle_id], trip.number, trips, prev_sequence,), callback=TripHandler.process_result)
             pool.close()
             pool.join()
 
@@ -413,7 +420,7 @@ class TripHandler:
                     m.addConstr(x_r[request_no] == 0,"active_req_{0}".format(request.id))
                 request_no+=1
 
-            m.setParam('TimeLimit', self.solver_timeout)
+            m.setParam('TimeLimit', self.config.ilp_solver_timeout)
             m.optimize()
 
             self.trip_sizes = []
@@ -461,9 +468,7 @@ class TripHandler:
                 self.unassigned_trip_count = request_count
                 raise Exception(f"Gurobi solver ended with code: {m.Status} - {GRB.Status[m.Status]}")
             
-            decision_phrase = 'Assignment: requests / unassigned / assigned: {0} / {1} / {2}'.format(request_count, self.unassigned_trip_count, self.taxi_only_trip_count)
-            print(decision_phrase)
-            logging.info(decision_phrase)
+            logging.info(f'Assignment: requests / unassigned / assigned: {request_count} / {self.unassigned_trip_count} / {self.taxi_only_trip_count}')
 
     def get_rebalancing_trips(self,vehicles,requests):
         empty_vehicles = []

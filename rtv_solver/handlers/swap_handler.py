@@ -18,7 +18,7 @@ class SwapHandler:
             PayloadParser.DRIVERS: driver_runs,
             PayloadParser.DEPOT: depot, 
             PayloadParser.REQUESTS: []})
-        self.active_requests = set(payload_object.active_requests)
+        self.active_requests = set(payload_object.active_requests_keys)
         requests = payload_object.requests
 
         depot_node_id = NetworkHandler.get_next_node_id(payload_object.depot.lat, payload_object.depot.lon)

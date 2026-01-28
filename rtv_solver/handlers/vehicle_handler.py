@@ -3,11 +3,13 @@ import pandas as pd
 from rtv_solver.structure.vehicle import Vehicle
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.node import Node
+from rtv_solver.structure.sequence import StopSequence
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
 from datetime import datetime
 from datetime import timedelta
 import pickle
+from dataclasses import dataclass
 
 # TODO check in how we can remove these strings
 START_TIME = 'start_time'
@@ -15,19 +17,24 @@ CAPACITY = 'capacity'
 START_NODE = 'node'
 ID = 'id'
 
+@dataclass(frozen=True)
+class VehicleHandlerConfig:
+    output_directory: str
+    largest_tsp: int
+
 class VehicleHandler:
     MAX_AM_CAPACITY = 0
     MAX_WC_CAPACITY = 0
     LARGEST_TSP = 0
     
-    def __init__(self, depot, driver_runs, output_directory, largest_tsp=10):
+    def __init__(self, depot, driver_runs, config: VehicleHandlerConfig):
         self.vehicles = {}
         self.count = 0
         self.earliest_start_time = None
         self.load_vehicles(depot, driver_runs)
-        self.output_directory = output_directory
-        VehicleHandler.LARGEST_TSP = largest_tsp
-        logging.info('Total No of vehicles: {0}'.format(self.count))
+        self.output_directory = config.output_directory
+        VehicleHandler.LARGEST_TSP = config.largest_tsp
+        logging.info(f'\033[1m{self.count}\033[0m vehicle(s) in operations')
 
     def save_snapshot(self):
         with open(self.output_directory+"vehicle_snapshot.p", 'wb') as snapshot_file:
@@ -40,30 +47,50 @@ class VehicleHandler:
         return snapshot
 
     def load_vehicles(self, depot, driver_runs):
-        # nearest_lat,nearest_lon = NetworkHandler.get_nearest_node(float(depot['lat']),float(depot['lon']))
-        start_loc = depot
+        """
+        Load all vehicles and initialize their location at the depot
+        """
+        start_location = depot.copy() # requires copy, otherwise they all point to the same dictionary of the depot-dict
+
         for driver_run in driver_runs:
-            vehicle_data = driver_run
-            if PayloadParser.DRIVER_STATE in vehicle_data:
-                vehicle_data = driver_run[PayloadParser.DRIVER_STATE]
-            self.count+=1
-            id = int(vehicle_data[PayloadParser.DRIVER_STATE_RUN_ID])
+            vehicle_data = self._extract_vehicle_state(driver_run)
+
+            vehicle_id = int(vehicle_data[PayloadParser.DRIVER_STATE_RUN_ID])
             am_capacity = int(vehicle_data[PayloadParser.DRIVER_STATE_AM_CAP])
             wc_capacity = int(vehicle_data[PayloadParser.DRIVER_STATE_WC_CAP])
-            VehicleHandler.MAX_AM_CAPACITY = max(VehicleHandler.MAX_AM_CAPACITY,am_capacity)
-            VehicleHandler.MAX_WC_CAPACITY = max(VehicleHandler.MAX_WC_CAPACITY,wc_capacity)
             start_time = vehicle_data[PayloadParser.DRIVER_STATE_START_TIME]
             end_time = vehicle_data[PayloadParser.DRIVER_STATE_END_TIME]
-            vehicle = Vehicle(id, 
-                              start_loc, 
-                              am_capacity, 
-                              wc_capacity, 
-                              start_time, 
-                              end_time, 
-                              start_loc)
-            self.vehicles[id] = vehicle
-            if self.earliest_start_time == None or self.earliest_start_time > start_time:
-                self.earliest_start_time = start_time
+
+            vehicle = Vehicle(
+                vehicle_id,
+                start_location, # FIXME? this resets the location of the vehicles for each iteration; this does not seem to be intended behaviour or we must update it in a next step
+                am_capacity,
+                wc_capacity,
+                start_time,
+                end_time,
+                start_location,
+            )
+
+            self.vehicles[vehicle_id] = vehicle
+            self.count += 1
+            
+            self._update_max_capacities(am_capacity, wc_capacity)
+            self._update_earliest_start_time(start_time)
+
+    def _extract_vehicle_state(self, driver_run):
+        # depending on the definition of the payload, this handles both cases
+        if PayloadParser.DRIVER_STATE in driver_run:
+            return driver_run[PayloadParser.DRIVER_STATE]
+        return driver_run
+    
+    def _update_max_capacities(self, am_capacity, wc_capacity):
+        VehicleHandler.MAX_AM_CAPACITY = max(VehicleHandler.MAX_AM_CAPACITY, am_capacity)
+        VehicleHandler.MAX_WC_CAPACITY = max(VehicleHandler.MAX_WC_CAPACITY, wc_capacity)
+
+    def _update_earliest_start_time(self, start_time):
+        if (self.earliest_start_time is None
+            or start_time < self.earliest_start_time):
+            self.earliest_start_time = start_time
 
     def read_vehicles(self, filename,starting_date, max_number_of_vehicles):
         dateparse = lambda x: datetime.strptime(x, '%H:%M:%S')
@@ -108,23 +135,28 @@ class VehicleHandler:
         new_driver_run = {PayloadParser.DRIVER_STATE:new_state,PayloadParser.DRIVER_MANIFEST:manifest}
         return new_driver_run
     
-    def get_manifest(vehicle, current_order):
+    def get_manifest(vehicle: Vehicle, current_order: int):
+        """
+        from the current order, create the new manifest
+        """
         manifest = []
         last_node, time_at_last_node = VehicleHandler.get_current_location_time(vehicle)
         for vehicle_stop in vehicle.stop_sequence:
+            # default values
             trip = vehicle.trips[vehicle_stop.trip_id]
             node = vehicle_stop.node
-            action = VehicleStop.ACT_DROPOFF
+            action = VehicleStop.ACT_DROPOFF # default
             time_window_start = trip.earliest_arrival_time
             time_window_end = trip.latest_arrival_time
             dwell = trip.dwell_alight
+            # update defaults if it is a PICKUP-stop
             if vehicle_stop.type == VehicleStop.ACT_PICKUP:
                 action = VehicleStop.ACT_PICKUP
                 time_window_start = trip.pick_up_time
                 time_window_end = trip.latest_pick_up_time
                 dwell = trip.dwell_pickup
-            current_order+=1
-            stop_time = time_at_last_node + NetworkHandler.travel_time(last_node,node)
+            current_order += 1 # increment order in manifest
+            stop_time = time_at_last_node + NetworkHandler.travel_time(last_node, node)
             if stop_time <= time_window_start:
                 stop_time = time_window_start
             stop = {
@@ -145,33 +177,38 @@ class VehicleHandler:
             manifest.append(stop)
         return manifest
 
-    def add_manifest_to_vehicle(
-            self, 
-            vehicle, 
-            driver_run, 
-            boarded_requests, 
-            boarded_trips, 
-            dwell_alight, 
-            dwell_pickup):
+    def add_manifest_to_vehicle(self, vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup):
+        """
+        translate the manifest of a vehicle into its current position and update the vehicle accordingly
+        """
+        # retrieve information from dictionary
         state = driver_run[PayloadParser.DRIVER_STATE]
+        state_loc = state[PayloadParser.DRIVER_STATE_LOC]
         current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
         vehicle.started = True
+        # retrieves next position and time there # TODO does this work as we always initialize the vehicleLocation as depot
         time_at_next_immediate_node = state[PayloadParser.DRIVER_STATE_DT_SEC]
-        next_immediate_node = NetworkHandler.manifest_location(state['loc'],node_id = NetworkHandler.get_next_node_id(state['loc']['lat'],state['loc']['lon']))
+        next_immediate_node = NetworkHandler.get_node_from_manifest_location(
+            state_loc, 
+            node_id = NetworkHandler.get_next_node_id(
+                state_loc['lat'], 
+                state_loc['lon']))
 
+        # iterate over manifest to update all variables
         manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
         if len(manifest) > 0:
             for stop in manifest:
                 if stop[PayloadParser.MANIFEST_ORDER] > current_order:
+                    # future stops are not handled in this method
                     break
                 if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                     vehicle.am_capacity -= stop[PayloadParser.MANIFEST_AMBULATORY]
                     vehicle.wc_capacity -= stop[PayloadParser.MANIFEST_WHEELCHAIR]
-                else:
+                else: # DROPOFF
                     vehicle.am_capacity += stop[PayloadParser.MANIFEST_AMBULATORY]
                     vehicle.wc_capacity += stop[PayloadParser.MANIFEST_WHEELCHAIR]
             
-            # Adding existing route to the vehicle
+            # filters remaining DROPOFFs for boarded requests (only dropoffs need to be considered as stops, PICKUPs is not required because then it is not boarded)
             filtered_manifest = []
             for stop in manifest:
                 booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
@@ -179,11 +216,13 @@ class VehicleHandler:
                     filtered_manifest.append(stop)
 
             for stop in filtered_manifest:
+                # find boarded 
                 trip_of_stop = None
                 for trip in boarded_trips:
                     if trip.request_id == stop[PayloadParser.MANIFEST_BOOKING_ID]:
                         trip_of_stop = trip
                         break
+                # add trip to vehicle (defined by its own manifest)
                 vehicle.trips[trip_of_stop.id] = trip_of_stop
                 vehicle.picked.append(trip_of_stop.id)
                 vehicle_stop = VehicleStop(
@@ -202,12 +241,15 @@ class VehicleHandler:
 
         vehicle.next_immediate_node = next_immediate_node
         vehicle.time_at_next_immediate_node = time_at_next_immediate_node
+        # NOTE why do we want the last previous position as the same as the one here?
         vehicle.last_node = next_immediate_node
         vehicle.time_at_last = time_at_next_immediate_node
 
-    def add_manifest_to_vehicles(self,driver_runs,boarded_requests,boarded_trips,dwell_alight, dwell_pickup):
-        for vehicle_id in self.vehicles:
-            vehicle = self.vehicles[vehicle_id]
+    def add_manifest_to_vehicles(self, driver_runs, boarded_requests, boarded_trips, dwell_alight, dwell_pickup):
+        """
+        iterate over all manifests to update each vehicle based on its manifest and previously boarded requests
+        """
+        for vehicle_id, vehicle in self.vehicles.items():
             driver_run = None
             for run in driver_runs:
                 if int(run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_RUN_ID]) == vehicle_id:
@@ -350,21 +392,27 @@ class VehicleHandler:
 
     def add_rebalancing_trip(vehicle,destination,current_time):
         time_at_destination = current_time + NetworkHandler.travel_time(vehicle.last_node,destination)
-        if VehicleHandler.can_return_to_deport(vehicle,destination,time_at_destination):
+        if VehicleHandler.can_return_to_depot(vehicle,destination,time_at_destination):
             vehicle.rebalancing = True
             vehicle.time_at_last = current_time
             vehicle.stop_sequence = [VehicleStop(None, destination, VehicleStop.ACT_REBALANCE, 0)]
             vehicle.time_at_next = time_at_destination
 
-    def can_return_to_deport(vehicle,last_node,time_at_last_node):
+    def can_return_to_depot(vehicle, last_node, time_at_last_node):
         if time_at_last_node+NetworkHandler.travel_time(last_node,vehicle.depot) < vehicle.end_time:
             return True
         return False
     
-    def add_new_trips(vehicle, new_trips, prev_sequence = [], add=False):
+    def add_new_trips(vehicle, new_trips, prev_sequence = [], add: bool =False):
+        """
+        combined method.
+        When called from TripHandler (multiprocessing), checks feasibilty of RTV combo. -> ensure that no shared state is changed during this call.
+        When called from OnlineRTVsolver, checks feasibility of each trip with vehicle and adds that trip to the vehicle if the checks are passed.
+        # TODO move double responsibity to a separate function, Q: in the second run does this change the outcome?
+        """
         feasible = False
         added_cost = -1
-        if vehicle.started:
+        if vehicle.started: # check if vehicle is operational
             next_immediate_node, time_at_next_immediate_node = VehicleHandler.get_current_location_time(vehicle)
         
             sequence, cost = None, None
@@ -390,26 +438,32 @@ class VehicleHandler:
             sequence, cost, feasible, last_node, time_at_last_node = VehicleHandler.get_optimal_stop_sequence(
                 next_immediate_node, time_at_next_immediate_node, vehicle.am_capacity, vehicle.wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, existing_sequence, tt_matrix, node_indices)
             added_cost = cost - VehicleHandler.cost_of_serving_sequence(next_immediate_node, vehicle, tt_matrix, node_indices)
+            print(f"{add}: {sequence, cost, added_cost, feasible, last_node, time_at_last_node}")
             
-            if feasible:
-                feasible = VehicleHandler.can_return_to_deport(vehicle, last_node, time_at_last_node)
+            if feasible: # check if vehicle can still return to depot
+                feasible = VehicleHandler.can_return_to_depot(vehicle, last_node, time_at_last_node)
+            # TODO move this to vehicle; does that work
             if feasible and add:
+                next_stop = sequence[0]
+                travel_time = NetworkHandler.travel_time_from_matrix(next_immediate_node, next_stop.node, tt_matrix, node_indices)
+                # update vehicle 
                 vehicle.rebalancing = False
                 vehicle.last_node = next_immediate_node
                 vehicle.time_at_last = time_at_next_immediate_node
+                vehicle.time_at_next = vehicle.time_at_last + travel_time
                 for trip in new_trips:
                     vehicle.trips[trip.id] = trip
+                
                 vehicle.stop_sequence = sequence
                 next_stop = vehicle.stop_sequence[0]
-                travel_time = NetworkHandler.travel_time_from_matrix(vehicle.last_node, next_stop.node,tt_matrix, node_indices)
-                vehicle.time_at_next = vehicle.time_at_last + travel_time
+                next_stop = sequence[0]
                 next_trip = vehicle.trips[next_stop.trip_id]
                 if next_stop.type == VehicleStop.ACT_PICKUP and vehicle.time_at_next < next_trip.pick_up_time:
                     vehicle.time_at_next = next_trip.pick_up_time
                 if next_stop.type == VehicleStop.ACT_DROPOFF and vehicle.time_at_next < next_trip.earliest_arrival_time:
                         vehicle.time_at_next = next_trip.earliest_arrival_time
     
-        return added_cost,feasible,sequence
+        return added_cost, feasible, sequence
 
     @staticmethod
     def cost_of_serving_sequence(next_immediate_node, vehicle, tt_matrix, node_indices):
@@ -418,38 +472,27 @@ class VehicleHandler:
         cost = 0
         last_node = next_immediate_node
         for stop in vehicle.stop_sequence:
-            cost += NetworkHandler.travel_time_from_matrix(last_node,stop.node,tt_matrix, node_indices)
+            cost += NetworkHandler.travel_time_from_matrix(last_node, stop.node, tt_matrix, node_indices)
             last_node = stop.node
         return cost
 
     @staticmethod
     def cost_of_rebalancing(vehicle, destination):
-        return NetworkHandler.travel_distance(vehicle.last_node,destination)
+        return NetworkHandler.travel_distance(vehicle.last_node, destination)
     
     @staticmethod
     def get_optimal_stop_sequence(
             last_node, time_at_last_node, max_am_capacity, max_wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, existing_sequence, tt_matrix, node_indices):
-        if len(trips_to_pick_up)+len(trips_to_drop_off) <= VehicleHandler.LARGEST_TSP:
+        if (len(trips_to_pick_up) + len(trips_to_drop_off)) <= VehicleHandler.LARGEST_TSP:
             return VehicleHandler.get_exact_stop_sequence(
-                last_node, time_at_last_node, max_am_capacity, max_wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, [], 0, tt_matrix, node_indices)
+                last_node, time_at_last_node, max_am_capacity, max_wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, StopSequence(), 0, tt_matrix, node_indices)
         else:
             return VehicleHandler.get_heuristic_stop_sequence(
-                last_node, time_at_last_node, max_am_capacity, max_wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, existing_sequence, tt_matrix,
-                node_indices)
+                last_node, time_at_last_node, max_am_capacity, max_wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, existing_sequence, tt_matrix, node_indices)
     
     @staticmethod
     def get_exact_stop_sequence(
-            last_node,
-                                time_at_last_node,
-                                max_am_capacity,
-                                max_wc_capacity,
-                                trips,
-                                trips_to_pick_up,
-                                trips_to_drop_off,
-                                sequence,
-                                cost,
-                                tt_matrix,
-                                node_indices):
+            last_node, time_at_last_node, max_am_capacity, max_wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, sequence, cost, tt_matrix, node_indices):
         if len(trips_to_pick_up) == 0 and len(trips_to_drop_off) == 0:
             return sequence, cost, True, last_node, time_at_last_node
         feasible = False
@@ -473,6 +516,7 @@ class VehicleHandler:
                 new_cost = cost + NetworkHandler.travel_distance(last_node, trip.origin)
                 new_trips_to_pick_up = trips_to_pick_up.copy()
                 new_trips_to_pick_up.remove(trip_id)
+                # TODO create the sequence at this spot instead of a list
                 new_sequence = sequence.copy()
                 new_sequence.append(VehicleStop(trip_id,
                                                 trip.origin,
@@ -529,16 +573,7 @@ class VehicleHandler:
         return best_sequence, current_lowest_cost, feasible, best_last_node, best_time_at_last_node
 
     def get_heuristic_stop_sequence(
-            last_node,
-            time_at_last_node,
-            max_am_capacity,
-            max_wc_capacity,
-            trips,
-            trips_to_pick_up,
-            trips_to_drop_off,
-            existing_sequence,
-            tt_matrix,
-            node_indices):
+            last_node, time_at_last_node, max_am_capacity, max_wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, existing_sequence, tt_matrix, node_indices):
         feasible = False
         best_sequence = None
         current_lowest_cost = -1

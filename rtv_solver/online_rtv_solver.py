@@ -1,7 +1,7 @@
 from rtv_solver.handlers.request_handler import RequestHandler
 from rtv_solver.handlers.network_handler import NetworkHandler
-from rtv_solver.handlers.vehicle_handler import VehicleHandler
-from rtv_solver.handlers.trip_handler import TripHandler
+from rtv_solver.handlers.vehicle_handler import VehicleHandler, VehicleHandlerConfig
+from rtv_solver.handlers.trip_handler import TripHandler, TripHandlerConfig
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.swap_handler import SwapHandler
 from rtv_solver.structure.node import Node
@@ -20,18 +20,29 @@ class OnlineRTVSolver:
     def __init__(self, config = None):
         self.config = config
         self.SERVER_URL = self.config.server_url
-        self.ILP_SOLVER_TIMEOUT = self.config.ilp_timeout
-        self.RTV_TIMEOUT = self.config.rtv_timeout
-        self.PENALTY = self.config.ilp_penalty
-        self.SHAREABLE_COST_FACTOR = self.config.share_cost_factor
         self.MAX_CARDINALITY = self.config.max_cardinality
         self.MAX_THREAD_CNT = self.config.max_thread_cnt
-        self.REBALANCING = self.config.rebalancing
         self.RH_FACTOR = self.config.rh_factor
         self.DWELL_PICKUP = self.config.dwell_pickup
         self.DWELL_ALIGHT = self.config.dwell_alight
-        self.LARGEST_TSP = self.config.largest_tsp
+
+        # NOTE this still seems like a code smell, but makes it a bit easier to read below
+        # TODO self.SH_CONFIG = SwapHandlerConfig()
+        self.TH_CONFIG = TripHandlerConfig(
+                ilp_solver_timeout      = self.config.ilp_timeout,
+                penalty                 = self.config.ilp_penalty,
+                max_cardinality         = self.config.max_cardinality, 
+                max_thread_cnt          = self.config.max_thread_cnt,
+                shareable_cost_factor   = self.config.share_cost_factor,
+                rebalancing             = self.config.rebalancing,
+                rtv_timeout             = self.config.rtv_timeout,
+            )
         
+        self.VH_CONFIG = VehicleHandlerConfig(
+                output_directory = self.config.output_dir,
+                largest_tsp = self.config.largest_tsp
+        )
+
         if sys.platform == "darwin":
             multiprocessing.set_start_method("fork")
 
@@ -72,28 +83,31 @@ class OnlineRTVSolver:
         # initalize network and payload
         NetworkHandler.init(True, self.SERVER_URL)
         payload_object = PayloadParser.get_payload_object(payload)
-        # get all requests of payload
+        # get all requests of payload, add 
         request_handler = RequestHandler(payload_object.requests, self.DWELL_PICKUP, self.DWELL_ALIGHT)
         temp_batch = request_handler.get_all_requests()
-        # filter active and boarded requests
+        
+        # filter active and boarded requests for subsequent action as they need to be integrated when handling new trip generation
         batch = []
         active_requests = {}
         boarded_requests = {}
+
         for req in temp_batch:
             req_id = req.id
-            if req_id in payload_object.boarded_requests:
+            if req_id in payload_object.boarded_requests_keys:
                 boarded_requests[req_id] = req
             else:
-                if req_id in payload_object.active_requests:
+                if req_id in payload_object.active_requests_keys:
                     active_requests[req_id] = req
                 batch.append(req)
-
-        boarded_trips = TripHandler.create_trip_for_picked_requests(boarded_requests, iteration)
-
+        
+        # initialize all vehicles as they are stores in the original payload-object
         vehicle_handler = VehicleHandler(payload_object.depot, 
                                          payload_object.driver_runs,
-                                         None,
-                                         largest_tsp=self.LARGEST_TSP)
+                                         self.VH_CONFIG)
+        # create trips of all already boarded requests
+        boarded_trips = TripHandler.create_trip_for_picked_requests(boarded_requests, iteration)
+        # update vehicle position/trips/times along its path according to all data stored in the manifest
         vehicle_handler.add_manifest_to_vehicles(payload_object.driver_runs,
                                                  boarded_requests,
                                                  boarded_trips, 
@@ -101,25 +115,20 @@ class OnlineRTVSolver:
                                                  self.DWELL_PICKUP)
         
         NetworkHandler.initialize_travel_time_matrix()
-        
-        iteration += 1 
-        unserved_requests = set([req.id for req in batch]) - set(active_requests.keys())
+        iteration += 1  # increase iteration as the prior step was just rebuilding from the last iteration (if there was a prior step)
+        unserved_requests = set([req.id for req in batch]) - set(active_requests.keys()) # number of requests that are not already confirmed to be served
         try:
+            # generate and assign trips to each vehicle using the RTV approach solved by an ILP
             trip_handler = TripHandler(
                 vehicle_handler.vehicles,
                 batch, 
                 active_requests, 
                 iteration, 
-                self.ILP_SOLVER_TIMEOUT,
-                self.PENALTY,
-                self.MAX_CARDINALITY,
-                self.MAX_THREAD_CNT,
-                self.SHAREABLE_COST_FACTOR,
-                self.REBALANCING, 
-                self.RTV_TIMEOUT)
+                self.TH_CONFIG)
         except Exception as e:
             raise e
         
+        # assign vehicles and add trips to each vehicle 
         vehicle_assignment = trip_handler.get_veh_assignment()
         for vehicle_id in vehicle_assignment:
             vehicle = vehicle_handler.vehicles[vehicle_id]
@@ -127,32 +136,35 @@ class OnlineRTVSolver:
             for trip in trips:
                 if trip.request_id in unserved_requests:
                     unserved_requests.remove(trip.request_id)
+            # add selected trips to the vehicles directly and check feasibility again?     
             VehicleHandler.add_new_trips(vehicle, trips, prev_sequence=prev_sequence, add=True)
+            # TODO
+            # VehicleHandler.add_new_trips(vehicle, trips) or alternative vehicle.add_trips()
+            # the prior trip generation and change the confirmation of feasibility to a separate function, maybe one function that maps each part, but code needs to be simpler
 
-        # create updated driver runs
+        # update driver runs
         updated_driver_runs = []
         for driver_run in payload_object.driver_runs:
+            # get old state, manifest and corresponding vehicle object
             state = driver_run[PayloadParser.DRIVER_STATE]
             manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
             current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
-            new_manifest = manifest[:current_order]
             vehicle = vehicle_handler.vehicles[state[PayloadParser.DRIVER_STATE_RUN_ID]]
-            new_manifest.extend(VehicleHandler.get_manifest(vehicle,current_order))
+            # update manifest
+            new_manifest = manifest[:current_order]
+            new_manifest.extend(VehicleHandler.get_manifest(vehicle, current_order))
             state[PayloadParser.DRIVER_STATE_T_LOCS] = len(new_manifest)
-            new_driver_run = {PayloadParser.DRIVER_STATE:state,PayloadParser.DRIVER_MANIFEST:new_manifest}
+            new_driver_run = {PayloadParser.DRIVER_STATE: state, 
+                              PayloadParser.DRIVER_MANIFEST: new_manifest}
             updated_driver_runs.append(new_driver_run)
-
+        # check invariants whether manifest is still correct
         self.check_consistency_of_manifests(payload[PayloadParser.DRIVERS], 
                                             updated_driver_runs,
                                             unserved_requests, 
                                             payload[PayloadParser.REQUESTS])
         return updated_driver_runs, list(unserved_requests) # ,trip_handler, vehicle_handler, request_handler, payload_object
 
-    def check_consistency_of_manifests(self, 
-                                       prev_driver_runs, 
-                                       new_driver_runs, 
-                                       unserved_requests, 
-                                       new_requests):
+    def check_consistency_of_manifests(self, prev_driver_runs: list[dict], new_driver_runs: list[dict], unserved_requests: set[int], new_requests: list[dict]):
         """ 
         check if each requests are picked up AND dropped off exactly once,
         unserved requests should not appear in the manifests
@@ -170,7 +182,7 @@ class OnlineRTVSolver:
                     picked_requests.add(stop_id)
                 else:
                     dropped_requests.add(stop_id)
-        print("Served requests:", set(picked_requests))
+        logging.info("Served requests:", set(picked_requests))
         # remove all requests that are picked up/dropped off
         for driver_run in new_driver_runs:
             for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
@@ -221,8 +233,8 @@ class OnlineRTVSolver:
                     break
                 
             if len(manifest) > current_order and next_immediate_time < current_time and intermediate_location:
-                next_immediate_node = NetworkHandler.manifest_location(next_immediate_loc)
-                target_node = NetworkHandler.manifest_location(manifest[current_order][PayloadParser.MANIFEST_LOC])
+                next_immediate_node = NetworkHandler.get_node_from_manifest_location(next_immediate_loc)
+                target_node = NetworkHandler.get_node_from_manifest_location(manifest[current_order][PayloadParser.MANIFEST_LOC])
                 next_immediate_time, next_immediate_node = NetworkHandler.get_current_location_time(
                     next_immediate_node, target_node, next_immediate_time, current_time)
                 next_immediate_loc = {"lat":next_immediate_node.lat,

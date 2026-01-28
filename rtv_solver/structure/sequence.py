@@ -8,11 +8,13 @@ class StopSequence(list):
     3. Pickup occurs before dropoff in the list order."""
     
     def __init__(self, stops: list[VehicleStop]):
+        # initialize directly from the list; so that append works as well
         super().__init__(stops)
         self._validate()
 
     def _validate(self):
         """checks whether the sequence is valid (each pickup is also dropped off in a feasible order)"""
+        # TODO currently wrong - DROPOFFs without PICKUPs are possible if we have not yet arrived
         trips = {}
 
         for index, stop in enumerate(self):

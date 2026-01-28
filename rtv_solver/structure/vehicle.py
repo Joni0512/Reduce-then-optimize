@@ -3,6 +3,7 @@ from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.payload_parser import PayloadParser # TODO move the definition of the dict-keys (strings to a different place) or rather the interfaces should not be required here anymore
 from rtv_solver.structure.sequence import StopSequence
+from rtv_solver.structure.trip import Trip
 
 class VehicleStatus(Enum):
     # TODO add status instead of deleting vehicles when they are not active anymore; with an enum makes it easier
@@ -14,7 +15,7 @@ class Vehicle:
     """Vehicle-related information covering basic vehicle information and simulation state during runtime"""
     # TODO differentiate initialized information and dynamic information to keep track of state
     def __init__(self, 
-                 id, 
+                 vehicle_id, 
                  start_node, 
                  am_capacity, 
                  wc_capacity, 
@@ -22,7 +23,7 @@ class Vehicle:
                  end_time, 
                  depot):
         # Static vehicle information
-        self.id = id
+        self.id = vehicle_id
         self.start_time = start_time
         self.end_time = end_time
         self.depot = depot
@@ -30,21 +31,22 @@ class Vehicle:
         self.wc_capacity = wc_capacity
         
         # tracks simulation state
-        # TODO move simulation step into this class as it is based on the vehicle, simulation step not used anymore
         self.started = False
         self.rebalancing = False
         self.dwelling = False
         self.time_at_last = start_time
+        self.last_node = start_node
         self.time_at_next = start_time
-        self.trips = {}
+        # self.next_immediate_node = start_node
+        self.trips: dict[int, Trip] = {}
         self.picked = []
         self.served_trips = []
-        self.last_node = start_node
-        self.stop_sequence: list[VehicleStop] = []
+        self.stop_sequence: list[VehicleStop] = [] # TODO add StopSequence wherever this list is updated or used
         self.final_stop_time = start_time
 
     def set_sequence(self, new_sequence: list[VehicleStop]):
-        """method should update the sequence if stops are added but not reset how it is currently build
+        # NOTE not used at all
+        """method updates the sequence if stops are added but not reset how it is currently build
         NOTE rebuild in a way that gives us future control how the updates are made but still easier to debug"""
         self.stop_sequence = StopSequence(new_sequence)
         # TODO how code should work in order to manage the car properly, it should rather append stops and for dropoffs it should check whether it has previously been picked up  
@@ -82,7 +84,7 @@ class Vehicle:
         self.started = True
         time_at_next_immediate_node = state[PayloadParser.DRIVER_STATE_DT_SEC]
         location = state[PayloadParser.DRIVER_STATE_LOC]
-        next_immediate_node = NetworkHandler.manifest_location(
+        next_immediate_node = NetworkHandler.get_node_from_manifest_location(
             location, 
             node_id = NetworkHandler.get_next_node_id(location['lat'], location['lon']))
 

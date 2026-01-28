@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 class Node:
     """
     Position of a node in the street network defined by latitude and longitude.
@@ -9,3 +11,6 @@ class Node:
 
     def __str__(self):
         return f"<Node: lat: {self.lat}, lon: {self.lon}, id: {self.id}>"
+
+    def copy(self) -> Node:
+        return Node(self.lat, self.lon, self.id)

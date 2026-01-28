@@ -10,12 +10,14 @@ class RequestHandler:
     """"""
     def __init__(self, request_data, dwell_pickup, dwell_alight):
         """create a sorted list of all requests in a pd.dataframe """
-        requests = [self.build_request_dict(req, dwell_pickup, dwell_alight) for req in request_data]  
+        requests = [self.build_request_dict(req, dwell_pickup, dwell_alight) for req in request_data] 
+        len_requests_initial = len(requests)
         self.requests = pd.DataFrame(requests).astype({PayloadParser.REQ_BOOKING_ID: 'string'}).sort_values(by = [PayloadParser.REQ_PICKUP_WINDOW_START])
         self.requests.drop_duplicates(subset=PayloadParser.REQ_BOOKING_ID, keep="first")
-
         self.count = self.requests.shape[0]
         self.next_index = 0
+
+        assert len_requests_initial == self.count, f"{len_requests_initial - self.count} requests were dropped as duplicates."      
         logging.info(f'Total No of requests: {0}'.format(self.count))
 
     @staticmethod
@@ -114,7 +116,7 @@ class RequestHandler:
         time_of_next_request = self.requests.iloc[min(self.next_index,self.requests.shape[0]-1)][PayloadParser.REQ_PICKUP_WINDOW_START]
         if time_of_next_request <= end_time and len(batch) > 0:
             end_time = min(end_time, batch[-1].pick_up_time)
-        print("T:", end_time, "batch:",len(batch))
+        logging.info(f"T: {end_time}, batch {len(batch)}")
         return batch, end_time
     
     def get_lookahead_trips(self, end_time, rh_factor, batch_interval: timedelta):
@@ -127,8 +129,8 @@ class RequestHandler:
             batch.append(request)
         return batch
 
-    def get_all_requests(self):
-        # TODO why do we not just return the dataframe
+    def get_all_requests(self) -> list[Request]:
+        # TODO run operations with the pd.Dataframe (currently no interest in using that interface, instead we use a list of Request objects)
         batch = []
         for _, row in self.requests.iterrows():
             request = self.get_request(row)
