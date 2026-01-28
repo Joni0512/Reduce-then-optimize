@@ -47,7 +47,7 @@ class NetworkHandler:
             return travel_time_matrix, no_of_nodes, SERVER_BASED, EUCLIDEAN
 
     @staticmethod
-    def get_next_node_id(lat, lon):
+    def get_next_node_id(lat: float, lon: float) -> int:
         NetworkHandler.node_data.append({"lat": lat, "lon": lon})
         NetworkHandler.NODE_INDEX += 1
         return NetworkHandler.NODE_INDEX - 1
@@ -63,7 +63,9 @@ class NetworkHandler:
         if EUCLIDEAN.value:
             for i in range(num_nodes):
                 for j in range(num_nodes):
-                    travel_time_matrix[i, j] = np.linalg.norm(np.array([NetworkHandler.node_data[i]['lon'], NetworkHandler.node_data[i]['lat']]) - np.array([NetworkHandler.node_data[j]['lon'], NetworkHandler.node_data[j]['lat']]))
+                    travel_time_matrix[i, j] = np.linalg.norm(
+                        np.array([NetworkHandler.node_data[i]['lon'], NetworkHandler.node_data[i]['lat']]) - 
+                        np.array([NetworkHandler.node_data[j]['lon'], NetworkHandler.node_data[j]['lat']]))
             SERVER_BASED = RawValue(ctypes.c_bool, False)
             no_of_nodes = RawValue(ctypes.c_uint, travel_time_matrix.shape[0])
             travel_time_matrix = RawArray(
@@ -104,7 +106,7 @@ class NetworkHandler:
         return travel_time_matrix, no_of_nodes, SERVER_BASED, EUCLIDEAN
 
     @staticmethod
-    def get_response(url):
+    def get_response(url: str) -> dict:
         global session
         try_count = 0
         while True:
@@ -118,22 +120,22 @@ class NetworkHandler:
                 time.sleep(1)
 
     @staticmethod
-    def get_simple_route_reponse(source, dest):
+    def get_simple_route_reponse(source: Node, dest: Node) -> dict:
         url = f"{routing_url}{source.lon},{source.lat};{dest.lon},{dest.lat}"
         return NetworkHandler.get_response(url)
 
     @staticmethod
-    def get_detailed_route_reponse(source, dest):
+    def get_detailed_route_reponse(source: Node, dest: Node) -> dict:
         url = f"{routing_url}{source.lon},{source.lat};{dest.lon},{dest.lat}" \
               "?steps=true&geometries=geojson"
         return NetworkHandler.get_response(url)
 
     @staticmethod
-    def get_location(source, destination):
+    def get_location(source: Node, destination: Node) -> int:
         return int(source.id * no_of_nodes.value + destination.id)
 
     @staticmethod
-    def travel_time(source, destination):
+    def travel_time(source: Node, destination: Node) -> float:
         if SERVER_BASED is None:
             raise RuntimeError("NetworkHandler.init() must be called before travel_time()")
         if SERVER_BASED.value:
@@ -142,11 +144,11 @@ class NetworkHandler:
         return travel_time_matrix[NetworkHandler.get_location(source, destination)]
 
     @staticmethod
-    def travel_time_from_node_indices(source, destination):
+    def travel_time_from_node_indices(source: Node, destination: Node) -> float:
         return travel_time_matrix[int(source * no_of_nodes.value + destination)]
 
     @staticmethod
-    def travel_distance(source, destination):
+    def travel_distance(source: Node, destination: Node) -> float:
         if SERVER_BASED is None:
             print("sb:", SERVER_BASED)
             raise RuntimeError("NetworkHandler.init() must be called before travel_distance()")
@@ -157,6 +159,10 @@ class NetworkHandler:
 
     @staticmethod
     def get_current_location_time(source, destination, starting_time, current_time):
+        """
+        specifically tracks the actual geometry of the route and the specific times where position are reached
+        """
+        # we track the location based on time and not just the next sto
         response = NetworkHandler.get_detailed_route_reponse(source, destination)
         current_location = None
         for step in response['routes'][0]['legs'][0]['steps']:
@@ -164,23 +170,24 @@ class NetworkHandler:
             starting_time += duration
             location = step['geometry']['coordinates'][-1]
             current_location = Node(location[1], location[0])
-            if starting_time >= current_time:
+            if starting_time >= current_time: 
+                # no guarantee for reaching a point before current_time, but as close as possible we step out
                 return starting_time, current_location
         return starting_time, current_location
 
     @staticmethod
-    def get_nearest_node(lat, lon):
+    def get_nearest_node(lat: float, lon: float) -> tuple[float, float]:
         url = f"{nearest_url}{lon},{lat}"
         data = NetworkHandler.get_response(url)
         nearest_node = data['waypoints'][0]['location']
         return nearest_node[1], nearest_node[0]
 
     @staticmethod
-    def are_nodes_equal(node1, node2):
+    def are_nodes_equal(node1: Node, node2: Node) -> bool:
         return node1.lat == node2.lat and node1.lon == node2.lon
 
     @staticmethod
-    def get_travel_time_matrix(nodes):
+    def get_travel_time_matrix(nodes) -> tuple[np.array, dict[tuple[float, float]]]:
         if SERVER_BASED and SERVER_BASED.value:
             coordinates = []
             node_indices = {}
@@ -195,7 +202,7 @@ class NetworkHandler:
         return None, None
 
     @staticmethod
-    def travel_time_from_matrix(node1, node2, matrix, node_indices):
+    def travel_time_from_matrix(node1: Node, node2: Node, matrix: np.array, node_indices: dict[tuple[float, float]]) -> float:
         if SERVER_BASED and SERVER_BASED.value:
             index1 = node_indices[(node1.lon, node1.lat)]
             index2 = node_indices[(node2.lon, node2.lat)]
@@ -203,7 +210,7 @@ class NetworkHandler:
         return NetworkHandler.travel_time(node1, node2)
 
     @staticmethod
-    def manifest_location(location, node_id=None):
+    def get_node_from_manifest_location(location: dict[str, float], node_id: int =None) -> Node:
         if 'node_id' in location and node_id is None:
             node_id = location['node_id']
         return Node(location["lat"], location["lon"], node_id)
