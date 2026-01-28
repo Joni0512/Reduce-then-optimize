@@ -1,14 +1,16 @@
 import logging
 import pandas as pd
-from rtv_solver.structure.vehicle import Vehicle
+import pickle
+from datetime import datetime, timedelta
+from dataclasses import dataclass
+from typing import Optional
+
+from rtv_solver.structure.vehicle import Vehicle, TripInsertionPlan
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.node import Node
+from rtv_solver.structure.sequence import StopSequence
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
-from datetime import datetime
-from datetime import timedelta
-import pickle
-from dataclasses import dataclass
 
 # TODO check in how we can remove these strings
 START_TIME = 'start_time'
@@ -27,7 +29,7 @@ class VehicleHandler:
     LARGEST_TSP = 0
     
     def __init__(self, depot, driver_runs, config: VehicleHandlerConfig):
-        self.vehicles = {}
+        self.vehicles: dict[int, Vehicle] = {}
         self.count = 0
         self.earliest_start_time = None
         self.load_vehicles(depot, driver_runs)
@@ -116,7 +118,7 @@ class VehicleHandler:
     def get_current_location_time(vehicle):
         next_immediate_node = vehicle.last_node
         time_at_next_immediate_node = vehicle.time_at_last
-        if len(vehicle.stop_sequence)>0:
+        if len(vehicle.stop_sequence) > 0:
             time_at_next_immediate_node = vehicle.time_at_next_immediate_node
             next_immediate_node = vehicle.next_immediate_node
         return next_immediate_node,time_at_next_immediate_node
@@ -402,22 +404,28 @@ class VehicleHandler:
             return True
         return False
     
-    def add_new_trips(vehicle, new_trips, prev_sequence = [], add: bool =False):
+    def add_new_trips(vehicle: Vehicle, new_trips, prev_sequence = None, add: bool =False) -> TripInsertionPlan:
         """
-        combined method.
-        When called from TripHandler (multiprocessing), checks feasibilty of RTV combo. -> ensure that no shared state is changed during this call.
-        When called from OnlineRTVsolver, checks feasibility of each trip with vehicle and adds that trip to the vehicle if the checks are passed.
-        # TODO move double responsibity to a separate function, Q: in the second run does this change the outcome?
+        DEPRECATED but backward-compatible (split into VehicleHandler.plan_trip_insertion and Vehicle.apply)
         """
-        feasible = False
-        added_cost = -1
-        if vehicle.started: # check if vehicle is operational
+        plan = VehicleHandler.plan_trip_insertions(vehicle, new_trips, prev_sequence)
+        if plan.feasible and add:
+            vehicle.apply_trip_insertion(plan)
+        return plan
+
+    def plan_trip_insertions(vehicle, new_trips, prev_sequence = None) -> TripInsertionPlan:
+        """
+        checks feasibilty of RTV combinations (vehicle <> trips)
+        Call for multiprocessing - DO NOT CHANGE shared state and must remain in VehicleHandler for that shared state, cannot be moved to the vehicle itself.
+        """
+        if prev_sequence is None:
+            prev_sequence = []
+        if vehicle.started:
             next_immediate_node, time_at_next_immediate_node = VehicleHandler.get_current_location_time(vehicle)
-        
-            sequence, cost = None, None
+            trips = vehicle.trips.copy()
+            # iterate trips to collect all DROPOFFs, PICKUPs, relevant nodes for travelTimeMatrix
             trips_to_pick_up = []
             trips_to_drop_off = []
-            trips = vehicle.trips.copy()
             nodes = [next_immediate_node]
             for trip_id in trips:
                 trips_to_drop_off.append(trip_id)
@@ -428,41 +436,41 @@ class VehicleHandler:
                 trips_to_pick_up.append(trip.id)
                 nodes.append(trip.origin)
                 nodes.append(trip.destination)
+            tt_matrix, node_indices = NetworkHandler.get_travel_time_matrix(nodes)
+
+            # update existing sequence # NOTE why do we just overwrite the existing sequence, why can there be changes here?    
             existing_sequence = vehicle.stop_sequence
             if len(prev_sequence) > 0:
                 existing_sequence = prev_sequence.copy()
             if vehicle.rebalancing:
                 existing_sequence = []
-            tt_matrix, node_indices = NetworkHandler.get_travel_time_matrix(nodes)
-            sequence, cost, feasible, last_node, time_at_last_node = VehicleHandler.get_optimal_stop_sequence(
-                next_immediate_node, time_at_next_immediate_node, vehicle.am_capacity, vehicle.wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, existing_sequence, tt_matrix, node_indices)
-            added_cost = cost - VehicleHandler.cost_of_serving_sequence(next_immediate_node, vehicle, tt_matrix, node_indices)
-            logging.debug(f"{add}: {sequence, cost, added_cost, feasible, last_node, time_at_last_node}")
             
-            if feasible: # check if vehicle can still return to depot
-                feasible = VehicleHandler.can_return_to_depot(vehicle, last_node, time_at_last_node)
-            # TODO move this to vehicle; does that work
-            if feasible and add:
-                next_stop = sequence[0]
-                travel_time = NetworkHandler.travel_time_from_matrix(next_immediate_node, next_stop.node, tt_matrix, node_indices)
-                # update vehicle 
-                vehicle.rebalancing = False
-                vehicle.last_node = next_immediate_node
-                vehicle.time_at_last = time_at_next_immediate_node
-                vehicle.time_at_next = vehicle.time_at_last + travel_time
-                for trip in new_trips:
-                    vehicle.trips[trip.id] = trip
-                
-                vehicle.stop_sequence = sequence
-                next_stop = vehicle.stop_sequence[0]
-                next_stop = sequence[0]
-                next_trip = vehicle.trips[next_stop.trip_id]
-                if next_stop.type == VehicleStop.ACT_PICKUP and vehicle.time_at_next < next_trip.pick_up_time:
-                    vehicle.time_at_next = next_trip.pick_up_time
-                if next_stop.type == VehicleStop.ACT_DROPOFF and vehicle.time_at_next < next_trip.earliest_arrival_time:
-                        vehicle.time_at_next = next_trip.earliest_arrival_time
-    
-        return added_cost, feasible, sequence
+            # calculate feasibility of trip sequence and depot return for that vehicle
+            sequence, cost, sequence_feasible, last_node, time_at_last_node = VehicleHandler.get_optimal_stop_sequence(
+                next_immediate_node, time_at_next_immediate_node, vehicle.am_capacity, vehicle.wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, existing_sequence, tt_matrix, node_indices)
+            depot_feasible = VehicleHandler.can_return_to_depot(vehicle, last_node, time_at_last_node)
+            
+            # calculate cost + travel time for later plan application
+            added_cost = cost - VehicleHandler.cost_of_serving_sequence(next_immediate_node, vehicle, tt_matrix, node_indices)
+            next_stop = sequence[0]
+            travel_time = NetworkHandler.travel_time_from_matrix(next_immediate_node, next_stop.node, tt_matrix, node_indices)
+ 
+            if sequence_feasible and depot_feasible: 
+                logging.debug(f"Plan - cost: {added_cost}, final arrival: {time_at_last_node}")
+                logging.debug("Sequence: %s", StopSequence.sequence_to_string(sequence))     
+                return TripInsertionPlan(
+                    feasible = True, 
+                    added_cost = added_cost,
+                    sequence = sequence,
+                    trips = new_trips,
+                    next_immediate_node=next_immediate_node,
+                    time_at_next_immediate_node=time_at_next_immediate_node,
+                    veh_travel_time=travel_time)
+            else:
+                return TripInsertionPlan(
+                    feasible=False, 
+                    added_cost=-1,
+                    sequence=None)
 
     @staticmethod
     def cost_of_serving_sequence(next_immediate_node, vehicle, tt_matrix, node_indices):

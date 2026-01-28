@@ -1,15 +1,23 @@
 from enum import Enum
+from dataclasses import dataclass
+from typing import Optional
+
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.payload_parser import PayloadParser # TODO move the definition of the dict-keys (strings to a different place) or rather the interfaces should not be required here anymore
 from rtv_solver.structure.sequence import StopSequence
 from rtv_solver.structure.trip import Trip
+from rtv_solver.structure.node import Node
 
-class VehicleStatus(Enum):
-    # TODO add status instead of deleting vehicles when they are not active anymore; with an enum makes it easier
-    ACTIVE = 1 # during operation
-    INACTIVE = 2 # before it is active while in depot
-    COMPLETED = 3 # after end of operations
+@dataclass
+class TripInsertionPlan:
+    feasible: bool
+    added_cost: float
+    sequence: list[VehicleStop]
+    trips: Optional[list] = None
+    next_immediate_node: Optional[Node] = None
+    time_at_next_immediate_node: Optional[float] = None
+    veh_travel_time: Optional[float] = None
     
 class Vehicle:
     """Vehicle-related information covering basic vehicle information and simulation state during runtime"""
@@ -133,6 +141,32 @@ class Vehicle:
         self.time_at_next_immediate_node = time_at_next_immediate_node
         self.last_node = next_immediate_node
         self.time_at_last = time_at_next_immediate_node
+
+    def apply_trip_insertion(self, plan: TripInsertionPlan):
+        """
+        Adds the trip stored in the TripInsertionPlan as it was all previously checked
+        """
+        # read relevant information from plan
+        trips = plan.trips
+        sequence = plan.sequence
+        next_immediate_node = plan.next_immediate_node
+        time_at_next_immediate_node = plan.time_at_next_immediate_node
+        travel_time = plan.veh_travel_time
+        # update vehicle 
+        self.rebalancing = False
+        self.last_node = next_immediate_node
+        self.time_at_last = time_at_next_immediate_node
+        self.time_at_next = self.time_at_last + travel_time
+        for trip in trips:
+            self.trips[trip.id] = trip
+        
+        self.stop_sequence = sequence
+        next_stop = self.stop_sequence[0]
+        next_trip = self.trips[next_stop.trip_id]
+        if next_stop.type == VehicleStop.ACT_PICKUP and self.time_at_next < next_trip.pick_up_time:
+            self.time_at_next = next_trip.pick_up_time
+        if next_stop.type == VehicleStop.ACT_DROPOFF and self.time_at_next < next_trip.earliest_arrival_time:
+                self.time_at_next = next_trip.earliest_arrival_time
 
     def __str__(self):
         trip_str = "{" + ', '.join([f"{trip_id}: {str(trip)}" for trip_id, trip in self.trips.items()]) + "}"

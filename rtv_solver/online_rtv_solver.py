@@ -133,14 +133,11 @@ class OnlineRTVSolver:
         for vehicle_id in vehicle_assignment:
             vehicle = vehicle_handler.vehicles[vehicle_id]
             trips, prev_sequence = vehicle_assignment[vehicle_id]
-            for trip in trips:
+            plan = VehicleHandler.plan_trip_insertions(vehicle, trips, prev_sequence=prev_sequence)
+            vehicle.apply_trip_insertion(plan)
+            for trip in trips: # remove assigned trips from unserved
                 if trip.request_id in unserved_requests:
                     unserved_requests.remove(trip.request_id)
-            # add selected trips to the vehicles directly and check feasibility again?     
-            VehicleHandler.add_new_trips(vehicle, trips, prev_sequence=prev_sequence, add=True)
-            # TODO
-            # VehicleHandler.add_new_trips(vehicle, trips) or alternative vehicle.add_trips()
-            # the prior trip generation and change the confirmation of feasibility to a separate function, maybe one function that maps each part, but code needs to be simpler
 
         # update driver runs
         updated_driver_runs = []
@@ -157,6 +154,7 @@ class OnlineRTVSolver:
             new_driver_run = {PayloadParser.DRIVER_STATE: state, 
                               PayloadParser.DRIVER_MANIFEST: new_manifest}
             updated_driver_runs.append(new_driver_run)
+            
         # check invariants whether manifest is still correct
         self.check_consistency_of_manifests(payload[PayloadParser.DRIVERS], 
                                             updated_driver_runs,

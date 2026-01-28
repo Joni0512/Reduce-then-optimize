@@ -13,6 +13,7 @@ import gurobipy as gp
 from gurobipy import GRB
 import time
 from dataclasses import dataclass
+import traceback
 
 @dataclass(frozen=True)
 class TripHandlerConfig:
@@ -156,15 +157,23 @@ class TripHandler:
         distance = NetworkHandler.travel_distance(origin,destination)
         return distance <= self.walk_distance_cutoff
 
-    def create_trip_cost(vehicle,trip_no,trips,prev_sequence):
-        added_cost, feasibility, sequence = VehicleHandler.add_new_trips(vehicle, trips, prev_sequence=prev_sequence, add=False)
-        if feasibility:
-            return TripCost(trip_no, vehicle.id, added_cost,sequence)
+    def create_trip_cost(vehicle, trip_no, trips, prev_sequence):
+        # added_cost, feasible, sequence = VehicleHandler.add_new_trips(vehicle, trips, prev_sequence=prev_sequence, add=False)
+        # if feasible:
+        #     return TripCost(trip_no, vehicle.id, added_cost, sequence)
+        # return None
+        plan = VehicleHandler.plan_trip_insertions(vehicle, trips, prev_sequence=prev_sequence)
+        if plan.feasible:
+            return TripCost(trip_no, vehicle.id, plan.added_cost, plan.sequence)
         return None
         
     def process_result(trip_cost):
         if trip_cost != None:
             TripHandler.trip_costs.append(trip_cost)
+    
+    def on_error(e):
+        print("Worker crashed:", repr(e))
+        traceback.print_exc()
 
     def generate_trip_costs(self,vehicles,max_num_thread,trip_start):
         if trip_start == 0:
@@ -200,7 +209,10 @@ class TripHandler:
                             if prev_trip_cost.vehicle_id == vehicle_id:
                                 prev_sequence = prev_trip_cost.sequence
                                 break
-                    pool.apply_async(TripHandler.create_trip_cost, args=(vehicles[vehicle_id], trip.number, trips, prev_sequence,), callback=TripHandler.process_result)
+                    pool.apply_async(
+                        TripHandler.create_trip_cost, 
+                        args=(vehicles[vehicle_id], trip.number, trips, prev_sequence,), callback=TripHandler.process_result,
+                        error_callback=TripHandler.on_error)
             pool.close()
             pool.join()
 
