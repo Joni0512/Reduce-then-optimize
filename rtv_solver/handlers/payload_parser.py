@@ -61,6 +61,9 @@ class PayloadParser:
 
     @staticmethod
     def get_payload_object(payload, online=True) -> Payload:
+        """
+        Based on the inserted payload data, a new payload is created.
+        Specific attention to requests as these are combined from new requests and still active or boarded requests stored in the vehicleManifests."""
         # initialize time-matrix if available
         travel_time_matrix = payload.get(PayloadParser.TIME_MATRIX)
         
@@ -87,7 +90,7 @@ class PayloadParser:
         active_requests_data = {}
         boarded_requests_data = {}
         for driver_run in driver_runs:
-            added_active_requests = []
+            added_active_requests = [] # NOTE why do we have this?
             if PayloadParser.DRIVER_MANIFEST in driver_run:
                 driver_state = driver_run[PayloadParser.DRIVER_STATE]
                 driver_manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
@@ -98,31 +101,34 @@ class PayloadParser:
                     if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                         request = PayloadParser.build_request_from_manifest_index(driver_manifest, index)
                         if stop_order <= driver_state[PayloadParser.DRIVER_STATE_LOC_SERV]:
+                            # request is picked up as the vehicleState has already picked up the location
                             boarded_requests_data[booking_id] = request
                         else:
+                            # request is assigned but not yet picked up
                             added_active_requests.append(booking_id)
                             active_requests_data[booking_id] = request
-                    else: # VehicleStop.DROPOFF
+                    else: # VehicleStop.ACT_DROPOFF
                         if stop_order <= driver_state[PayloadParser.DRIVER_STATE_LOC_SERV] and booking_id in boarded_requests_data:
+                            # vehicle has already been dropped off and it has previously been boarded
                             del boarded_requests_data[booking_id]
         
-        # get requests from data and add active and boarded requests from manifests (see above)
+        # combine requests from new payload and add active and boarded requests from manifests (see preparation above)
         raw_requests = payload.get(PayloadParser.REQUESTS, [])
         requests = [PayloadParser.build_request(request) for request in raw_requests]
-        for req_id in active_requests_data:
+        for req_id in active_requests_data: # request must be handled as they were already accepted
             requests.append(active_requests_data[req_id])
-        active_requests = list(active_requests_data.keys())
-        for req_id in boarded_requests_data:
+        active_requests_keys = list(active_requests_data.keys())
+        for req_id in boarded_requests_data: # request must be handled as they are already on board
             requests.append(boarded_requests_data[req_id])
-        boarded_requests = list(boarded_requests_data.keys())
+        boarded_requests_keys = list(boarded_requests_data.keys())
 
         # get depot location
         depot_data = payload[PayloadParser.DEPOT]
         depot_location = depot_data.get("loc") or depot_data.get("pt") # depends on payload input
         node_id = NetworkHandler.get_next_node_id(depot_location["lat"], depot_location["lon"])
-        depot = NetworkHandler.manifest_location(depot_location, node_id)
+        depot = NetworkHandler.get_node_from_manifest_location(depot_location, node_id)
 
-        return Payload(travel_time_matrix, current_time, requests, boarded_requests, active_requests, driver_runs, depot)
+        return Payload(travel_time_matrix, current_time, requests, boarded_requests_keys, active_requests_keys, driver_runs, depot)
 
     @staticmethod
     def get_requests_time_interval(payload) -> tuple[int, int]:
@@ -200,7 +206,8 @@ class PayloadParser:
     @staticmethod
     def normalize_to_canonical(data: dict) -> dict:
         """
-        Converts the newer JSON structure from 'chattanooga' into the canonical structure expected by the system. For structural differences, see 'Documentation.md'.
+        Converts the newer JSON structure from 'chattanooga' into the expected structure. 
+        For structural differences, see 'Documentation.md'.
         """
         if PayloadParser.is_canonical_structure(data):
             return data  # Nothing to do
@@ -229,11 +236,9 @@ class PayloadParser:
                     "lon": depot_loc["lon"],
                 }
             }
-
             new_driver_runs.append({
                 PayloadParser.DRIVER_STATE: state,
-                PayloadParser.DRIVER_MANIFEST: []
-            })
+                PayloadParser.DRIVER_MANIFEST: []})
 
         normalized[PayloadParser.DRIVERS] = new_driver_runs
 
