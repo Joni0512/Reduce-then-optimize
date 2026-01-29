@@ -6,10 +6,19 @@ import time
 from rtv_solver import OnlineRTVSolver, OfflineRTVSolver
 from rtv_solver.handlers.payload_parser import PayloadParser
 
-DEBUG_MODE = False # reduces number of vehicles and requests for easier debugging
-ONLINE_MODE = False # runs all requests in one go without rolling horizon batching
-# TODO current code only works with wilson-format due to the keys that are being used in the dictionaries to handle data
-# TODO add logging again
+DEBUG_MODE = True # reduces number of vehicles and requests for easier debugging
+ONLINE_MODE = True # runs all requests in one go without rolling horizon batching
+
+def setup_logging():
+    logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(config.output_dir + 'main.log'),
+        logging.StreamHandler()]
+        ) 
+    logging.getLogger("requests").setLevel(logging.WARNING)
+
 if __name__ == "__main__":
     """Main script to run RTV solver in online or offline mode based on input data and configuration parameters with easy options for debugging and testing."""
     # TODO move config management to YAML config or Hydra
@@ -24,15 +33,15 @@ if __name__ == "__main__":
     parser.add_argument('--ilp_timeout', type=int,          default=120, help='ILP solver timeout in seconds')
     parser.add_argument('--ilp_penalty', type=int,          default=1000000, help='Penalty for not serving a trip')
     # experiment parameters
-    parser.add_argument('--max_cardinality', type=int,      default=2, help='Maximum trips to be shared when creating trips') # alt: total trips in same vehicle
+    parser.add_argument('--max_cardinality', type=int,      default=3, help='Maximum trips to be shared when creating trips') # alt: total trips in same vehicle
     parser.add_argument('--largest_tsp', type=int,          default=8, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
     parser.add_argument('--share_cost_factor', type=int,    default=10, help='Shareable cost factor in [???]')
     parser.add_argument('--rebalancing', type=bool,         default=False, help='Whether to enable rebalancing of vehicles')
     parser.add_argument('--dwell_pickup', type=int,         default=180, help='Dwell time at pickup in seconds')
     parser.add_argument('--dwell_alight', type=int,         default=60, help='Dwell time at alight (dropoff) in seconds')
     parser.add_argument('--rh_factor', type=int,            default=0, help='Rolling horizon factor') # NOTE alternative to step_size, TODO translates to step_size and is more important?
-    parser.add_argument('--step_size', type=int,            default=1800, help='Step size in seconds for rolling horizon')
-    parser.add_argument('--batch_interval', type=int,       default=1800, help='Batch interval in seconds')
+    parser.add_argument('--step_size', type=int,            default=600, help='Step size in seconds for rolling horizon')
+    parser.add_argument('--batch_interval', type=int,       default=600, help='Batch interval in seconds')
     # TODO COAML parameters 
     config = parser.parse_args()
 
@@ -41,15 +50,10 @@ if __name__ == "__main__":
     data = pickle.load(file)
     file.close()
     data = PayloadParser.normalize_to_canonical(data)
-
-    logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler(config.output_dir + 'main.log'),
-        logging.StreamHandler()]
-        )   
-    logging.info(f' --- Start: RTV simulation with step size // batch interval: {config.step_size} // {config.batch_interval}')
+    
+    setup_logging()
+    logging.info(f' --- Start: RTV simulation online {ONLINE_MODE}')
+    logging.info(f'Arguments: {config}')
 
     if DEBUG_MODE: # check if the basic functionality of the online RTV solver works (foundation for offline RTV solver)
         logging.getLogger().setLevel(logging.DEBUG)
@@ -57,7 +61,7 @@ if __name__ == "__main__":
         
         # reduce the complexity by only considering a single vehicle
         driver_runs_total = data[PayloadParser.DRIVERS]
-        driver_runs_reduced = driver_runs_total[:1]
+        driver_runs_reduced = driver_runs_total[:3]
         # create a simplified set of requests, consider all requests that start before end_requests
         current_time = 5*3600 + 30*60
         step = 20*60
