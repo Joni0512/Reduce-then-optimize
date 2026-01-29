@@ -1,49 +1,11 @@
 # Documentation
 
-## Performance of Online_RTV_solver
-Deprecated as we are still using the mp.pool from the original code base.
-
-Option a) ThreadPoolExecutor 
-1. solve_pdptw_heuristic: 10m 33.6s
-2. solve_pdptw_rtv: 89m 27.3s
-3. check_feasibility: 75m 49.8s
-4. (reduced) solve_pdptw_rtv: 38m 16.3s
-
-Option b) ProcessPoolExecutor
-1. solve_pdptw_heuristic: 
-2. solve_pdptw_rtv: 
-3. check_feasibility: 
-4. (reduced) solve_pdptw_rtv: 
-
-## Runtime - JSON object structure
-
-VehicleStop
-``` js
-    {
-        'run_id': 0, 
-        'booking_id': '1.0', 
-        'order': 1, 
-        'action': 'pickup', 
-        'loc': {
-            'lat': 35.707904816, 
-            'lon': -77.90247345, 
-            'node_id': 1
-        },
-        'scheduled_time': 19822, 
-        'am': 1, 
-        'wc': 0, 
-        'time_window_start': 19822, 
-        'time_window_end': 21622
-    }
-```
-
 ## Import - JSON object structure
 
-File: `inputs/wilson/random_weekeday_2.pkl`
-Structure used in code on branch `wilson` and `rh-ml`
+### File: `inputs/wilson/random_weekeday_2.pkl`
+Structure used as the basis of the code on branch `wilson` and `rh-ml`
 
-Manifest is used for all trips that have actually been carried out (probably in order to analyse the routes taken aftwards)
-TODO turn requests-booking into int
+Manifest is used for all trips that have actually been carried out
 
 Below is for documentation purposes and not for the structure directly.
 ``` js 
@@ -96,7 +58,8 @@ Below is for documentation purposes and not for the structure directly.
             "booking_id": 1 (corresponding requestID),
             "loc": {
                 "lat":35.723017652422435,
-                "lon":-77.90871990823223
+                "lon":-77.90871990823223,
+                'node_id': 1
             }
             "am":1,
             "wc":0,
@@ -109,8 +72,7 @@ Below is for documentation purposes and not for the structure directly.
 }
 ```
 
-
-File `inputs/localDB_payload_oct.pkl`
+### Alternative: `inputs/localDB_payload_oct.pkl`
 
 The structure used in Chattanooga is different to the one used in `wilson`'.
 - Smaller set of `driver_runs` key-value pairs, no separation of `state` and `manifest`
