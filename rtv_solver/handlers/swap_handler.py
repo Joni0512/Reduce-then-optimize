@@ -170,7 +170,7 @@ class SwapHandler:
             m.optimize()
 
             if m.Status == GRB.OPTIMAL or m.Status == GRB.SUBOPTIMAL:
-                logging.info("Total time spent on optimization: {0}".format(m.Runtime))
+                logging.info("Time spent on optimization: {0}".format(m.Runtime))
 
                 for i in range(no_options):
                     if x_t[i].X == 1:

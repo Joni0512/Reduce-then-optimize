@@ -42,12 +42,12 @@ class TripHandler:
         self.request_assignment = {}
         self.config = config
         self.starting_time = time.time()
-
         self.RTV_TIMEOUT = config.rtv_timeout
 
         self.generate_ondemand_only_trips(requests, iteration)
         self.generate_trip_costs(vehicles, config.max_thread_cnt, 0)
         self.generate_shared_trips(vehicles, config.max_cardinality, config.max_thread_cnt, config.shareable_cost_factor)
+        logging.info(f"Time spent on RTV generation: {time.time() - self.starting_time}")
         self.assign_trips_gurobi(requests, active_requests, config.penalty)
         if config.rebalancing:
             self.get_rebalancing_trips(vehicles,requests)
@@ -174,6 +174,7 @@ class TripHandler:
     def on_error(e):
         print("Worker crashed:", repr(e))
         traceback.print_exc()
+        raise e
 
     def generate_trip_costs(self,vehicles,max_num_thread,trip_start):
         if trip_start == 0:
@@ -481,7 +482,7 @@ class TripHandler:
                 self.unassigned_trip_count = request_count
                 raise Exception(f"Gurobi solver ended with code: {m.Status} - {GRB.Status[m.Status]}")
             
-            logging.info(f'Assignment: requests / unassigned / assigned: {request_count} / {self.unassigned_trip_count} / {self.taxi_only_trip_count}')
+            logging.info(f'Assignment: new requests / unassigned / assigned: {request_count} / {self.unassigned_trip_count} / {self.taxi_only_trip_count}')
 
     def get_rebalancing_trips(self,vehicles,requests):
         empty_vehicles = []

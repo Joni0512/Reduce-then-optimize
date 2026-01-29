@@ -1,11 +1,12 @@
 import pickle
 import argparse
 import logging
+import time
 
 from rtv_solver import OnlineRTVSolver, OfflineRTVSolver
 from rtv_solver.handlers.payload_parser import PayloadParser
 
-DEBUG_MODE = True # reduces number of vehicles and requests for easier debugging
+DEBUG_MODE = False # reduces number of vehicles and requests for easier debugging
 ONLINE_MODE = False # runs all requests in one go without rolling horizon batching
 # TODO current code only works with wilson-format due to the keys that are being used in the dictionaries to handle data
 # TODO add logging again
@@ -29,9 +30,9 @@ if __name__ == "__main__":
     parser.add_argument('--rebalancing', type=bool,         default=False, help='Whether to enable rebalancing of vehicles')
     parser.add_argument('--dwell_pickup', type=int,         default=180, help='Dwell time at pickup in seconds')
     parser.add_argument('--dwell_alight', type=int,         default=60, help='Dwell time at alight (dropoff) in seconds')
-    parser.add_argument('--rh_factor', type=int,            default=0, help='Rolling horizon factor') # NOTE alternative to step_size, still used?
-    parser.add_argument('--step_size', type=int,            default=300, help='Step size in seconds for rolling horizon')
-    parser.add_argument('--batch_interval', type=int,       default=3600, help='Batch interval in seconds')
+    parser.add_argument('--rh_factor', type=int,            default=0, help='Rolling horizon factor') # NOTE alternative to step_size, TODO translates to step_size and is more important?
+    parser.add_argument('--step_size', type=int,            default=1800, help='Step size in seconds for rolling horizon')
+    parser.add_argument('--batch_interval', type=int,       default=1800, help='Batch interval in seconds')
     # TODO COAML parameters 
     config = parser.parse_args()
 
@@ -73,6 +74,7 @@ if __name__ == "__main__":
         payload = data
 
     # Initialize RTV solver
+    start_time = time.time()
     if ONLINE_MODE:
         on_solver = OnlineRTVSolver(config)
         updated_driver_runs, unserved_requests = on_solver.solve_pdptw_rtv(payload)
@@ -80,4 +82,6 @@ if __name__ == "__main__":
         off_solver = OfflineRTVSolver(config)
         updated_driver_runs, unserved_requests = off_solver.solve_rtv(payload, config.batch_interval, config.step_size)
 
-    logging.info(f"\033[1m {len(unserved_requests)}\033[0m unserved requests with IDs:\n{unserved_requests}")
+    # TODO calculate total costs and service rate (this should already have been solved at some point for past runs)
+    logging.info(f"{len(unserved_requests)} unserved requests")
+    logging.info(f"Total time: {time.time() - start_time}")

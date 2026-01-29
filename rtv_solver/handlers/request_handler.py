@@ -18,7 +18,7 @@ class RequestHandler:
         self.next_index = 0
 
         assert len_requests_initial == self.count, f"{len_requests_initial - self.count} requests were dropped as duplicates. Where did they come from?"      
-        logging.info(f'\033[1m{self.count}\033[0m request(s) in payload')
+        logging.info(f'{self.count} new and alreay assigned request(s) in payload')
 
     @staticmethod
     def build_request_dict(req, dwell_pickup, dwell_alight):

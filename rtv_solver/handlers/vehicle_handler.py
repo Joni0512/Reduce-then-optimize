@@ -35,7 +35,7 @@ class VehicleHandler:
         self.load_vehicles(depot, driver_runs)
         self.output_directory = config.output_directory
         VehicleHandler.LARGEST_TSP = config.largest_tsp
-        logging.info(f'\033[1m{self.count}\033[0m vehicle(s) in operations')
+        logging.info(f'{self.count} vehicle(s) in operations')
 
     def save_snapshot(self):
         with open(self.output_directory+"vehicle_snapshot.p", 'wb') as snapshot_file:
@@ -400,10 +400,11 @@ class VehicleHandler:
             vehicle.time_at_next = time_at_destination
 
     def can_return_to_depot(vehicle, last_node, time_at_last_node):
-        if time_at_last_node+NetworkHandler.travel_time(last_node,vehicle.depot) < vehicle.end_time:
+        if time_at_last_node+NetworkHandler.travel_time(last_node, vehicle.depot) < vehicle.end_time:
             return True
         return False
     
+    @staticmethod
     def add_new_trips(vehicle: Vehicle, new_trips, prev_sequence = None, add: bool =False) -> TripInsertionPlan:
         """
         DEPRECATED but backward-compatible (split into VehicleHandler.plan_trip_insertion and Vehicle.apply)
@@ -413,6 +414,7 @@ class VehicleHandler:
             vehicle.apply_trip_insertion(plan)
         return plan
 
+    @staticmethod
     def plan_trip_insertions(vehicle, new_trips, prev_sequence = None) -> TripInsertionPlan:
         """
         checks feasibilty of RTV combinations (vehicle <> trips)
@@ -448,26 +450,25 @@ class VehicleHandler:
             # calculate feasibility of trip sequence and depot return for that vehicle
             sequence, cost, sequence_feasible, last_node, time_at_last_node = VehicleHandler.get_optimal_stop_sequence(
                 next_immediate_node, time_at_next_immediate_node, vehicle.am_capacity, vehicle.wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, existing_sequence, tt_matrix, node_indices)
-            depot_feasible = VehicleHandler.can_return_to_depot(vehicle, last_node, time_at_last_node)
-            
-            # calculate cost + travel time for later plan application
-            added_cost = cost - VehicleHandler.cost_of_serving_sequence(next_immediate_node, vehicle, tt_matrix, node_indices)
-            next_stop = sequence[0]
-            travel_time = NetworkHandler.travel_time_from_matrix(next_immediate_node, next_stop.node, tt_matrix, node_indices)
  
-            if sequence_feasible and depot_feasible: 
+            if sequence_feasible: 
+                depot_feasible = VehicleHandler.can_return_to_depot(vehicle, last_node, time_at_last_node)
+                # calculate cost + travel time for later plan application
+                added_cost = cost - VehicleHandler.cost_of_serving_sequence(next_immediate_node, vehicle, tt_matrix, node_indices)
+                next_stop = sequence[0]
+                travel_time = NetworkHandler.travel_time_from_matrix(next_immediate_node, next_stop.node, tt_matrix, node_indices)
                 logging.debug(f"Plan - cost: {added_cost}, final arrival: {time_at_last_node}")
                 logging.debug("Sequence: %s", StopSequence.sequence_to_string(sequence))     
                 return TripInsertionPlan(
-                    feasible = True, 
+                    feasible = depot_feasible and sequence_feasible, 
                     added_cost = added_cost,
                     sequence = sequence,
                     trips = new_trips,
                     next_immediate_node=next_immediate_node,
                     time_at_next_immediate_node=time_at_next_immediate_node,
                     veh_travel_time=travel_time)
-            else:
-                return TripInsertionPlan(
+            
+            return TripInsertionPlan(
                     feasible=False, 
                     added_cost=-1,
                     sequence=None)

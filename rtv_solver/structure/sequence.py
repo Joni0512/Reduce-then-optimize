@@ -13,26 +13,42 @@ class StopSequence(list):
         self._validate()
 
     def _validate(self):
-        """checks whether the sequence is valid (each pickup is also dropped off in a feasible order)"""
-        # TODO currently wrong - DROPOFFs without PICKUPs are possible if we have not yet arrived
+        """
+        Validate stop sequence.
+        Allowed cases per trip_id:
+        - [PICKUP, DROPOFF]  -> normal
+        - [DROPOFF]          -> allowed (pickup happened in previous sequence earlier > vehicle already carrying)
+        Disallowed:
+        - more than 2 stops for same trip_id
+        - two pickups or two dropoffs
+        - dropoff before pickup when both exist
+        """
         trips = {}
 
-        for index, stop in enumerate(self):
+        for idx, stop in enumerate(self):
             trip_id = stop.trip_id
             stop_type = stop.type
-
             if trip_id not in trips:
                 trips[trip_id] = []
-
-            trips[trip_id].append((stop_type, index))
+            trips[trip_id].append((stop_type, idx))
 
         for trip_id, entries in trips.items():
-            if len(entries) != 2:
-                raise ValueError(f"Trip {trip_id} must have exactly 2 stops, got {len(entries)}")
+            if len(entries) > 2:
+                raise ValueError(f"Trip {trip_id} must not appear more than twice, got {len(entries)}")
+            if len(entries) == 1:
+                stop_type, _ = entries[0]
+                if stop_type == VehicleStop.ACT_PICKUP:
+                    raise ValueError(f"Trip {trip_id} cannot appear as PICKUP-only in the sequence")
+                if stop_type != VehicleStop.ACT_DROPOFF:
+                    raise ValueError(f"Trip {trip_id} has invalid stop type {stop_type}") # if it occurs, we should check for now
+                continue
+            
             (type_1, idx_1), (type_2, idx_2) = entries
             if type_1 == type_2:
                 raise ValueError(f"Trip {trip_id} must have one pickup and one dropoff, got {type_1} twice")
-            if (type_1 == VehicleStop.ACT_PICKUP and idx_1 > idx_2) or (type_2 == VehicleStop.ACT_PICKUP and idx_2 > idx_1):
+            pickup_idx = idx_1 if type_1 == VehicleStop.ACT_PICKUP else idx_2
+            dropoff_idx = idx_1 if type_1 == VehicleStop.ACT_DROPOFF else idx_2
+            if pickup_idx > dropoff_idx:
                 raise ValueError(f"Trip {trip_id} pickup must occur before dropoff")
 
     @staticmethod

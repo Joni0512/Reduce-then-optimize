@@ -180,7 +180,6 @@ class OnlineRTVSolver:
                     picked_requests.add(stop_id)
                 else:
                     dropped_requests.add(stop_id)
-        logging.info(f"Served requests: {set(picked_requests)}")
         # remove all requests that are picked up/dropped off
         for driver_run in new_driver_runs:
             for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
@@ -196,8 +195,8 @@ class OnlineRTVSolver:
             dropped_requests.remove(req_id)
 
         if len(picked_requests) > 0 or len(dropped_requests) > 0:
+            # TODO: fails with wilson_data, cardinality = 3, thread_cnt = 16, batch_interval = 1800, step_size = 1800 (should be reproducible with this)
             print("Missing requests:", picked_requests, dropped_requests)
-            # TODO currently fail because the two picked-up requests are not earmarked for a dropoff stop
             raise Exception("Error: Some requests could not be removed.")
         return True
 
