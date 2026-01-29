@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional, Tuple
 
 from rtv_solver.handlers.payload_parser import PayloadParser
@@ -52,6 +52,9 @@ class Stats:
         if self.serviced > 0:
             self.average_wait_time = sum(self.wait_time) / self.serviced
             self.average_detour = sum(self.detour) / self.serviced
+
+    def to_dict(self):
+        return asdict(self)
 
 class StatsParser:
     """
