@@ -86,6 +86,15 @@ if __name__ == "__main__":
         off_solver = OfflineRTVSolver(config)
         updated_driver_runs, unserved_requests = off_solver.solve_rtv(payload, config.batch_interval, config.step_size)
 
+        # calculate statistics of each iteration; for now only the first vehicle
+        stats_payload = {PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
+                         PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
+                         PayloadParser.DRIVERS: updated_driver_runs}
+        stats_evaluator = StatsParser()
+        feasible, stats, violations = stats_evaluator.evaluate(stats_payload, unserved_requests)
+        logging.info(f"Stats: {stats}")
+        logging.info(f'Violations: {violations}')
+
     # TODO calculate total costs and service rate (this should already have been solved at some point for past runs)
     logging.info(f"{len(unserved_requests)} unserved requests")
     logging.info(f"Total time: {time.time() - start_time}")

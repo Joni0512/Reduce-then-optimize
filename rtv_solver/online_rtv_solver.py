@@ -22,7 +22,6 @@ class OnlineRTVSolver:
         self.SERVER_URL = self.config.server_url
         self.MAX_CARDINALITY = self.config.max_cardinality
         self.MAX_THREAD_CNT = self.config.max_thread_cnt
-        self.RH_FACTOR = self.config.rh_factor
         self.DWELL_PICKUP = self.config.dwell_pickup
         self.DWELL_ALIGHT = self.config.dwell_alight
 
@@ -43,8 +42,11 @@ class OnlineRTVSolver:
                 largest_tsp = self.config.largest_tsp
         )
 
-        if sys.platform == "darwin":
-            multiprocessing.set_start_method("fork")
+        if sys.platform == "darwin": # required to run online_solver correctly on MacOS
+            try:
+                multiprocessing.set_start_method("fork")
+            except RuntimeError: # start method was already set somewhere else -> don't crash
+                pass
 
     def check_feasibility(self, payload):
         # NOTE for what do we need this method?
@@ -511,23 +513,28 @@ class OnlineRTVSolver:
                 updated_driver_runs[earliest_vehicle_index] = earliest_vehicle
         return updated_driver_runs, unserved_requests
 
-    def get_stats(self, depot, manifest, travel_time_error_margin=5):
+    def get_stats(self, depot, driver_runs, travel_time_error_margin=5):
+        """
+        deprecated with new StatsParser class
+        """
         feasible = True
-        stats = {}
-        stats["vmt"] = 0
-        stats["pmt"] = 0
-        stats["vmt/pmt"] = 0
-        stats["serviced"] = 0
-        stats["average_wait_time"] = 0
-        stats["average_detour"] = 0
-        stats["wait_time"] = []
-        stats["detour"] = []
+        stats = {
+            "vmt": 0,
+            "pmt": 0,
+            "vmt/pmt": 0,
+            "serviced": 0,
+            "average_wait_time": 0,
+            "average_detour": 0,
+            "wait_time": [],
+            "detour": [],
+        }
 
         NetworkHandler.init(True, self.SERVER_URL)
         request_stops = {}
-        for driver_run in manifest:
+        for driver_run in driver_runs:
             load = 0
-            current_node = Node(depot["pt"]["lat"], depot["pt"]["lon"])
+            current_node = Node(depot[PayloadParser.DEPOT_PT]["lat"], 
+                                depot[PayloadParser.DEPOT_PT]["lon"])
             current_time = driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_START_TIME]
             for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
                 booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
@@ -564,7 +571,7 @@ class OnlineRTVSolver:
                     request_stops[booking_id]["pick_up"] = stop
                 else:
                     current_time += 60
-                    load -= stop["am"]
+                    load -= stop[PayloadParser.MANIFEST_AMBULATORY]
                     if "drop_off" in request_stops[booking_id]:
                         feasible = False
                         print("Error: Drop off already exists")
@@ -586,8 +593,12 @@ class OnlineRTVSolver:
             destination = Node(request_stops[served]["drop_off"]["loc"]["lat"],request_stops[served]["drop_off"]["loc"]["lon"])
             travel_time = NetworkHandler.travel_time(origin,destination)
             stats["pmt"] += travel_time
-            stats["wait_time"].append(request_stops[served]["pick_up"]["scheduled_time"]-request_stops[served]["pick_up"]["time_window_start"])
-            stats["detour"].append(request_stops[served]["drop_off"]["scheduled_time"]-request_stops[served]["pick_up"]["scheduled_time"]-travel_time)
+            stats["wait_time"].append(
+                request_stops[served]["pick_up"]["scheduled_time"]-
+                request_stops[served]["pick_up"]["time_window_start"])
+            stats["detour"].append(request_stops[served]["drop_off"]["scheduled_time"]-
+                                   request_stops[served]["pick_up"]["scheduled_time"]-
+                                   travel_time)
         if stats["pmt"] > 0:
             stats["vmt/pmt"] = stats["vmt"] / stats["pmt"]
         if stats["serviced"] > 0:

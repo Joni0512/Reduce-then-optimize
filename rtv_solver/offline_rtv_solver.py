@@ -62,4 +62,7 @@ class OfflineRTVSolver:
             simulated_driver_runs = online_rtv_solver.simulate_manifest(current_time, new_driver_runs, intermediate_location=False)
             driver_runs = simulated_driver_runs
 
+            feasible, stats = online_rtv_solver.get_stats(depot=payload[PayloadParser.DEPOT], driver_runs=driver_runs)
+            logging.info(f"Original stats: {stats}")
+
         return driver_runs, unserved_requests

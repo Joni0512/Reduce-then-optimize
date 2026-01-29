@@ -170,7 +170,7 @@ class VehicleHandler:
                     'lat': node.lat, 
                     'lon': node.lon, 
                     'node_id': node.id}, 
-                PayloadParser.MANIFEST_SCHED_TIME: stop_time, 
+                PayloadParser.MANIFEST_SCHED_TIME: stop_time, # arrival time at stop
                 PayloadParser.MANIFEST_AMBULATORY: trip.am_capacity, 
                 PayloadParser.MANIFEST_WHEELCHAIR: trip.wc_capacity, 
                 PayloadParser.MANIFEST_TIME_WINDOW_START: time_window_start, 
