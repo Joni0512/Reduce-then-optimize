@@ -132,13 +132,14 @@ class VehicleHandler:
         new_state[PayloadParser.DRIVER_STATE_LOC] = {"lat": next_immediate_node.lat,
                                                      "lon": next_immediate_node.lon}
         new_state[PayloadParser.DRIVER_STATE_DT_SEC] = time_at_next_immediate_node
-        manifest.extend(VehicleHandler.get_manifest(vehicle,current_order))
+        manifest.extend(VehicleHandler.get_manifest(vehicle, current_order))
         new_driver_run = {PayloadParser.DRIVER_STATE:new_state,PayloadParser.DRIVER_MANIFEST:manifest}
         return new_driver_run
-    
+
+    @staticmethod 
     def get_manifest(vehicle: Vehicle, current_order: int):
         """
-        from the current order, create the new manifest
+        from current_order, build new manifest
         """
         manifest = []
         last_node, time_at_last_node = VehicleHandler.get_current_location_time(vehicle)
@@ -174,8 +175,9 @@ class VehicleHandler:
                 PayloadParser.MANIFEST_WHEELCHAIR: trip.wc_capacity, 
                 PayloadParser.MANIFEST_TIME_WINDOW_START: time_window_start, 
                 PayloadParser.MANIFEST_TIME_WINDOW_END: time_window_end}
-            last_node, time_at_last_node = node, stop_time + dwell
             manifest.append(stop)
+            # local update for vehicle state to create complete manifest over next iteration
+            last_node, time_at_last_node = node, stop_time + dwell 
         return manifest
 
     def add_manifest_to_vehicle(self, vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup):

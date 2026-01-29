@@ -50,12 +50,14 @@ class OnlineRTVSolver:
         # NOTE for what do we need this method?
         NetworkHandler.init(True, self.SERVER_URL)
         feasible_time_slots = []
+
         request = payload[PayloadParser.REQUESTS][0]
         pickup_pt, dropoff_pt = request[PayloadParser.REQ_PICKUP_PT], request[PayloadParser.REQ_DROPOFF_PT]
         origin = Node(pickup_pt["lat"], pickup_pt["lon"])
         destination = Node(dropoff_pt["lat"], dropoff_pt["lon"])
         request_travel_time = NetworkHandler.travel_time(origin, destination)
-        for time_window in request["time_windows"]: # NOTE where does the 'time_windows' come from?
+
+        for time_window in request["time_windows"]: # NOTE where does the 'time_windows' come from? and the strings below are thus not changed as we do not know its origin
             request_copy = copy.deepcopy(request)
             request_copy[PayloadParser.REQ_PICKUP_WINDOW_START] = time_window["pickup_time_window_start"]
             request_copy[PayloadParser.REQ_PICKUP_WINDOW_END] = time_window["pickup_time_window_end"]
@@ -68,7 +70,7 @@ class OnlineRTVSolver:
                 if cost >= 0 and cost < best_cost:
                     best_cost = cost
             if best_cost < float("inf"):
-                feasible_time_slots.append((time_window,best_cost/request_travel_time))
+                feasible_time_slots.append((time_window,best_cost / request_travel_time))
 
         return feasible_time_slots
 
@@ -142,17 +144,7 @@ class OnlineRTVSolver:
         # update driver runs
         updated_driver_runs = []
         for driver_run in payload_object.driver_runs:
-            # get old state, manifest and corresponding vehicle object
-            state = driver_run[PayloadParser.DRIVER_STATE]
-            manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
-            current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
-            vehicle = vehicle_handler.vehicles[state[PayloadParser.DRIVER_STATE_RUN_ID]]
-            # update manifest
-            new_manifest = manifest[:current_order]
-            new_manifest.extend(VehicleHandler.get_manifest(vehicle, current_order))
-            state[PayloadParser.DRIVER_STATE_T_LOCS] = len(new_manifest)
-            new_driver_run = {PayloadParser.DRIVER_STATE: state, 
-                              PayloadParser.DRIVER_MANIFEST: new_manifest}
+            new_driver_run = self.update_run(vehicle_handler, driver_run)
             updated_driver_runs.append(new_driver_run)
             
         # check invariants whether manifest is still correct
@@ -162,7 +154,8 @@ class OnlineRTVSolver:
                                             payload[PayloadParser.REQUESTS])
         return updated_driver_runs, list(unserved_requests) # ,trip_handler, vehicle_handler, request_handler, payload_object
 
-    def check_consistency_of_manifests(self, prev_driver_runs: list[dict], new_driver_runs: list[dict], unserved_requests: set[int], new_requests: list[dict]):
+    @staticmethod
+    def check_consistency_of_manifests(prev_driver_runs: list[dict], new_driver_runs: list[dict], unserved_requests: set[int], new_requests: list[dict]):
         """ 
         check if each requests are picked up AND dropped off exactly once,
         unserved requests should not appear in the manifests
@@ -200,7 +193,35 @@ class OnlineRTVSolver:
             raise Exception("Error: Some requests could not be removed.")
         return True
 
+    @staticmethod
+    def update_run(vehicle_handler: VehicleHandler, driver_run: dict) -> dict:
+        """
+        Update manifest of a driver_run by keeping all already-served stops and regenerating the remaining stops from the vehicle's stop_sequence.
+        Returns a new driver_run dict (state + manifest).
+        """
+        # retrieve old information
+        state = driver_run[PayloadParser.DRIVER_STATE]
+        old_manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
+        current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
+        
+        vehicle_id = state[PayloadParser.DRIVER_STATE_RUN_ID]
+        vehicle = vehicle_handler.vehicles[vehicle_id]
+
+        # Keep already served part, rebuild future part
+        new_manifest = old_manifest[:current_order]
+        added_manifest = vehicle_handler.get_manifest(vehicle, current_order)
+        new_manifest.extend(added_manifest)
+        # Update state meta info
+        new_state = state.copy()
+        new_state[PayloadParser.DRIVER_STATE_T_LOCS] = len(new_manifest)
+        # Build new driver run from both parts
+        new_driver_run = {PayloadParser.DRIVER_STATE: new_state, 
+                              PayloadParser.DRIVER_MANIFEST: new_manifest}
+        return new_driver_run
+
+    
     def simulate_manifest(self, current_time, driver_runs, intermediate_location=True):
+        """deprecated - used in main.py (disfunctional)"""
         NetworkHandler.init(True, self.SERVER_URL)
         new_driver_runs = []
         # TODO longterm: turn driver_run into an object that handles all the conditions and changes based on validated calls
