@@ -43,12 +43,14 @@ File: `inputs/wilson/random_weekeday_2.pkl`
 Structure used in code on branch `wilson` and `rh-ml`
 
 Manifest is used for all trips that have actually been carried out (probably in order to analyse the routes taken aftwards)
+TODO turn requests-booking into int
 
-``` js
+Below is for documentation purposes and not for the structure directly.
+``` js 
 {
-   "requests":[
+   "requests": [ list of requests
         {
-            "booking_id":"1",
+            "booking_id": "1", 
             "pickup_pt":{
                 "lon":-77.930793762,
                 "lat":35.780387878
@@ -65,16 +67,16 @@ Manifest is used for all trips that have actually been carried out (probably in 
             "wc":0
         }
    ],
-   "depot":{
+   "depot": {
         "pt":{
             "lat":35.723017652422435,
             "lon":-77.90871990823223
         },
         "node_id":0
     },
-    "driver_runs":[
+    "driver_runs": [ list of vehicles
         {
-        "state":{
+        "state": { initial state
             "run_id":0,
             "start_time":18000,
             "end_time":72000,
@@ -87,7 +89,21 @@ Manifest is used for all trips that have actually been carried out (probably in 
                 "lon":-77.90871990823223
             }
         },
-        "manifest":[]
+        "manifest":[ list of all stops of that vehicle
+            "run_id": 0 (corresponding vehicleID),
+            "order": 5,
+            "action": ["pickup", "dropoff"] (options),
+            "booking_id": 1 (corresponding requestID),
+            "loc": {
+                "lat":35.723017652422435,
+                "lon":-77.90871990823223
+            }
+            "am":1,
+            "wc":0,
+            "scheduled_time": 20043 (actual arrival time at the stop)
+            "time_window_start": 20043 (range of arrival_time),
+            "time_window_end": 20043 (range of arrival_time)
+        ]
         }
     ]
 }

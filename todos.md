@@ -11,9 +11,12 @@ Context: Different requests seem to be picked up under the same arguments
 ## Dropoff window in `wilson / rh-ml` fixed in payload
 Context: Dropoff window is defined in the payload, this should be overwritten in the code based on our own definition of waiting times that we want to consider. -> do a single run over all the requests to fix this problem once?
 
-## Reproduction: Sometimes requests are lost
+## Error: Sometimes requests are lost
 Following settings lead to a breaking run in check_consistency_of_manifests
-Settings: with wilson_data, cardinality = 3, thread_cnt = 16, batch_interval = 1800, step_size = 1800 (should be reproducible with this)
+Reproducible settings: with wilson_data, cardinality = 3, thread_cnt = 16, batch_interval = 1800, step_size = 1800 (should be reproducible with this)
+
+## Re-optimize if one vehicle has dropped off their steps (major effort)
+Currently, the optimization is built in order to create all RTV combinations (up to max_cardinality) defined at the beginning and run optimize this once. This leads to the weird behavior that a longer batch_size with more requests maxes out the capacity of the vehicle up to max_cardinality but smaller increments of batch_size are able to serve more requests as they run the same optimization twice during that time.
 
 # Improvements
 - check TODO, FIXME, NOTE in the code
@@ -21,3 +24,4 @@ Settings: with wilson_data, cardinality = 3, thread_cnt = 16, batch_interval = 1
 - time which effects cardinality and threads have on the performance of the code (should lead to a note which process we really need to improve with and do we rather want short batch_intervals or just short steps)
 - add statistics and service rate, so we can compare the outcome of different runs
 - output logging, so we have reproducible results
+- turn requests-booking into int, so less transforming of strings
