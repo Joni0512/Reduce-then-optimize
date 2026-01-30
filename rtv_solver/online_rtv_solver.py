@@ -27,6 +27,7 @@ class OnlineRTVSolver:
 
         # NOTE this still seems like a code smell, but makes it a bit easier to read below
         # TODO self.SH_CONFIG = SwapHandlerConfig()
+        # TODO turn into one main config
         self.TH_CONFIG = TripHandlerConfig(
                 ilp_solver_timeout      = self.config.ilp_timeout,
                 penalty                 = self.config.ilp_penalty,
@@ -428,7 +429,7 @@ class OnlineRTVSolver:
         dropoff_loc["node_id"] = dropoff_node_id
 
         load = 0
-        state = driver_run_c[PayloadParser.DRIVER_STATE] # TODO JW: do we want to have a copy here? or what does the 'c' stand for?
+        state = driver_run_c[PayloadParser.DRIVER_STATE]
         pickup_stop[PayloadParser.MANIFEST_RUN_ID] = state[PayloadParser.DRIVER_STATE_RUN_ID]
         dropoff_stop[PayloadParser.MANIFEST_RUN_ID] = state[PayloadParser.DRIVER_STATE_RUN_ID]
         manifest = driver_run_c[PayloadParser.DRIVER_MANIFEST]

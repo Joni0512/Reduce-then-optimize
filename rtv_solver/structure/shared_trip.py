@@ -12,7 +12,3 @@ class SharedTrip:
 
     def __str__(self):
         return f"<SharedTrip {self.number}: cardinality: {self.cardinality}, cost: {self.cost}, trips: {self.trips}, sequence: {self.sequence}>"
-    
-    def set_number(self, number):
-        print("Setting shared trip number from {0} to {1}".format(self.number,number)) # testing purposes how often this really works, TODO remove
-        self.number = number

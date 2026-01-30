@@ -4,7 +4,7 @@ from typing import Optional
 
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.handlers.network_handler import NetworkHandler
-from rtv_solver.handlers.payload_parser import PayloadParser # TODO move the definition of the dict-keys (strings to a different place) or rather the interfaces should not be required here anymore
+from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.structure.sequence import StopSequence
 from rtv_solver.structure.trip import Trip
 from rtv_solver.structure.node import Node
@@ -21,7 +21,6 @@ class TripInsertionPlan:
     
 class Vehicle:
     """Vehicle-related information covering basic vehicle information and simulation state during runtime"""
-    # TODO differentiate initialized information and dynamic information to keep track of state
     def __init__(self, 
                  vehicle_id, 
                  start_node, 
@@ -37,7 +36,7 @@ class Vehicle:
         self.depot = depot
         self.am_capacity = am_capacity
         self.wc_capacity = wc_capacity
-        
+    
         # tracks simulation state
         self.started = False
         self.rebalancing = False
@@ -45,19 +44,12 @@ class Vehicle:
         self.time_at_last = start_time
         self.last_node = start_node
         self.time_at_next = start_time
-        # self.next_immediate_node = start_node
+        self.next_immediate_node = start_node
         self.trips: dict[int, Trip] = {}
         self.picked = []
         self.served_trips = []
         self.stop_sequence: list[VehicleStop] = [] # TODO add StopSequence wherever this list is updated or used
-        self.final_stop_time = start_time
-
-    # not yet used as it returned an error, but it was implemented incompletely (only at parts)
-    # def set_sequence(self, new_sequence: list[VehicleStop]):
-    #     """method updates the sequence if stops are added but not reset how it is currently build
-    #     NOTE rebuild in a way that gives us future control how the updates are made but still easier to debug"""
-    #     self.stop_sequence = StopSequence(new_sequence)
-    #     # TODO how code should work in order to manage the car properly, it should rather append stops and for dropoffs it should check whether it has previously been picked up  
+        self.final_stop_time = start_time 
 
     def get_current_location_time(self):
         next_immediate_node = self.last_node
@@ -68,9 +60,10 @@ class Vehicle:
         return next_immediate_node,time_at_next_immediate_node
     
     def has_completed_operations(self, current_time: int):
+        # TODO delete when not used
         """boolean for checking whether the vehicle's operational time has run out and the vehicle is empty."""
         if len(self.stop_sequence) == 0 and self.end_time <= current_time:
-            assert len(self.picked) == 0 # TODO currently code fails on this obvious condition
+            assert len(self.picked) == 0
             # problem is not located here as the self.picked needs to be offloaded somehow
             print(f"Vehicle {self.id} completed its operation and returned to depot.")
             return True

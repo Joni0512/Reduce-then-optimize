@@ -12,12 +12,6 @@ from rtv_solver.structure.sequence import StopSequence
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
 
-# TODO check in how we can remove these strings
-START_TIME = 'start_time'
-CAPACITY = 'capacity'
-START_NODE = 'node'
-ID = 'id'
-
 @dataclass(frozen=True)
 class VehicleHandlerConfig:
     output_directory: str
@@ -93,7 +87,11 @@ class VehicleHandler:
             or start_time < self.earliest_start_time):
             self.earliest_start_time = start_time
 
-    def read_vehicles(self, filename,starting_date, max_number_of_vehicles):
+    def read_vehicles(self, filename, starting_date, max_number_of_vehicles):
+        # strings only relevant for one specific function
+        START_TIME = 'start_time'
+        CAPACITY = 'capacity'
+        ID = 'id'
         dateparse = lambda x: datetime.strptime(x, '%H:%M:%S')
         data = pd.read_csv(
             filename,
@@ -532,7 +530,7 @@ class VehicleHandler:
                                                 trip.origin,
                                                 VehicleStop.ACT_PICKUP,
                                                 trip.dwell_pickup))
-                # TODO why do we not add the stop here?
+                # NOTE why do we not add the dropoff-stop here?
                 new_sequence, new_cost, new_feasible, new_last_node, new_time_at_last_node = VehicleHandler.get_exact_stop_sequence(
                     trip.origin,
                     time_at_pick_up,

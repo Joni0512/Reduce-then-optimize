@@ -4,10 +4,11 @@ from dataclasses import dataclass
 
 from rtv_solver import OfflineRTVSolver, OnlineRTVSolver
 from rtv_solver.handlers.payload_parser import PayloadParser
-from rtv_solver.handlers.stats_parser import StatsParser, StatsConfig, Stats
+from rtv_solver.handlers.stats_parser import StatsParser, StatsConfig
 
-# tests are built to run quickly and are not meant to test all possible combinations
-# TODO these tests do not check rolling horizon approaches where step_size < batch_interval
+# tests are built to run quickly and meant to test the general variants of the code base (extrapolating combinations such as different cardinality or solver approach (online, offline, rolling horizon)
+# This code is not meant for performance testing.
+
 @dataclass
 class DummyConfig:
         """DummyConfig class with default values"""
@@ -212,9 +213,3 @@ def test_integration_RHsolver_vehicle1_maxCard2_interval1200():
     assert feasible is True
     assert violations == []
     assert len(unserved_requests) == 10
-
-
-
-
-
-

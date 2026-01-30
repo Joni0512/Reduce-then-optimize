@@ -7,7 +7,6 @@ class TripCost:
         self.trip_no: int = trip_no
         self.vehicle_id: int = vehicle_id
         self.cost: int = cost
-        # TODO add a sequence object to combine interface between tripCost and vehicle
         self.sequence = StopSequence(sequence)
 
     def __str__(self):

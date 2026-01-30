@@ -9,7 +9,7 @@ from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
 
 DEBUG_MODE = True # reduces number of vehicles and requests for easier debugging
-ONLINE_MODE = True # runs all requests in one go without rolling horizon batching
+ONLINE_MODE = False # runs all requests in one go without rolling horizon batching
 
 def setup_logging():
     logging.basicConfig(
@@ -19,6 +19,7 @@ def setup_logging():
         logging.FileHandler(config.output_dir + 'main.log'),
         logging.StreamHandler()]
         ) 
+    # TODO this does not work, it still spams my debug message
     logging.getLogger("requests").setLevel(logging.WARNING)
 
 if __name__ == "__main__":
@@ -35,15 +36,15 @@ if __name__ == "__main__":
     parser.add_argument('--ilp_timeout', type=int,          default=120, help='ILP solver timeout in seconds')
     parser.add_argument('--ilp_penalty', type=int,          default=1000000, help='Penalty for not serving a trip')
     # experiment parameters
-    parser.add_argument('--max_cardinality', type=int,      default=3, help='Maximum trips to be shared when creating trips') # alt: total trips in same vehicle
+    parser.add_argument('--max_cardinality', type=int,      default=2, help='Maximum trips to be shared when creating trips') # alt: total trips in same vehicle
     parser.add_argument('--largest_tsp', type=int,          default=8, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
     parser.add_argument('--share_cost_factor', type=int,    default=10, help='Shareable cost factor in [???]')
     parser.add_argument('--rebalancing', type=bool,         default=False, help='Whether to enable rebalancing of vehicles')
     parser.add_argument('--dwell_pickup', type=int,         default=180, help='Dwell time at pickup in seconds')
     parser.add_argument('--dwell_alight', type=int,         default=60, help='Dwell time at alight (dropoff) in seconds')
-    parser.add_argument('--rh_factor', type=int,            default=0, help='Rolling horizon factor') # NOTE alternative to step_size, TODO translates to step_size and is more important?
+    # parser.add_argument('--rh_factor', type=int,            default=0, help='Rolling horizon factor')  # NOTE alternative to step_size
     parser.add_argument('--step_size', type=int,            default=600, help='Step size in seconds for rolling horizon')
-    parser.add_argument('--batch_interval', type=int,       default=600, help='Batch interval in seconds')
+    parser.add_argument('--batch_interval', type=int,       default=1200, help='Batch interval in seconds')
     # TODO COAML parameters 
     config = parser.parse_args()
 
@@ -58,7 +59,7 @@ if __name__ == "__main__":
     logging.info(f'Arguments: {config}')
 
     if DEBUG_MODE: # check if the basic functionality of the online RTV solver works (foundation for offline RTV solver)
-        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger().setLevel(logging.INFO)
         config.rtv_timeout = 600000 # if I am clicking through inputs, it never breaks due to timeout
         
         # reduce the complexity by only considering a single vehicle
@@ -97,6 +98,5 @@ if __name__ == "__main__":
     logging.info(f"Stats: {json.dumps(stats.to_dict(), indent=4)}")
     logging.info(f'Violations: {violations}')
 
-    # TODO calculate total costs and service rate (this should already have been solved at some point for past runs)
     logging.info(f"{len(unserved_requests)} unserved requests")
     logging.info(f"Total time: {time.time() - start_time}")

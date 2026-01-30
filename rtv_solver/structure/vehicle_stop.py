@@ -11,21 +11,26 @@ class VehicleStop:
     ACT_REBALANCE = 'rebalance'
     ACT_DEPOT = 'depot'
     ACT_UNKNOWN = 'unknown'
+    # TODO turn all dict comparisons into function of this class in order to handle less dictionary content
 
     def __init__(self, 
                  trip_id: str, 
                  node: Node, 
                  type: str, 
                  dwell: int):
-        self.trip_id: int = trip_id
-        self.node: Node = node
+        self.trip_id: int = trip_id # 
+        self.node: Node = node # MANIFEST_LOC
         assert type in [VehicleStop.ACT_PICKUP, VehicleStop.ACT_DROPOFF, VehicleStop.ACT_DEPOT, VehicleStop.ACT_REBALANCE]
-        self.type: str = type
-        self.dwell: int = dwell
-        # NOTE all information below should be directly inferrable from the trip?
-        self.stop_time: int = None
-        self.request_id: int = None
-        self.vehicle_id: int = None
+        self.type: str = type # MANIFEST_ACTION
+        self.dwell: int = dwell # either pickup or alight
+        self.stop_time: int = None # MANIFEST_SCHED_TIME
+        self.request_id: int = None # MANIFEST_BOOKING_ID
+        self.vehicle_id: int = None # MANIFEST_RUN_ID
+        self.order: int = None # MANIFEST_ORDER
+        self.ambulatory: int = None # MANIFEST_AMBULATORY
+        self.wheelchair: int = None # MANIFEST_WHEELCHAIR
+        self.time_window_start: int = None # MANIFEST_TIME_WINDOW_START
+        self.time_window_end: int = None # MANIFEST_TIME_WINDOW_END
 
     def set_request_id(self, rid):
         # TODO should be derived from trip directly? make use of it in the code; anything it should test

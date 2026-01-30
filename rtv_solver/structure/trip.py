@@ -3,7 +3,8 @@ from __future__ import annotations
 class Trip:
     """
     Trip-related information
-    TODO typing?, cost double? <> relation to TripCost?
+    TODO typing?, 
+    NOTE cost double? <> relation to TripCost?
     """
     def __init__(
             self, 
@@ -32,7 +33,7 @@ class Trip:
         else:
             self.id = "{0}:{1}-{2}".format(request_id, bus_combination, first_last_mile_type)
         if vehicle is not None:
-            self.vehicle = vehicle # TODO add a check if and when this is assigned?
+            self.vehicle = vehicle
         # Location information 
         self.origin = origin
         self.destination = destination

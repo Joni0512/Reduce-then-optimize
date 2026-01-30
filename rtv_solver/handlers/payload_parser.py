@@ -7,7 +7,6 @@ import copy
 class PayloadParser:
     """
     Handles the parsing of the initial payloads in both directions, importing and transforming data. 
-    TODO combine all methods to also rebuild manifest and the updates to the data storage
     """
     # keys for payload dictionary that can be used globally
     DATE = "date"
@@ -143,7 +142,6 @@ class PayloadParser:
                 end_time = request[PayloadParser.REQ_DROPOFF_WINDOW_END]
         return start_time, end_time
     
-    # TODO comment the code parts below in order to explain their purpose
     @staticmethod
     def build_request_from_manifest_index(manifest, pick_up_index):
         stop = manifest[pick_up_index]

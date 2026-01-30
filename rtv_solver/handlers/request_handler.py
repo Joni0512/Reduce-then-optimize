@@ -130,7 +130,6 @@ class RequestHandler:
         return batch
 
     def get_all_requests(self) -> list[Request]:
-        # TODO run operations with the pd.Dataframe (currently no interest in using that interface, instead we use a list of Request objects)
         batch = []
         for _, row in self.requests.iterrows():
             request = self.get_request(row)

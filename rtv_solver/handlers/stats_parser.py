@@ -36,7 +36,7 @@ class Stats:
     TODO alternative stats on RTV generation, cannot be handled by this class as this is not tracked in the dictionary at the moment
     """
     vmt: float = 0.0    # vehicle miles traveled (TODO seems like we only consider time in seconds)
-    pmt: float = 0.0    # passenger miles traveled (TODO seconds)
+    pmt: float = 0.0    # passenger miles traveled (TODO seems like we only consider time in seconds)
     serviced: int = 0   # total serviced requests         
 
     wait_time: List[float] = field(default_factory=list) # list of wait times per vehicle
@@ -109,7 +109,6 @@ class StatsParser:
         self._network_initialized = True
 
     def _simulate_driver_run(self, depot: dict, driver_run: dict) -> None:
-        # TODO check whether all the checks are equivalent to prior get_stats()
         state = driver_run[PayloadParser.DRIVER_STATE]
         manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
 
@@ -155,7 +154,7 @@ class StatsParser:
             # allow waiting until scheduled_time (mirrors your original behavior)
             service_start = max(arrival_time, scheduled_time)
 
-            # time window checks (TODO: old code checked scheduled_time, not actual service_start)
+            # time window checks (NOTE: old code checked scheduled_time, not actual service_start)
             if service_start < tw_start:
                 self._add_violation(
                     "Served before time window start", booking_id, run_id, stop,
@@ -237,7 +236,6 @@ class StatsParser:
             destination = self._node_from_stop(dropoff)
 
             direct_travel_time = NetworkHandler.travel_time(origin, destination)
-            # TODO seems to be incorrect, check
             self.stats.pmt += direct_travel_time
 
             pickup_time = pickup[PayloadParser.MANIFEST_SCHED_TIME]
