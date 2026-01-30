@@ -17,12 +17,12 @@ class DummyConfig:
     server_url: str = "http://127.0.0.1:5001/"
     max_thread_cnt: int = 16
     rtv_timeout: int = 120
-    ilp_solver_timeout: int = 120
+    ilp_timeout: int = 120
     ilp_penalty: int = 1_000_000
     # experiment parameters
     max_cardinality: int = 1
     largest_tsp: int = 8
-    shareable_cost_factor: float = 10
+    share_cost_factor: float = 10
     rebalancing: bool = False
     dwell_pickup: int = 180
     dwell_alight: int = 60
@@ -180,6 +180,34 @@ def test_integration_RHsolver_vehicle1_maxCard2_interval1200():
     """
     # initialize data and config
     payload = _init_payload(vehicle_count=1)
+    config = DummyConfig()
+    config.max_cardinality = 2
+    config.batch_interval = 1200
+    # run solver
+    off_solver = OfflineRTVSolver(config)
+    updated_driver_runs, unserved_requests = off_solver.solve_rtv(
+        payload,
+        config.batch_interval,
+        config.step_size,
+    )
+    # compute stats
+    stats_payload = {
+        PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
+        PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
+        PayloadParser.DRIVERS: updated_driver_runs,}
+    stats_evaluator = StatsParser(config=config)
+    feasible, stats, violations = stats_evaluator.evaluate(stats_payload, unserved_requests)
+
+    # Test assertions
+    assert feasible is True    
+    # TODO add actual results when it is run through
+
+def test_integration_RHsolver_vehicle3_maxCard2_interval1200():
+    """
+    Integration test for a known run with 2 vehicle, max_cardinality = 2 and batch_interval = 1200
+    """
+    # initialize data and config
+    payload = _init_payload(vehicle_count=2)
     config = DummyConfig()
     config.max_cardinality = 2
     config.batch_interval = 1200

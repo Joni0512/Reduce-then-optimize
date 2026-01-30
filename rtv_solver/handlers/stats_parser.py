@@ -116,8 +116,7 @@ class StatsParser:
         current_load_wc = 0
 
         for stop in manifest:
-            booking_id = float(stop[PayloadParser.MANIFEST_BOOKING_ID])
-
+            booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
             # ensure we have a container for this request
             if booking_id not in self.request_stops:
                 self.request_stops[booking_id] = StopPair()

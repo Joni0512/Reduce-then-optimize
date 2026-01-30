@@ -12,7 +12,7 @@ class RequestHandler:
         """create a sorted list of all requests in a pd.dataframe """
         requests = [self.build_request_dict(req, dwell_pickup, dwell_alight) for req in request_data] 
         len_requests_initial = len(requests)
-        self.requests = pd.DataFrame(requests).astype({PayloadParser.REQ_BOOKING_ID: 'string'}).sort_values(by = [PayloadParser.REQ_PICKUP_WINDOW_START])
+        self.requests = pd.DataFrame(requests).astype({PayloadParser.REQ_BOOKING_ID: 'int64'}).sort_values(by = [PayloadParser.REQ_PICKUP_WINDOW_START])
         self.requests.drop_duplicates(subset=PayloadParser.REQ_BOOKING_ID, keep="first")
         self.count = self.requests.shape[0]
         self.next_index = 0

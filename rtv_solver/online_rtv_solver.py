@@ -159,7 +159,7 @@ class OnlineRTVSolver:
             for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
                 # TODO why is type of stop[booking_id] a string and the set of request_ids floats (wouldn't int suffice?)
                 # float is quickfix for type mismatch - id in stop is stored as string instead of float
-                stop_id = float(stop[PayloadParser.MANIFEST_BOOKING_ID]) # prev: stop_id = stop["booking_id"]
+                stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
                 if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                     picked_requests.add(stop_id)
                 else:
@@ -167,14 +167,13 @@ class OnlineRTVSolver:
         # remove all requests that are picked up/dropped off
         for driver_run in new_driver_runs:
             for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
-                stop_id = float(stop[PayloadParser.MANIFEST_BOOKING_ID]) 
+                stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
                 if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                     picked_requests.remove(stop_id)
                 else:
                     dropped_requests.remove(stop_id)
         # remove all requests that are unserved            
         for req_id in unserved_requests:
-            req_id = float(req_id)
             picked_requests.remove(req_id)
             dropped_requests.remove(req_id)
 
