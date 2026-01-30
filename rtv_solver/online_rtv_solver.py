@@ -97,7 +97,7 @@ class OnlineRTVSolver:
         vehicle_handler = VehicleHandler(payload_object.depot, 
                                          payload_object.driver_runs,
                                          self.config)
-        # create trips of all already boarded requests
+        # create trips of all already boarded requests # TODO these are not always boarded at this point
         boarded_trips = TripHandler.create_trip_for_picked_requests(boarded_requests, iteration)
         # update vehicle position/trips/times along its path according to all data stored in the manifest
         vehicle_handler.add_manifest_to_vehicles(payload_object.driver_runs,
@@ -122,6 +122,7 @@ class OnlineRTVSolver:
         
         # assign vehicles and add trips / sequence to each vehicle 
         vehicle_assignment = trip_handler.get_veh_assignment()
+
         for vehicle_id in vehicle_assignment:
             vehicle = vehicle_handler.vehicles[vehicle_id]
             trips, prev_sequence = vehicle_assignment[vehicle_id]
@@ -551,6 +552,8 @@ class OnlineRTVSolver:
         return best_cost-prev_cost, new_driver_run
 
     def serve_asap(self, payload):
+        """serve a request as soon as possible"""
+        # TODO check when this is valuable
         unserved_requests = []
         updated_driver_runs = copy.deepcopy(payload[PayloadParser.DRIVERS])
         for request in payload[PayloadParser.REQUESTS]:

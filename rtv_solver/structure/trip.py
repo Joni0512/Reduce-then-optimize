@@ -35,7 +35,7 @@ class Trip:
         else:
             self.id = "{0}:{1}-{2}".format(request_id, bus_combination, first_last_mile_type)
         if vehicle is not None:
-            self.vehicle = vehicle
+            self.vehicle = vehicle # NOTE seems to not be used ever
         # Location information 
         self.origin = origin
         self.destination = destination

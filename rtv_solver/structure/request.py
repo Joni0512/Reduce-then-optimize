@@ -1,4 +1,5 @@
 class Request:
+    # TODO add type hints
     def __init__(self, 
                  identifier, 
                  pick_up_time, 

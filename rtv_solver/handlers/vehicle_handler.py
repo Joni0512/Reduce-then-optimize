@@ -665,7 +665,8 @@ class VehicleHandler:
             current_node = stop.node
         return new_feasible, cost, current_node, current_time
 
-    def can_serve_trips(trips,new_trip,current_sequence):
+    def can_serve_trips(trips, new_trip, current_sequence):
+        """"""
         trips_to_pick_up = []
         trips_to_drop_off = []
         nodes = []
