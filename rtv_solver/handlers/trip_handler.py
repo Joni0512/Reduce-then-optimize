@@ -54,7 +54,7 @@ class TripHandler:
         if time_spent > self.RTV_TIMEOUT:
             raise Exception("RTV generation timedout: {0} > {1}".format(time_spent, self.RTV_TIMEOUT))
 
-    def get_trip_cost(self,origin,destination):
+    def get_trip_cost(self, origin, destination):
         return NetworkHandler.travel_distance(origin,destination)
     
     def get_veh_assignment(self) -> dict[int, tuple[list[Trip], StopSequence]]:
@@ -70,10 +70,17 @@ class TripHandler:
             # earliest_pick_up_time = current_time
             # if request.pick_up_time > current_time:
             #     earliest_pick_up_time = request.pick_up_time
-            trip = self.create_trip(request, request.am_capacity, request.wc_capacity, origin, destination, earliest_pick_up_time, latest_pick_up_time, request.earliest_arrival_time, request.latest_arrival_time, dwell_pickup, dwell_alight, iteration, allow_walk=False)
+            trip = self.create_trip_from_request(request, iteration, allow_walk=False)
             self.trips.append(trip)
             self.ondemand_only_trip_map[request.id] = trip.number
 
+    def create_trip_from_request(self, request: Request, iteration: int, bus_combination=None, first_last_mile_type=None, allow_walk=True):
+        if allow_walk and self.can_walk(request.origin, request.destination):
+            return None
+        trip_no = self.get_new_trip_no()
+        cost = self.get_trip_cost(request.origin, request.destination)
+        return Trip.from_request(trip_no, request, iteration, cost, bus_combination, first_last_mile_type)
+    
     def create_trip(
             self,
             request,
@@ -91,6 +98,7 @@ class TripHandler:
             bus_combination=None,
             first_last_mile_type=None,
             allow_walk=True):
+        """deprecated"""
         if allow_walk and self.can_walk(origin, destination):
             return None
         trip_no = self.get_new_trip_no()
@@ -106,10 +114,10 @@ class TripHandler:
             latest_arrival_time, 
             origin, 
             destination,
-            cost,
             dwell_pickup, 
             dwell_alight, 
             iteration, 
+            cost,
             bus_combination=bus_combination,
             first_last_mile_type=first_last_mile_type)
 
@@ -119,7 +127,7 @@ class TripHandler:
         trip_no = -1
         boarded_trips = []
         for request_id, request in boarded_requests.items():
-            boarded_trips.append(Trip.from_request(request_id, trip_no, request, iteration))
+            boarded_trips.append(Trip.from_request(trip_no, request, iteration))
             trip_no -=1
         return boarded_trips
 
@@ -238,7 +246,7 @@ class TripHandler:
     def can_share_trips(prev_trip_no,trips,trip_nos,new_trip,current_cost,current_sequence,SHAREABLE_COST_FACTOR):
         feasible, cost, sequence = VehicleHandler.can_serve_trips(trips,new_trip,current_sequence)
         if feasible and cost <= SHAREABLE_COST_FACTOR*current_cost:
-            return SharedTrip(prev_trip_no,0,trip_nos,cost,sequence)
+            return SharedTrip(prev_trip_no, 0, trip_nos, cost, sequence)
         return None
     
     def process_shared_trip_result(shared_trip):
@@ -360,7 +368,7 @@ class TripHandler:
                                 args=(shared_trip1_index,trips,trip_nos,trip,current_cost,shared_trip1.sequence,SHAREABLE_COST_FACTOR,)
                                 shared_trips_to_process.append(args)
                                 
-                                new_shared_trip = SharedTrip(shared_trip1_index,0,trip_nos,current_cost,[])
+                                new_shared_trip = SharedTrip(shared_trip1_index, 0, trip_nos, current_cost, [])
                                 TripHandler.process_shared_trip_result(new_shared_trip)
 
                 logging.debug("Number of shared trip combinations to process: {0}, time: {1}".format(len(shared_trips_to_process),time.time()-st))

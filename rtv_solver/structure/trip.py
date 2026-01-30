@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from rtv_solver.structure.request import Request
+
 class Trip:
     """
     Trip-related information
@@ -18,10 +20,10 @@ class Trip:
             latest_arrival_time, 
             origin, 
             destination, 
-            cost, 
             dwell_pickup, 
             dwell_alight, 
             iteration, 
+            cost = None, 
             bus_combination = None, 
             first_last_mile_type = 0, 
             vehicle = None):
@@ -55,9 +57,9 @@ class Trip:
         self.shared_trips = {}
 
     @classmethod
-    def from_request(cls, request_id, trip_number, request, iteration) -> Trip:
+    def from_request(cls, trip_number, request: Request, iteration, cost = None, bus_combination = None, first_last_mile_type = 0) -> Trip:
         return Trip(
-            request_id,
+            request.id,
             trip_number,
             request.am_capacity,
             request.wc_capacity,
@@ -67,10 +69,12 @@ class Trip:
             request.latest_arrival_time,
             request.origin,
             request.destination,
-            None,
             request.dwell_pickup,
             request.dwell_alight,
-            iteration
+            iteration,
+            cost,
+            bus_combination, 
+            first_last_mile_type
         )
 
     # NOTE DEBUG Checks
