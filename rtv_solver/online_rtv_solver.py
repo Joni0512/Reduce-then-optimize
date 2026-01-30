@@ -71,7 +71,7 @@ class OnlineRTVSolver:
         else:
             return payload
 
-    def solve_pdptw_rtv(self, payload, iteration = 0):
+    def solve_pdptw_rtv(self, payload, iteration = 0): # TODO do we need to add current_time
         # initalize network and payload
         NetworkHandler.init(True, self.SERVER_URL)
         payload_object = PayloadParser.get_payload_object(payload)
@@ -100,6 +100,7 @@ class OnlineRTVSolver:
         # create trips of all already boarded requests # TODO these are not always boarded at this point
         boarded_trips = TripHandler.create_trip_for_picked_requests(boarded_requests, iteration)
         # update vehicle position/trips/times along its path according to all data stored in the manifest
+        # NOTE is this not done twice at this point based on what we do in simulate_manifest?
         vehicle_handler.add_manifest_to_vehicles(payload_object.driver_runs,
                                                  boarded_requests,
                                                  boarded_trips, 
@@ -135,7 +136,7 @@ class OnlineRTVSolver:
         # update driver runs
         updated_driver_runs = []
         for driver_run in payload_object.driver_runs:
-            new_driver_run = self.update_run(vehicle_handler, driver_run)
+            new_driver_run = self.update_run(vehicle_handler, driver_run) # TODO do we not do this already in simulate_manifest()
             updated_driver_runs.append(new_driver_run)
             
         # check invariants whether manifest is still correct
@@ -206,9 +207,8 @@ class OnlineRTVSolver:
         new_state[PayloadParser.DRIVER_STATE_T_LOCS] = len(new_manifest)
         # Build new driver run from both parts
         new_driver_run = {PayloadParser.DRIVER_STATE: new_state, 
-                              PayloadParser.DRIVER_MANIFEST: new_manifest}
+                          PayloadParser.DRIVER_MANIFEST: new_manifest}
         return new_driver_run
-
     
     def simulate_manifest(self, current_time, driver_runs, intermediate_location=True):
         NetworkHandler.init(True, self.SERVER_URL)

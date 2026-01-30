@@ -53,7 +53,7 @@ class OfflineRTVSolver:
             if len(selected_requests) == 0:
                 new_driver_runs = driver_runs
             else:    
-                new_driver_runs, unserved = online_rtv_solver.solve_pdptw_rtv(new_payload, iteration = iteration)
+                new_driver_runs, unserved = online_rtv_solver.solve_pdptw_rtv(new_payload, iteration)
                 unserved_requests.extend(unserved)
                 
             # increment time (might not be the size of the batch) and iteration
@@ -69,4 +69,5 @@ class OfflineRTVSolver:
             feasible, stats = online_rtv_solver.get_stats(depot=payload[PayloadParser.DEPOT], driver_runs=driver_runs)
             logging.info(f"Original stats: {stats}")
 
+        # TODO unserved_requests is incorrect, some parts are recounted
         return driver_runs, unserved_requests

@@ -498,6 +498,7 @@ class TripHandler:
                 raise Exception(f"Gurobi solver ended with code: {m.Status} - {GRB.Status[m.Status]}")
             
             logging.info(f'Assignment: new requests / unassigned / assigned: {request_count} / {self.unassigned_trip_count} / {self.taxi_only_trip_count}')
+            # TODO make information better, some requests are re-assigned although they were already assigned
 
     def get_rebalancing_trips(self, vehicles, requests):
         """ 

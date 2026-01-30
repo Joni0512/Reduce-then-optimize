@@ -80,6 +80,7 @@ class PayloadParser:
                 start_times.append(start_time)
                 if last_time > start_time:
                     progressed_times.append(last_time)
+            # FIXME current time in here is the time for the next action of the vehicle but not the current_time of the simulation state
             if progressed_times:
                 current_time = min(progressed_times)
             else:
@@ -88,8 +89,8 @@ class PayloadParser:
         # build list of active and boarded requests from vehicle manifests
         active_requests_data = {}
         boarded_requests_data = {}
+        added_active_requests = [] # NOTE why do we have this?
         for driver_run in driver_runs:
-            added_active_requests = [] # NOTE why do we have this?
             if PayloadParser.DRIVER_MANIFEST in driver_run:
                 driver_state = driver_run[PayloadParser.DRIVER_STATE]
                 driver_manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
