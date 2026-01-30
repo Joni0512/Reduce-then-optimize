@@ -4,28 +4,33 @@ from dataclasses import dataclass
 
 from rtv_solver import OfflineRTVSolver, OnlineRTVSolver
 from rtv_solver.handlers.payload_parser import PayloadParser
-from rtv_solver.handlers.stats_parser import StatsParser, StatsConfig
+from rtv_solver.handlers.stats_parser import StatsParser
 
 # tests are built to run quickly and meant to test the general variants of the code base (extrapolating combinations such as different cardinality or solver approach (online, offline, rolling horizon)
 # This code is not meant for performance testing.
 
 @dataclass
 class DummyConfig:
-        """DummyConfig class with default values"""
-        batch_interval: int = 600
-        step_size: int = 600
-        rtv_timeout: int = 120
-        ilp_timeout: int = 120
-        ilp_penalty: int = 1_000_000
-        max_thread_cnt: int = 16
-        max_cardinality: int = 1
-        largest_tsp: int = 8
-        share_cost_factor: int = 10
-        rebalancing: bool = False
-        dwell_pickup: int = 180
-        dwell_alight: int = 60
-        server_url: int = "http://127.0.0.1:5001/"
-        output_dir: str = ""
+    """fixed to run stable tests and should not be changed"""
+    # technical setup
+    output_dir: str = ""
+    server_url: str = "http://127.0.0.1:5001/"
+    max_thread_cnt: int = 16
+    rtv_timeout: int = 120
+    ilp_solver_timeout: int = 120
+    ilp_penalty: int = 1_000_000
+    # experiment parameters
+    max_cardinality: int = 1
+    largest_tsp: int = 8
+    shareable_cost_factor: float = 10
+    rebalancing: bool = False
+    dwell_pickup: int = 180
+    dwell_alight: int = 60
+    walk_distance_cutoff: int = 0
+    step_size: int = 600
+    batch_interval: int = 600
+    # stats parameters
+    travel_time_margin: int = 5
 
 def _init_payload(vehicle_count: int = 1) -> dict:
     """
@@ -75,11 +80,7 @@ def test_integration_offlineRTVsolver_vehicle1_maxCard3():
         PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
         PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
         PayloadParser.DRIVERS: updated_driver_runs,}
-    stats_evaluator = StatsParser(
-        config=StatsConfig(
-            server_url=config.server_url,
-            pickup_dwell=config.dwell_pickup,
-            dropoff_dwell=config.dwell_alight))
+    stats_evaluator = StatsParser(config=config)
     feasible, stats, violations = stats_evaluator.evaluate(stats_payload, unserved_requests)
 
     # Test assertions
@@ -117,11 +118,7 @@ def test_integration_offlineRTVsolver_vehicle2_maxCard2():
         PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
         PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
         PayloadParser.DRIVERS: updated_driver_runs,}
-    stats_evaluator = StatsParser(
-        config=StatsConfig(
-            server_url=config.server_url,
-            pickup_dwell=config.dwell_pickup,
-            dropoff_dwell=config.dwell_alight))
+    stats_evaluator = StatsParser(config=config)
     feasible, stats, violations = stats_evaluator.evaluate(stats_payload, unserved_requests)
 
     # Test assertions
@@ -157,11 +154,7 @@ def test_integration_onlineRTVsolver_vehicle3_maxCard3():
         PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
         PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
         PayloadParser.DRIVERS: updated_driver_runs,}
-    stats_evaluator = StatsParser(
-        config=StatsConfig(
-            server_url=config.server_url,
-            pickup_dwell=config.dwell_pickup,
-            dropoff_dwell=config.dwell_alight))
+    stats_evaluator = StatsParser(config=config)
     feasible, stats, violations = stats_evaluator.evaluate(stats_payload, unserved_requests)
 
     # Test assertions
@@ -202,14 +195,12 @@ def test_integration_RHsolver_vehicle1_maxCard2_interval1200():
         PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
         PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
         PayloadParser.DRIVERS: updated_driver_runs,}
-    stats_evaluator = StatsParser(
-        config=StatsConfig(
-            server_url=config.server_url,
-            pickup_dwell=config.dwell_pickup,
-            dropoff_dwell=config.dwell_alight))
+    stats_evaluator = StatsParser(config=config)
     feasible, stats, violations = stats_evaluator.evaluate(stats_payload, unserved_requests)
 
     # Test assertions
     assert feasible is True
     assert violations == []
     assert len(unserved_requests) == 10
+    
+    # TODO add actual results when it is run through

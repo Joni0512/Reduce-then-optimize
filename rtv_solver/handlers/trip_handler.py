@@ -1,10 +1,3 @@
-from rtv_solver.structure.trip import Trip
-from rtv_solver.structure.shared_trip import SharedTrip
-from rtv_solver.structure.trip_cost import TripCost
-from rtv_solver.structure.sequence import StopSequence
-from rtv_solver.structure.request import Request
-from rtv_solver.handlers.vehicle_handler import VehicleHandler
-from rtv_solver.handlers.network_handler import NetworkHandler
 import numpy as np
 import logging
 import itertools
@@ -12,18 +5,17 @@ import multiprocessing as mp
 import gurobipy as gp
 from gurobipy import GRB
 import time
-from dataclasses import dataclass
 import traceback
 
-@dataclass(frozen=True)
-class TripHandlerConfig:
-    ilp_solver_timeout: float
-    penalty: float
-    max_cardinality: int
-    max_thread_cnt: int
-    shareable_cost_factor: float
-    rebalancing: bool
-    rtv_timeout: float
+from rtv_solver.structure.trip import Trip
+from rtv_solver.structure.shared_trip import SharedTrip
+from rtv_solver.structure.trip_cost import TripCost
+from rtv_solver.structure.sequence import StopSequence
+from rtv_solver.structure.request import Request
+from rtv_solver.structure.config import Config
+
+from rtv_solver.handlers.vehicle_handler import VehicleHandler
+from rtv_solver.handlers.network_handler import NetworkHandler
 
 class TripHandler:
     def __init__(self,
@@ -31,7 +23,7 @@ class TripHandler:
                  requests,
                  active_requests,
                  iteration,
-                 config: TripHandlerConfig):
+                 config: Config):
         self.trips = []
         self.shared_trips_map = {}
         self.ondemand_only_trip_map = {}
@@ -41,14 +33,16 @@ class TripHandler:
         self.vehicle_assignment = {}
         self.request_assignment = {}
         self.config = config
-        self.starting_time = time.time()
         self.RTV_TIMEOUT = config.rtv_timeout
+        self.walk_distance_cutoff = config.walk_distance_cutoff
+
+        self.starting_time = time.time()
 
         self.generate_ondemand_only_trips(requests, iteration)
         self.generate_trip_costs(vehicles, config.max_thread_cnt, 0)
         self.generate_shared_trips(vehicles, config.max_cardinality, config.max_thread_cnt, config.shareable_cost_factor)
         logging.info(f"Time spent on RTV generation: {time.time() - self.starting_time}")
-        self.assign_trips_gurobi(requests, active_requests, config.penalty)
+        self.assign_trips_gurobi(requests, active_requests, config.ilp_penalty)
         if config.rebalancing:
             self.get_rebalancing_trips(vehicles,requests)
 
@@ -56,9 +50,9 @@ class TripHandler:
         return len(self.trips)
 
     def check_rtv_timeout(self):
-        time_spent = time.time()-self.starting_time
+        time_spent = time.time() - self.starting_time
         if time_spent > self.RTV_TIMEOUT:
-            raise Exception("RTV generation timedout: {0} > {1}".format(time_spent,self.RTV_TIMEOUT))
+            raise Exception("RTV generation timedout: {0} > {1}".format(time_spent, self.RTV_TIMEOUT))
 
     def get_trip_cost(self,origin,destination):
         return NetworkHandler.travel_distance(origin,destination)
@@ -66,7 +60,7 @@ class TripHandler:
     def get_veh_assignment(self) -> dict[int, tuple[list[Trip], StopSequence]]:
         return self.vehicle_assignment  
     
-    def generate_ondemand_only_trips(self, requests, iteration):
+    def generate_ondemand_only_trips(self, requests: list[Request], iteration):
         logging.debug(f'Generating trips for {len(requests)} requests.')
         for request in requests:
             origin = request.origin
@@ -76,7 +70,7 @@ class TripHandler:
             # earliest_pick_up_time = current_time
             # if request.pick_up_time > current_time:
             #     earliest_pick_up_time = request.pick_up_time
-            trip = self.create_trip(request,request.am_capacity, request.wc_capacity,origin,destination,earliest_pick_up_time,latest_pick_up_time ,request.earliest_arrival_time,request.latest_arrival_time,dwell_pickup, dwell_alight,iteration,allow_walk=False)
+            trip = self.create_trip(request, request.am_capacity, request.wc_capacity, origin, destination, earliest_pick_up_time, latest_pick_up_time, request.earliest_arrival_time, request.latest_arrival_time, dwell_pickup, dwell_alight, iteration, allow_walk=False)
             self.trips.append(trip)
             self.ondemand_only_trip_map[request.id] = trip.number
 
@@ -97,7 +91,7 @@ class TripHandler:
             bus_combination=None,
             first_last_mile_type=None,
             allow_walk=True):
-        if allow_walk and self.can_walk(origin,destination):
+        if allow_walk and self.can_walk(origin, destination):
             return None
         trip_no = self.get_new_trip_no()
         cost = self.get_trip_cost(origin,destination)
@@ -130,6 +124,7 @@ class TripHandler:
         return boarded_trips
 
     def get_first_mile_trip(self, request, bustrip):
+        """deprecated"""
         origin = request.origin
         destination = bustrip.pick_up_stop_node
         return self.create_trip(
@@ -142,6 +137,7 @@ class TripHandler:
             first_last_mile_type=0)
 
     def get_last_mile_trip(self, request, bustrip):
+        """deprecated"""
         destination = request.destination
         origin = bustrip.destination_stop_node
         return self.create_trip(
@@ -274,7 +270,8 @@ class TripHandler:
         return common_vehicles
 
     def create_rr_graph(self):
-        # FIXME where does the KeyError come from?
+        """creates a matrix of two trips that can be shared"""
+        # FIXME where does the KeyError come from in the second full iteration of a RH run?
         self.rr_graph = {}
         for trip_no in self.ondemand_only_trip_map.values():
             self.rr_graph[trip_no] = set()
@@ -284,7 +281,7 @@ class TripHandler:
             self.rr_graph[trip_no1].add(trip_no2)
             self.rr_graph[trip_no2].add(trip_no1)
 
-    def generate_shared_trips(self,vehicles,max_cardinality,max_num_thread,SHAREABLE_COST_FACTOR):
+    def generate_shared_trips(self, vehicles, max_cardinality, max_num_thread, SHAREABLE_COST_FACTOR):
         cardinality = 2
         self.selected_combinations = []
         while cardinality <= max_cardinality:
@@ -378,11 +375,11 @@ class TripHandler:
                 # print("Time to process shared trips of cardinality {0}: {1}".format(cardinality,time.time()-st))
             
             self.update_shared_trip_numbers(cardinality)
-            if cardinality == 2:
+            if cardinality == 2: # NOTE why only for cardinality 2
                 self.create_rr_graph()
             if len(self.shared_trips_map[cardinality]) == 0:
                 break
-            self.generate_trip_costs(vehicles,max_num_thread,trip_start)
+            self.generate_trip_costs(vehicles, max_num_thread, trip_start)
             logging.debug("time to generate cardinal {0} trips: {1}".format(cardinality,time.time()-st))
             logging.debug("Number of cardinal {0} trips: {1}".format(cardinality,len(self.shared_trips_map[cardinality])))
             logging.debug("Number of trip costs: {0}".format(len(TripHandler.trip_costs)))

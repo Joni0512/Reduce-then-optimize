@@ -1,11 +1,3 @@
-from rtv_solver.handlers.request_handler import RequestHandler
-from rtv_solver.handlers.network_handler import NetworkHandler
-from rtv_solver.handlers.vehicle_handler import VehicleHandler, VehicleHandlerConfig
-from rtv_solver.handlers.trip_handler import TripHandler, TripHandlerConfig
-from rtv_solver.handlers.payload_parser import PayloadParser
-from rtv_solver.handlers.swap_handler import SwapHandler
-from rtv_solver.structure.node import Node
-from rtv_solver.structure.vehicle_stop import VehicleStop
 import copy
 import multiprocessing
 import sys
@@ -15,9 +7,20 @@ import numpy as np
 import logging
 import copy
 
+from rtv_solver.handlers.request_handler import RequestHandler
+from rtv_solver.handlers.network_handler import NetworkHandler
+from rtv_solver.handlers.vehicle_handler import VehicleHandler
+from rtv_solver.handlers.trip_handler import TripHandler
+from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.handlers.swap_handler import SwapHandler
+
+from rtv_solver.structure.node import Node
+from rtv_solver.structure.vehicle_stop import VehicleStop
+from rtv_solver.structure.config import Config
+
 class OnlineRTVSolver:
     """solves entire RTV problem for a given payload """
-    def __init__(self, config = None):
+    def __init__(self, config: Config = None):
         self.config = config
         self.SERVER_URL = self.config.server_url
         self.MAX_CARDINALITY = self.config.max_cardinality
@@ -25,23 +28,7 @@ class OnlineRTVSolver:
         self.DWELL_PICKUP = self.config.dwell_pickup
         self.DWELL_ALIGHT = self.config.dwell_alight
 
-        # NOTE this still seems like a code smell, but makes it a bit easier to read below
-        # TODO self.SH_CONFIG = SwapHandlerConfig()
-        # TODO turn into one main config
-        self.TH_CONFIG = TripHandlerConfig(
-                ilp_solver_timeout      = self.config.ilp_timeout,
-                penalty                 = self.config.ilp_penalty,
-                max_cardinality         = self.config.max_cardinality, 
-                max_thread_cnt          = self.config.max_thread_cnt,
-                shareable_cost_factor   = self.config.share_cost_factor,
-                rebalancing             = self.config.rebalancing,
-                rtv_timeout             = self.config.rtv_timeout,
-            )
-        
-        self.VH_CONFIG = VehicleHandlerConfig(
-                output_directory = self.config.output_dir,
-                largest_tsp = self.config.largest_tsp
-        )
+        # NOTE this still seems like a code smell, but makes it a bit easier to read below     
 
         if sys.platform == "darwin": # required to run online_solver correctly on MacOS
             try:
@@ -109,7 +96,7 @@ class OnlineRTVSolver:
         # initialize all vehicles as they are stores in the original payload-object
         vehicle_handler = VehicleHandler(payload_object.depot, 
                                          payload_object.driver_runs,
-                                         self.VH_CONFIG)
+                                         self.config)
         # create trips of all already boarded requests
         boarded_trips = TripHandler.create_trip_for_picked_requests(boarded_requests, iteration)
         # update vehicle position/trips/times along its path according to all data stored in the manifest
@@ -129,7 +116,7 @@ class OnlineRTVSolver:
                 batch, 
                 active_requests, 
                 iteration, 
-                self.TH_CONFIG)
+                self.config)
         except Exception as e:
             raise e
         
@@ -224,7 +211,6 @@ class OnlineRTVSolver:
 
     
     def simulate_manifest(self, current_time, driver_runs, intermediate_location=True):
-        """deprecated - used in main.py (disfunctional)"""
         NetworkHandler.init(True, self.SERVER_URL)
         new_driver_runs = []
         # TODO longterm: turn driver_run into an object that handles all the conditions and changes based on validated calls
@@ -254,6 +240,7 @@ class OnlineRTVSolver:
                     break
                 
             if len(manifest) > current_order and next_immediate_time < current_time and intermediate_location:
+                # if manifest is longer than final stop (according to time limit) AND next_immediate_time is still smaller than current_time AND we want to have the location in between stops, we will get that location here
                 next_immediate_node = NetworkHandler.get_node_from_manifest_location(next_immediate_loc)
                 target_node = NetworkHandler.get_node_from_manifest_location(manifest[current_order][PayloadParser.MANIFEST_LOC])
                 next_immediate_time, next_immediate_node = NetworkHandler.get_current_location_time(
@@ -269,6 +256,77 @@ class OnlineRTVSolver:
                 PayloadParser.DRIVER_MANIFEST: manifest})
         
         self.check_consistency_of_manifests(driver_runs, new_driver_runs, [], [])
+        return new_driver_runs
+    
+    def simulate_manifest_new(self, current_time, driver_runs: list[dict], intermediate_location=True):
+        """
+        Based on the entire manifest, this simulates vehicles up to a certain point in time instead of until the end of the manifest
+
+        NOTE currently JW understanding incomplete what this should change and what should happen with the manifest
+
+        FIXME possible issue with in-place changes because the return value is never changed
+        """
+        NetworkHandler.init(True, self.SERVER_URL)
+        new_driver_runs = []
+        # TODO longterm: turn driver_run into an object that handles all the conditions and changes based on validated calls
+        for driver_run in driver_runs:
+            state = driver_run[PayloadParser.DRIVER_STATE]
+            manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
+
+            current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
+            next_immediate_time = state[PayloadParser.DRIVER_STATE_DT_SEC]
+            next_immediate_loc = state[PayloadParser.DRIVER_STATE_LOC]
+            
+            # update time if manifest is already completed
+            if len(manifest) == current_order and next_immediate_time < current_time:
+                next_immediate_time = current_time
+
+            # iterate through manifest over all steps until the current_time is reached (aligning current_time and progress in manifest)
+            # track requests that have been picked up yet to update manifest and remove incomplete trips
+            picked_trips = []
+            while len(manifest) > current_order:
+                next_stop = manifest[current_order]
+                booking_id = next_stop[PayloadParser.MANIFEST_BOOKING_ID]
+                if current_time >= manifest[current_order][PayloadParser.MANIFEST_SCHED_TIME]:
+                    next_immediate_time = next_stop[PayloadParser.MANIFEST_SCHED_TIME]
+                    next_immediate_loc = next_stop[PayloadParser.MANIFEST_LOC]
+                    # apply dwell time if applicable
+                    if next_stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
+                        next_immediate_time += self.DWELL_PICKUP
+                        picked_trips.append(booking_id)
+                    else:
+                        next_immediate_time += self.DWELL_ALIGHT
+                    current_order += 1
+                    if next_immediate_time > current_time:
+                        break
+                else: # this could work, but not sure why it does not
+                    picked_trips.append(booking_id)
+                    break
+                
+            if len(manifest) > current_order and next_immediate_time < current_time and intermediate_location:
+                # if manifest is longer than final stop (according to time limit) AND next_immediate_time is still smaller than current_time AND we want to have the location in between stops, we will get that location here
+                next_immediate_node = NetworkHandler.get_node_from_manifest_location(next_immediate_loc)
+                target_node = NetworkHandler.get_node_from_manifest_location(manifest[current_order][PayloadParser.MANIFEST_LOC])
+                # NODE these location seem to be the same or not?, current-order is incremented though
+                next_immediate_time, next_immediate_node = NetworkHandler.get_current_location_time(
+                    next_immediate_node, target_node, next_immediate_time, current_time)
+                next_immediate_loc = {"lat":next_immediate_node.lat,
+                                      "lon":next_immediate_node.lon}
+                
+            # update state 
+            new_state = copy.deepcopy(state)
+            new_state[PayloadParser.DRIVER_STATE_DT_SEC] = next_immediate_time
+            new_state[PayloadParser.DRIVER_STATE_LOC] = next_immediate_loc
+            new_state[PayloadParser.DRIVER_STATE_LOC_SERV] = current_order
+            # update manifest - trial desired behavior: throw out requests entirely (open for reoptimization) that are not yet picked up, but keep the dropoffs of the other request
+            new_manifest = [stop for stop in manifest if stop[PayloadParser.MANIFEST_BOOKING_ID] in picked_trips]
+            logging.info(f"Manifest change (remove trip from manifest): {len(manifest)/2} > {len(new_manifest)/2} ")
+            new_driver_runs.append({
+                PayloadParser.DRIVER_STATE: new_state,
+                PayloadParser.DRIVER_MANIFEST: new_manifest})
+            # FIXME - reduce the manifest so that only the part is covered that has actually already happened
+        
+        # self.check_consistency_of_manifests(driver_runs, new_driver_runs, [], [])
         return new_driver_runs
 
     def solve_pdptw_heuristic(self, payload, return_added_vmt=False):
@@ -333,9 +391,7 @@ class OnlineRTVSolver:
         swap_handler = SwapHandler(self.SERVER_URL,
                                    updated_driver_runs,
                                    payload[PayloadParser.DEPOT],
-                                   self.DWELL_PICKUP, 
-                                   self.DWELL_ALIGHT, 
-                                   self.MAX_THREAD_CNT)
+                                   config=self.config)
         swaped_driver_runs, reduced_cost, no_of_swaps = swap_handler.run_swap()
         while no_of_swaps > 0 and reduced_cost > 0 and time.time() - start_time < self.RTV_TIMEOUT:
             updated_driver_runs = swaped_driver_runs
@@ -589,7 +645,7 @@ class OnlineRTVSolver:
         for served in request_stops:
             if "drop_off" not in request_stops[served]:
                 feasible = False
-                print("Error: Request not dropped off")
+                raise RuntimeError("Error: Request not dropped off")
             origin = Node(request_stops[served]["pick_up"]["loc"]["lat"],request_stops[served]["pick_up"]["loc"]["lon"])
             destination = Node(request_stops[served]["drop_off"]["loc"]["lat"],request_stops[served]["drop_off"]["loc"]["lon"])
             travel_time = NetworkHandler.travel_time(origin,destination)

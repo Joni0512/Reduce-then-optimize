@@ -1,19 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.structure.node import Node
 from rtv_solver.structure.vehicle_stop import VehicleStop
-
-@dataclass
-class StatsConfig:
-    server_url: str = "http://127.0.0.1:5001/"
-    travel_time_error_margin: int = 5
-    pickup_dwell: int = 180
-    dropoff_dwell: int = 60
+from rtv_solver.structure.config import Config
 
 @dataclass
 class StopPair:
@@ -60,8 +54,8 @@ class StatsParser:
     """
     Evaluate final feasibility + compute KPIs for a complete payload (incl. filled manifests) and unserved requests
     """
-    def __init__(self, config: StatsConfig | None = None):
-        self.config = config or StatsConfig()
+    def __init__(self, config: Config | None = None):
+        self.config = config or Config()
         self.server_url = self.config.server_url
 
         # booking_id -> StopPair(pickup=..., dropoff=...)
@@ -142,12 +136,12 @@ class StatsParser:
             arrival_time = current_time + travel_time
 
             # check "schedule impossible" (arrival after scheduled_time + margin)
-            if arrival_time > scheduled_time + self.config.travel_time_error_margin:
+            if arrival_time > scheduled_time + self.config.travel_time_margin:
                 self._add_violation(
                     "Scheduled time is impossible given travel time", booking_id, run_id, stop, details={
                         "arrival_time": arrival_time,
                         "scheduled_time": scheduled_time,
-                        "margin": self.config.travel_time_error_margin,
+                        "margin": self.config.travel_time_margin,
                         "lateness": arrival_time - scheduled_time,
                     })
 
@@ -174,7 +168,7 @@ class StatsParser:
                 current_load_wc += wc_delta
 
                 # dwell time
-                service_end = service_start + self.config.pickup_dwell
+                service_end = service_start + self.config.dwell_pickup
 
                 # store pickup stop
                 if self.request_stops[booking_id].pickup is not None:
@@ -184,7 +178,7 @@ class StatsParser:
             else:  # DROPOFF
                 current_load_am -= am_delta
                 current_load_wc -= wc_delta
-                service_end = service_start + self.config.dropoff_dwell
+                service_end = service_start + self.config.dwell_alight
 
                 # dropoff ordering constraints
                 if self.request_stops[booking_id].dropoff is not None:

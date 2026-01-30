@@ -2,9 +2,10 @@ import logging
 
 from rtv_solver.online_rtv_solver import OnlineRTVSolver
 from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.structure.config import Config
 
 class OfflineRTVSolver:
-    def __init__(self, config):
+    def __init__(self, config: Config):
         """container for the offline RTV solver that uses the online RTV solver in batches over a rolling horizon"""
         self.config = config
 
@@ -27,7 +28,7 @@ class OfflineRTVSolver:
             # select requests that are to be considered in the current interval with pickup_window [current_time, current_time + interval]
             selected_requests = {}
             for request in payload[PayloadParser.REQUESTS]:
-                if (
+                if ( # start of time window is part of current batch_interval
                     request[PayloadParser.REQ_PICKUP_WINDOW_START] >= current_time
                     and 
                     request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + interval 
@@ -36,7 +37,8 @@ class OfflineRTVSolver:
             
             # remove requests that are already part of vehicles; covered by PayloadParser in OnlineRTVsolver # TODO check
             for dr in driver_runs:
-                for stop in dr[PayloadParser.DRIVER_MANIFEST]:
+                manifest = dr[PayloadParser.DRIVER_MANIFEST]
+                for stop in manifest:
                     if stop[PayloadParser.MANIFEST_BOOKING_ID] in selected_requests:
                         del selected_requests[stop[PayloadParser.MANIFEST_BOOKING_ID]]
             selected_requests = list(selected_requests.values())
@@ -59,7 +61,9 @@ class OfflineRTVSolver:
             iteration += 1
 
             # update vehicles based on decisions in the previous step until current time (might not be the entire interval)
-            simulated_driver_runs = online_rtv_solver.simulate_manifest(current_time, new_driver_runs, intermediate_location=False)
+            # FIXME currently it never updates the manifest (JW requests need to be removed from manifest if they have not been picked up yet as in the next iteration we want to reoptimize based on the last position and not a fixed schedule for the next how many steps)
+            # TODO this fix functionality already exists in simulate_manifest_new(...), but first we need to fix the general rolling horizon issue or they might be related but it probably requires more than just my fix
+            simulated_driver_runs = online_rtv_solver.simulate_manifest(current_time , new_driver_runs, intermediate_location=True)
             driver_runs = simulated_driver_runs
 
             feasible, stats = online_rtv_solver.get_stats(depot=payload[PayloadParser.DEPOT], driver_runs=driver_runs)

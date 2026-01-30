@@ -1,7 +1,3 @@
-from rtv_solver.handlers.network_handler import NetworkHandler
-from rtv_solver.handlers.payload_parser import PayloadParser
-from rtv_solver.structure.node import Node
-from rtv_solver.structure.vehicle_stop import VehicleStop
 import numpy as np
 import logging
 import multiprocessing as mp
@@ -10,19 +6,31 @@ from gurobipy import GRB
 import time
 import copy
 
+from rtv_solver.handlers.network_handler import NetworkHandler
+from rtv_solver.handlers.payload_parser import PayloadParser
+
+from rtv_solver.structure.node import Node
+from rtv_solver.structure.vehicle_stop import VehicleStop
+from rtv_solver.structure.config import Config
+
 class SwapHandler:
-    def __init__(self, server_url, driver_runs, depot, DWELL_PICKUP, DWELL_ALIGHT, MAX_NUM_THREAD):
-        self.MAX_NUM_THREAD = MAX_NUM_THREAD
+    def __init__(self, server_url, driver_runs, depot, config: Config):
+        self.config = config
+        self.MAX_NUM_THREAD = config.max_thread_cnt
+        self.DWELL_PICKUP = config.dwell_pickup
+        self.DWELL_ALIGHT = config.dwell_alight
         NetworkHandler.init(True, server_url)
         payload_object = PayloadParser.get_payload_object({
             PayloadParser.DRIVERS: driver_runs,
             PayloadParser.DEPOT: depot, 
             PayloadParser.REQUESTS: []})
         self.active_requests = set(payload_object.active_requests_keys)
+        
         requests = payload_object.requests
-
-        depot_node_id = NetworkHandler.get_next_node_id(payload_object.depot.lat, payload_object.depot.lon)
-        payload_object.depot.id = depot_node_id
+        
+        self.depot = payload_object.depot
+        depot_node_id = NetworkHandler.get_next_node_id(self.depot.lat, self.depot.lon)
+        self.depot.id = depot_node_id
 
         # add node_id to request pickup and dropoff spots
         for request in requests:
@@ -59,10 +67,6 @@ class SwapHandler:
             
         # Initialize the travel time matrix
         NetworkHandler.initialize_travel_time_matrix()
-
-        self.DWELL_PICKUP = DWELL_PICKUP
-        self.DWELL_ALIGHT = DWELL_ALIGHT
-        self.depot = payload_object.depot
 
     def run_swap(self, rerunning=False):
         logging.debug("Started swap round")

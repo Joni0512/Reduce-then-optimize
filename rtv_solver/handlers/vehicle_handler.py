@@ -9,30 +9,27 @@ from rtv_solver.structure.vehicle import Vehicle, TripInsertionPlan
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.node import Node
 from rtv_solver.structure.sequence import StopSequence
+from rtv_solver.structure.config import Config
+
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
-
-@dataclass(frozen=True)
-class VehicleHandlerConfig:
-    output_directory: str
-    largest_tsp: int
 
 class VehicleHandler:
     MAX_AM_CAPACITY = 0
     MAX_WC_CAPACITY = 0
     LARGEST_TSP = 0
     
-    def __init__(self, depot, driver_runs, config: VehicleHandlerConfig):
+    def __init__(self, depot, driver_runs, config: Config):
         self.vehicles: dict[int, Vehicle] = {}
         self.count = 0
         self.earliest_start_time = None
         self.load_vehicles(depot, driver_runs)
-        self.output_directory = config.output_directory
+        self.output_dir = config.output_dir
         VehicleHandler.LARGEST_TSP = config.largest_tsp
         logging.info(f'{self.count} vehicle(s) in operations')
 
     def save_snapshot(self):
-        with open(self.output_directory+"vehicle_snapshot.p", 'wb') as snapshot_file:
+        with open(self.output_dir+"vehicle_snapshot.p", 'wb') as snapshot_file:
             pickle.dump(self, snapshot_file)
 
     def load_snapshot(snapshot_directory):

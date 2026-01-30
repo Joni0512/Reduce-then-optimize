@@ -7,6 +7,7 @@ import json
 from rtv_solver import OnlineRTVSolver, OfflineRTVSolver
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
+from rtv_solver.structure.config import Config
 
 DEBUG_MODE = True # reduces number of vehicles and requests for easier debugging
 ONLINE_MODE = False # runs all requests in one go without rolling horizon batching
@@ -42,11 +43,15 @@ if __name__ == "__main__":
     parser.add_argument('--rebalancing', type=bool,         default=False, help='Whether to enable rebalancing of vehicles')
     parser.add_argument('--dwell_pickup', type=int,         default=180, help='Dwell time at pickup in seconds')
     parser.add_argument('--dwell_alight', type=int,         default=60, help='Dwell time at alight (dropoff) in seconds')
+    parser.add_argument('--walk_distance_cutoff', type=int, default=0, help="Walking distance between dropoff and final destination.")
     # parser.add_argument('--rh_factor', type=int,            default=0, help='Rolling horizon factor')  # NOTE alternative to step_size
-    parser.add_argument('--step_size', type=int,            default=600, help='Step size in seconds for rolling horizon')
+    parser.add_argument('--step_size', type=int,            default=300, help='Step size in seconds for rolling horizon')
     parser.add_argument('--batch_interval', type=int,       default=1200, help='Batch interval in seconds')
+    # stats parameters
+    parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
     # TODO COAML parameters 
-    config = parser.parse_args()
+    arguments = parser.parse_args()
+    config = Config.from_args(arguments)
 
     # load data from file and update to canonical format for the entire system
     file = open(config.input_file, 'rb')
@@ -64,7 +69,7 @@ if __name__ == "__main__":
         
         # reduce the complexity by only considering a single vehicle
         driver_runs_total = data[PayloadParser.DRIVERS]
-        driver_runs_reduced = driver_runs_total[:3]
+        driver_runs_reduced = driver_runs_total[:1]
         # create a simplified set of requests, consider all requests that start before end_requests
         current_time = 5*3600 + 30*60
         step = 20*60
@@ -95,8 +100,8 @@ if __name__ == "__main__":
                         PayloadParser.DRIVERS: updated_driver_runs}
     stats_evaluator = StatsParser()
     feasible, stats, violations = stats_evaluator.evaluate(stats_payload, unserved_requests)
+    
     logging.info(f"Stats: {json.dumps(stats.to_dict(), indent=4)}")
     logging.info(f'Violations: {violations}')
-
     logging.info(f"{len(unserved_requests)} unserved requests")
     logging.info(f"Total time: {time.time() - start_time}")
