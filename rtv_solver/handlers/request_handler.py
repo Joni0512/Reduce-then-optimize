@@ -61,12 +61,12 @@ class RequestHandler:
         self.requests.at[index,PayloadParser.REQ_DROPOFF_LON] = lon
     
     def earliest_start_time(self):
-        start_time = self.get_request_by_iloc(0).pick_up_time
+        start_time = self.get_request_by_iloc(0).earliest_pickup_time
         logging.debug('Start time of first request: {0}'.format(start_time))
         return start_time
 
     def latest_start_time(self):
-        start_time = self.get_request_by_iloc(self.count-1).pick_up_time
+        start_time = self.get_request_by_iloc(self.count-1).earliest_pickup_time
         logging.debug('Start time of last request: {0}'.format(start_time))
         return start_time
 
@@ -109,7 +109,7 @@ class RequestHandler:
         ending_index = min(self.next_index+max_batch_size,self.requests.shape[0])
         for _, row in self.requests.iloc[self.next_index:ending_index].iterrows():
             request = self.get_request(row)
-            if request.pick_up_time > end_time:
+            if request.earliest_pickup_time > end_time:
                 break
             batch.append(request)
             self.next_index+=1
@@ -124,7 +124,7 @@ class RequestHandler:
         horizen_end_time = end_time + rh_factor * batch_interval.total_seconds()
         for _, row in self.requests.iloc[self.next_index:].iterrows():
             request = self.get_request(row)
-            if request.pick_up_time > horizen_end_time or request.pick_up_time < end_time:
+            if request.earliest_pickup_time > horizen_end_time or request.earliest_pickup_time < end_time:
                 break
             batch.append(request)
         return batch

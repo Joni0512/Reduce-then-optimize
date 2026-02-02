@@ -126,7 +126,7 @@ class TripHandler:
             request,
             origin,
             destination,
-            request.pick_up_time, 
+            request.earliest_pickup_time, 
             bustrip.leaving_time,
             bus_combination=bustrip.id,
             first_last_mile_type=0)
