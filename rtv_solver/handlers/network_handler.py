@@ -158,7 +158,7 @@ class NetworkHandler:
         return travel_time_matrix[NetworkHandler.get_location(source, destination)]
 
     @staticmethod
-    def get_current_location_time(source, destination, starting_time, current_time):
+    def get_current_location_time(source: Node, destination: Node, starting_time: int, current_time: int):
         """
         specifically tracks the actual geometry of the route and the specific times where position are reached
         """

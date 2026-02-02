@@ -111,7 +111,7 @@ class VehicleHandler:
                 break
 
     def get_current_location_time(vehicle):
-        next_immediate_node = vehicle.last_node
+        next_immediate_node = vehicle.last_node 
         time_at_next_immediate_node = vehicle.time_at_last
         if len(vehicle.stop_sequence) > 0:
             time_at_next_immediate_node = vehicle.time_at_next_immediate_node
@@ -255,13 +255,116 @@ class VehicleHandler:
                     break
             self.add_manifest_to_vehicle(vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup)
 
-    def simulate_vehicle(self,current_time, vehicle):
+    def simulate_vehicle(self, vehicle, current_time):
+        """
+        TODO check if this doc comment is correct or whether it needs an update
+        TODO move entire simulation of a single vehicle to the Vehicle class
+        TODO certain steps are never reached
+
+        Simulate vehicle state forward to a given current_time and apply any stop, pickup/dropoff,
+        dwelling, rebalancing and routing decisions that become active at or before that time.
+        Parameters
+        ----------
+        current_time : numeric
+            The simulation time instant to advance the vehicle to.
+        vehicle : object
+            Vehicle instance whose mutable state is advanced. Expected attributes used by this
+            routine include: id, start_time, started, rebalancing, time_at_next, stop_sequence,
+            last_node, time_at_last, final_stop_time, dwelling, time_at_next_immediate_node,
+            next_immediate_node, picked, am_capacity, wc_capacity, trips (dict), picked (list/set),
+            etc. Stop objects in stop_sequence are expected to have: node, trip_id, type, dwell
+            and fields written here: stop_time, vehicle_id, request_id. Trip objects are expected
+            to provide: request_id, am_capacity, wc_capacity, pick_up_time, earliest_arrival_time,
+            picked boolean.
+        Returns
+        -------
+        tuple (completed_stops, picked_requests, completed_requests)
+            completed_stops : list
+                Stops that were reached at or before current_time and were logged by this call.
+            picked_requests : list
+                Request IDs that were picked up during this call.
+            completed_requests : list
+                Request IDs that were dropped off (completed) during this call.
+        Behavior / Simulation flow and decision order
+        --------------------------------------------
+        1. Start check
+           - If current_time >= vehicle.start_time and vehicle.started is False, set vehicle.started = True.
+        2. Rebalancing arrival (highest priority)
+           - If vehicle.rebalancing is True and current_time >= vehicle.time_at_next:
+             - Pop the next stop from stop_sequence, mark it as completed (set stop_time, vehicle_id),
+               update vehicle.last_node, vehicle.time_at_last and vehicle.final_stop_time,
+               clear rebalancing flag and append the stop to completed_stops.
+             - Return immediately with the single completed stop and empty picked/completed lists.
+             - (Note: rebalancing arrival is treated as an atomic arrival and the function exits early.)
+        3. End dwelling
+           - If vehicle.dwelling is True and vehicle.time_at_last <= current_time, clear dwelling flag.
+           - If not dwelling and stop_sequence is empty, update time_at_last, time_at_next_immediate_node
+             and next_immediate_node to reflect the vehicle being idle at its last_node at current_time.
+        4. Process scheduled stops that are due (loop)
+           - While there are stops in stop_sequence and current_time >= vehicle.time_at_next:
+             - Pop the next stop and log it (set stop_time, trip.request_id, vehicle_id) and append to completed_stops.
+             - Update vehicle.last_node to the stop node and vehicle.time_at_last to time_at_next + stop.dwell.
+             - Set final_stop_time to time_at_last.
+             - If time_at_last > current_time, set dwelling=True (vehicle is dwelling through current_time).
+             - If stop is a PICKUP:
+                 - Add trip_id to vehicle.picked, decrement vehicle capacities by the trip capacity,
+                   mark trip.picked = True and append the trip's request_id to picked_requests.
+               If stop is a DROP_OFF:
+                 - Remove trip_id from vehicle.picked, increment vehicle capacities back,
+                   append the trip's request_id to completed_requests and delete the trip from vehicle.trips.
+             - If there are more stops left in the sequence, compute vehicle.time_at_next as:
+                 time_at_last + NetworkHandler.travel_time(last_node, next_stop.node)
+               and then enforce time-window constraints:
+                 - For PICKUP: if time_at_next < trip.pick_up_time, set time_at_next = trip.pick_up_time
+                 - For DROP_OFF: if time_at_next < trip.earliest_arrival_time, set time_at_next = earliest_arrival_time
+             - The loop continues to consume any additional stops whose time_at_next <= current_time.
+        5. Update in-transit immediate node (when not all stops are completed)
+           - If stop_sequence is non-empty after processing arrivals:
+             - Compute ori = vehicle.last_node and dest = stop_sequence[0].node.
+             - Default next_immediate_node and time_at_next_immediate_node are last_node and time_at_last.
+             - If not dwelling: call NetworkHandler.get_current_location_time(ori, dest, vehicle.time_at_last, current_time)
+               to obtain the current location along the link (node/time) at current_time and update
+               next_immediate_node and time_at_next_immediate_node accordingly.
+             - Assign these values into vehicle.time_at_next_immediate_node and vehicle.next_immediate_node,
+               and also update vehicle.last_node and vehicle.time_at_last to reflect the vehicle’s in-transit
+               location at current_time.
+        6. Recompute stop sequence for non-rebalancing vehicles (pruning & replanning)
+           - If the vehicle is not rebalancing, prune vehicle.trips to only keep trips that are currently picked.
+             This ensures future decisions are only about drop-offs for onboard passengers.
+           - Build a new stop_sequence comprised of the DROP_OFF stops corresponding to the picked trips,
+             preserving the node list starting with vehicle.next_immediate_node.
+           - If there are any picked trips:
+             - Query NetworkHandler.get_travel_time_matrix(nodes) for pairwise travel times between nodes.
+             - Call VehicleHandler.get_exact_stop_sequence(...) to compute an optimized feasible drop-off sequence
+               starting from next_immediate_node, with the vehicle's current capacities and updated trips.
+             - If the returned plan is feasible, replace vehicle.stop_sequence with the best_sequence.
+             - Set vehicle.time_at_next to time_at_next_immediate_node + travel_time to the first stop in the new sequence,
+               and enforce any earliest_arrival_time constraints for the first drop-off as in step 4.
+        7. Exit and return
+           - Return the lists: completed_stops, picked_requests, completed_requests.
+        Side effects and important notes
+        -------------------------------
+        - This function mutates the vehicle object heavily (stop_sequence, trips, picked, capacities,
+          last_node, time_at_last, time_at_next, dwelling, rebalancing, next_immediate_node, etc.).
+        - It logs completed stops by setting fields on stop objects (stop_time, vehicle_id, request_id).
+        - It handles one rebalancing arrival as a special case and returns immediately after executing it.
+        - Time-window constraints (pick_up_time, earliest_arrival_time) are always enforced when scheduling
+          the next arrival time (time_at_next).
+        - External dependencies: NetworkHandler.travel_time, NetworkHandler.get_current_location_time,
+          NetworkHandler.get_travel_time_matrix, and VehicleHandler.get_exact_stop_sequence.
+        - Assumes constants VehicleStop.ACT_PICKUP and VehicleStop.ACT_DROPOFF are defined and used to distinguish stop types.
+        """
+        # track state changes
         completed_stops = []
         picked_requests = []
         completed_requests = []
+        
+        # start vehicles that are active now
         if current_time >= vehicle.start_time:
             if not vehicle.started:
                 vehicle.started = True
+        
+        # Handle whether vehicle has been rebalancing (atomic arrival exits simulation early)
         if vehicle.rebalancing and current_time >= vehicle.time_at_next:
             next_stop = vehicle.stop_sequence.pop(0)
             vehicle.last_node = next_stop.node
@@ -273,7 +376,8 @@ class VehicleHandler:
             next_stop.vehicle_id = vehicle.id
             completed_stops.append(next_stop)
             return completed_stops, picked_requests, completed_requests
-    
+        
+        # Handle dwelling and turn vehicle to idle if no stops are left at the current location
         if vehicle.dwelling and vehicle.time_at_last <= current_time:
             vehicle.dwelling = False
         
@@ -282,11 +386,13 @@ class VehicleHandler:
             vehicle.time_at_next_immediate_node = current_time
             vehicle.next_immediate_node = vehicle.last_node
 
-        while len(vehicle.stop_sequence)>0 and current_time >= vehicle.time_at_next:
+        # Process complete vehicle stops until current time to fix all prior decisions
+        while len(vehicle.stop_sequence) > 0 and current_time >= vehicle.time_at_next:
             next_stop = vehicle.stop_sequence.pop(0)
             # logging the stop
-            next_stop.stop_time = vehicle.time_at_next
             trip = vehicle.trips[next_stop.trip_id]
+            next_stop.stop_time = vehicle.time_at_next
+            
             next_stop.request_id = trip.request_id
             next_stop.vehicle_id = vehicle.id
             completed_stops.append(next_stop)
@@ -303,11 +409,14 @@ class VehicleHandler:
                 picked_trip = vehicle.trips[next_stop.trip_id]
                 picked_trip.picked = True
                 picked_requests.append(picked_trip.request_id)
-            else:
+                print("pickup: ", next_stop.trip_id ) #, picked_trip.request_id)
+            else: # dropoff request
                 vehicle.picked.remove(next_stop.trip_id)
                 completed_requests.append(vehicle.trips[next_stop.trip_id].request_id)
                 vehicle.am_capacity = vehicle.am_capacity + trip.am_capacity
                 vehicle.wc_capacity = vehicle.wc_capacity + trip.wc_capacity
+
+                print("dropoff: ", next_stop.trip_id)
                 del vehicle.trips[next_stop.trip_id]
             if len(vehicle.stop_sequence) > 0:
                 next_stop = vehicle.stop_sequence[0]
@@ -318,21 +427,29 @@ class VehicleHandler:
                 if next_stop.type == VehicleStop.ACT_DROPOFF and vehicle.time_at_next < next_trip.earliest_arrival_time:
                     vehicle.time_at_next = next_trip.earliest_arrival_time
         
-        if len(vehicle.stop_sequence)>0:
-            ori,dest = vehicle.last_node,vehicle.stop_sequence[0].node
-            next_immediate_node,time_at_next_immediate_node = vehicle.last_node,vehicle.time_at_last
+        # update in-transit vehicle and trip states
+        if len(vehicle.stop_sequence) > 0:
+            ori =  vehicle.last_node
+            dest = vehicle.stop_sequence[0].node
+            next_immediate_node= vehicle.last_node
+            time_at_next_immediate_node = vehicle.time_at_last
             if not vehicle.dwelling:
-                time_at_next_immediate_node,next_immediate_node = NetworkHandler.get_current_location_time(ori,dest,vehicle.time_at_last,current_time)
+                time_at_next_immediate_node, next_immediate_node = NetworkHandler.get_current_location_time(ori, dest, vehicle.time_at_last, current_time)
             vehicle.time_at_next_immediate_node = time_at_next_immediate_node
             vehicle.next_immediate_node = next_immediate_node
             vehicle.last_node,vehicle.time_at_last = next_immediate_node, time_at_next_immediate_node
+            
             if not vehicle.rebalancing:
                 updated_trip_list = {}
                 trips_to_drop_off = []
                 for trip_id in vehicle.trips:
                     if trip_id in vehicle.picked:
+                        # TODO why is this step never reached?
+                        print(f"To be dropped off: v{vehicle.id}, t{trip_id}")
                         updated_trip_list[trip_id] = vehicle.trips[trip_id]
                         trips_to_drop_off.append(trip_id)
+                # TODO never reaches this point where I would expect this to happen
+                # print(f"Lists updated {updated_trip_list}, dropoffs: {trips_to_drop_off}")
                 vehicle.trips = updated_trip_list
                 existing_sequence = []
                 nodes = [vehicle.next_immediate_node]
@@ -341,36 +458,45 @@ class VehicleHandler:
                         existing_sequence.append(stop)
                         nodes.append(stop.node)
                 vehicle.stop_sequence = existing_sequence
+                
+                # TODO what does this do? is this on the right level or where should this be called?
                 if len(vehicle.picked) > 0:
                     tt_matrix, node_indices = NetworkHandler.get_travel_time_matrix(nodes)
-                    best_sequence, _, feasible,_,_ = VehicleHandler.get_exact_stop_sequence(next_immediate_node,time_at_next_immediate_node,vehicle.am_capacity,vehicle.wc_capacity,updated_trip_list,[],trips_to_drop_off,[],tt_matrix, node_indices)
+                    # TODO: JW cost (third to last element added as 0 in order to get the code running)
+                    best_sequence, _, feasible, _, _ = VehicleHandler.get_exact_stop_sequence(next_immediate_node,time_at_next_immediate_node,vehicle.am_capacity,vehicle.wc_capacity,updated_trip_list,[],trips_to_drop_off,[],0, tt_matrix, node_indices)
+                    
                     if feasible:
+                        print("Vehicle ", vehicle.id, " new sequence: ", [ (stop.trip_id, stop.type) for stop in vehicle.stop_sequence])
                         vehicle.stop_sequence = best_sequence
+                        # print("Vehicle ", vehicle.id, " new sequence: ", [ (stop.trip_id, stop.type) for stop in vehicle.stop_sequence])
+                        # print("Vehicle ", vehicle.id, " sequence: ", [ (stop.trip_id, stop.type) for stop in vehicle.stop_sequence])
                     next_stop = vehicle.stop_sequence[0]
                     vehicle.time_at_next = time_at_next_immediate_node + NetworkHandler.travel_time(next_immediate_node,next_stop.node)
                     next_trip = vehicle.trips[next_stop.trip_id]
                     if next_stop.type == VehicleStop.ACT_DROPOFF and vehicle.time_at_next < next_trip.earliest_arrival_time:
                         vehicle.time_at_next = next_trip.earliest_arrival_time
+        
         return completed_stops, picked_requests, completed_requests
 
-    def simulate_vehicles(self,current_time):
+    def simulate_vehicles(self, current_time):
+        """ iterate over each vehicle and collect all the updated information what happened in the last step"""
         completed_stops = []
         picked_requests = []
         completed_requests = []
         completed_vehicles = []
+
         for vehicle_id in self.vehicles:
             vehicle = self.vehicles[vehicle_id]
-            if len(vehicle.stop_sequence) == 0 and vehicle.end_time <= current_time:
-                stop = VehicleStop(None, vehicle.depot, VehicleStop.ACT_DEPOT, 0)
-                stop.stop_time = vehicle.final_stop_time+NetworkHandler.travel_time(vehicle.last_node,vehicle.depot)
-                stop.vehicle_id = vehicle.id
+            if vehicle.has_completed_operations(current_time):
+                stop = vehicle.return_to_depot()
                 completed_stops.append(stop)
                 completed_vehicles.append(vehicle_id)
             else:
-                veh_completed_stops, veh_picked_requests, veh_completed_requests = self.simulate_vehicle(current_time, vehicle)
+                veh_completed_stops, veh_picked_requests, veh_completed_requests = self.simulate_vehicle(vehicle, current_time)
                 completed_stops.extend(veh_completed_stops)
                 picked_requests.extend(veh_picked_requests)
                 completed_requests.extend(veh_completed_requests)
+        
         for vehicle_id in completed_vehicles:
             del self.vehicles[vehicle_id]
         return completed_stops, picked_requests, completed_requests
@@ -390,7 +516,7 @@ class VehicleHandler:
 
     def add_rebalancing_trip(vehicle,destination,current_time):
         time_at_destination = current_time + NetworkHandler.travel_time(vehicle.last_node,destination)
-        if VehicleHandler.can_return_to_depot(vehicle,destination,time_at_destination):
+        if VehicleHandler.can_return_to_deport(vehicle,destination,time_at_destination):
             vehicle.rebalancing = True
             vehicle.time_at_last = current_time
             vehicle.stop_sequence = [VehicleStop(None, destination, VehicleStop.ACT_REBALANCE, 0)]
@@ -528,6 +654,9 @@ class VehicleHandler:
                                                 VehicleStop.ACT_PICKUP,
                                                 trip.dwell_pickup))
                 # NOTE why do we not add the dropoff-stop here?
+                # TODO why is this function calling itself
+                # print(f"Old Inputs: {inputs}")
+                # print(f"New Inputs: {trip.origin,time_at_pick_up,new_am_capacity, new_wc_capacity,trips,new_trips_to_pick_up,trips_to_drop_off,new_sequence,new_cost,tt_matrix, node_indices}")
                 new_sequence, new_cost, new_feasible, new_last_node, new_time_at_last_node = VehicleHandler.get_exact_stop_sequence(
                     trip.origin,
                     time_at_pick_up,

@@ -32,7 +32,6 @@ class TripHandler:
                  iteration,
                  config: Config):
         self.config = config
-        # trip 
         self.trips: list[TripCost] = []
         self.ondemand_only_trip_map = {}    # {request_id: trip_id}
         self.shared_trips_map = {}          # {cardinality: [shared_trip_id]}
@@ -77,7 +76,7 @@ class TripHandler:
             self.trips.append(trip)
             self.ondemand_only_trip_map[request.id] = trip.number
 
-    def create_trip_from_request(self, request: Request, iteration: int, bus_combination=None, first_last_mile_type=None, allow_walk=True):
+    def create_trip_from_request(self, request: Request, iteration: int, bus_combination=None, first_last_mile_type=None, allow_walk: bool =True):
         if allow_walk and self.can_walk(request.origin, request.destination):
             return None
         trip_no = self.get_new_trip_no()
@@ -462,11 +461,12 @@ class TripHandler:
             if m.Status == GRB.OPTIMAL or m.Status == GRB.SUBOPTIMAL:
                 logging.info("Total time spent on optimization: {0}".format(m.Runtime))
 
+                # extract solution from Gurobi assignment
                 for vehicle_id in self.vehicle_to_trips_cost_map:
                     for i in self.vehicle_to_trips_cost_map[vehicle_id]:
                         if x_t[i].X == 1:
                             trip_cost = TripHandler.trip_costs[i]
-                            self.added_distance+=trip_cost.cost
+                            self.added_distance += trip_cost.cost
                             trip_no = trip_cost.trip_no
                             trip = self.trips[trip_no]
                             trips = []
@@ -477,6 +477,8 @@ class TripHandler:
                                     trips.append(self.trips[sub_trip_no])
                             self.trip_sizes.append(len(trips))
                             self.vehicle_assignment[vehicle_id] = (trips, trip_cost.sequence)
+                            logging.debug(f"Assignment: {trip_cost}")
+                            # print(f"Assign: veh-{vehicle_id} with trips {[trip.id for trip in trips]} under cost {trip_cost.cost} with sequence {TripCost.sequence_to_str(trip_cost.sequence)}")
 
                 for request in requests:
                     found_assignment = False
@@ -488,7 +490,7 @@ class TripHandler:
                             vehicle_id = trip_cost.vehicle_id
                             self.request_assignment[request.id] = vehicle_id
                             found_assignment = True
-                            self.taxi_only_trip_count+=1
+                            self.taxi_only_trip_count +=1
                             break
 
                     if not found_assignment:

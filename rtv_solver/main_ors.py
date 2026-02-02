@@ -24,7 +24,13 @@ def setup_logging():
     logging.getLogger("requests").setLevel(logging.WARNING)
 
 if __name__ == "__main__":
-    """Main script to run RTV solver in online or offline mode based on input data and configuration parameters with easy options for debugging and testing."""
+    """
+    Main script to run RTV solver in online or offline mode based on input data and configuration parameters with easy options for debugging and testing.
+    
+    Assumptions (wilson - 02.02.2026):
+    - All vehicles start from the same location (depot) and need to return there at the end of their shift.
+    - Accepted waiting times are already defined in the request payload and currently not defined by the program (30 min between earliest and latest pickup - travel_time defines allowed dropoff times) 
+    """
     # TODO move config management to YAML config or Hydra
     parser = argparse.ArgumentParser(description='Arguments for the RTV solver main script')
     # technical setup
@@ -45,8 +51,8 @@ if __name__ == "__main__":
     parser.add_argument('--dwell_alight', type=int,         default=60, help='Dwell time at alight (dropoff) in seconds')
     parser.add_argument('--walk_distance_cutoff', type=int, default=0, help="Walking distance between dropoff and final destination.")
     # parser.add_argument('--rh_factor', type=int,            default=0, help='Rolling horizon factor')  # NOTE alternative to step_size
-    parser.add_argument('--step_size', type=int,            default=600, help='Step size in seconds for rolling horizon')
-    parser.add_argument('--batch_interval', type=int,       default=1200, help='Batch interval in seconds')
+    parser.add_argument('--step_size', type=int,            default=300, help='Step size in seconds for rolling horizon')
+    parser.add_argument('--batch_interval', type=int,       default=3600, help='Batch interval in seconds')
     # stats parameters
     parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
     # TODO COAML parameters 
@@ -103,5 +109,5 @@ if __name__ == "__main__":
     
     logging.info(f"Stats: {json.dumps(stats.to_dict(), indent=4)}")
     logging.info(f'Violations: {violations}')
-    logging.info(f"{len(unserved_requests)} unserved requests")
+    logging.info(f"{len(unserved_requests)} unserved requests with {unserved_requests}")
     logging.info(f"Total time: {time.time() - start_time}")

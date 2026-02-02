@@ -62,12 +62,11 @@ class OfflineRTVSolver:
 
             # update vehicles based on decisions in the previous step until current time (might not be the entire interval)
             # FIXME currently it never updates the manifest (JW requests need to be removed from manifest if they have not been picked up yet as in the next iteration we want to reoptimize based on the last position and not a fixed schedule for the next how many steps)
-            # TODO this fix functionality already exists in simulate_manifest_new(...), but first we need to fix the general rolling horizon issue or they might be related but it probably requires more than just my fix
             simulated_driver_runs = online_rtv_solver.simulate_manifest(current_time , new_driver_runs, intermediate_location=True)
             driver_runs = simulated_driver_runs
 
-            feasible, stats = online_rtv_solver.get_stats(depot=payload[PayloadParser.DEPOT], driver_runs=driver_runs)
-            logging.info(f"Original stats: {stats}")
+        feasible, stats = online_rtv_solver.get_stats(depot=payload[PayloadParser.DEPOT], driver_runs=driver_runs)
+        logging.info(f"Original stats: {stats}")
 
         # TODO unserved_requests is incorrect, some parts are recounted
         return driver_runs, unserved_requests

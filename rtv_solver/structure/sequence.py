@@ -53,11 +53,12 @@ class StopSequence(list):
 
     @staticmethod
     def sequence_to_string(sequence_list):
-        """print out the sequence in order to make it readable in-line - staticMethod makes it more usable in other locations"""
+        """print out the sequence in order to make it readable in-line"""
+        # staticMethod makes it more usable in other locations
         seq_str = "\n \t" + "\n\t".join([str(node) for node in sequence_list])
         return seq_str
 
     def __str__(self):
-        return str(self.sequence_to_string(self.nodes))
+        return str(self.sequence_to_string(self))
 
 
