@@ -89,7 +89,6 @@ class PayloadParser:
         # build list of active and boarded requests from vehicle manifests
         active_requests_data = {}
         boarded_requests_data = {}
-        added_active_requests = [] # NOTE why do we have this?
         for driver_run in driver_runs:
             if PayloadParser.DRIVER_MANIFEST in driver_run:
                 driver_state = driver_run[PayloadParser.DRIVER_STATE]
@@ -105,7 +104,6 @@ class PayloadParser:
                             boarded_requests_data[booking_id] = request
                         else:
                             # request is assigned but not yet picked up
-                            added_active_requests.append(booking_id)
                             active_requests_data[booking_id] = request
                     else: # VehicleStop.ACT_DROPOFF
                         if stop_order <= driver_state[PayloadParser.DRIVER_STATE_LOC_SERV] and booking_id in boarded_requests_data:
@@ -150,14 +148,6 @@ class PayloadParser:
         for drop_off_stop in manifest[pick_up_index+1:]:
             if drop_off_stop[PayloadParser.MANIFEST_BOOKING_ID] == booking_id:
                 return PayloadParser.build_request_from_stops(stop, drop_off_stop)
-  
-    # @staticmethod  
-    # def build_request_from_manifest_dropoff(manifest, dropoff_stop):
-    #     # seems to be deprecated as it is not used anywhere
-    #     booking_id = dropoff_stop[PayloadParser.MANIFEST_BOOKING_ID]
-    #     for pickup_stop in manifest:
-    #         if pickup_stop[PayloadParser.MANIFEST_BOOKING_ID] == booking_id and pickup_stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.PICKUP:
-    #             return PayloadParser.build_request_from_stops(pickup_stop, dropoff_stop)
 
     @staticmethod
     def build_request_from_stops(pickup_stop, dropoff_stop):
@@ -205,8 +195,8 @@ class PayloadParser:
     @staticmethod
     def normalize_to_canonical(data: dict) -> dict:
         """
-        Converts the newer JSON structure from 'chattanooga' into the expected structure. 
-        For structural differences, see 'Documentation.md'.
+        Converts the newer JSON structure from 'chattanooga' into the expected structure of 'wilson'. 
+        For structural differences, see 'Documentation.md'. The changes are only additions and no prior information is lost.
         """
         if PayloadParser.is_canonical_structure(data):
             return data  # Nothing to do
@@ -242,3 +232,11 @@ class PayloadParser:
         normalized[PayloadParser.DRIVERS] = new_driver_runs
 
         return normalized
+
+    # TODO
+    """
+    As all requests have exactly 30 minutes of allowed and combined wait + detour time, which does not seem very realistic if the direct travel_time of the trip is below 5 minutes, the data should be updated before usage. The requests should be updated once and for all before data is used.
+     
+    This also offers the option to add randomized versions of the same requests to get more training data sets while keeping realism."""
+    # def update_requests(data):
+        

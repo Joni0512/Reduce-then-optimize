@@ -1,18 +1,20 @@
+from rtv_solver.structure.node import Node
+
 class Request:
     # TODO add type hints
     def __init__(self, 
-                 identifier, 
-                 earliest_pickup_time, 
-                 latest_pickup_time, 
-                 earliest_arrival_time,
-                 latest_arrival_time, 
-                 origin, 
-                 destination,
-                 dwell_pickup,
-                 dwell_alight,
-                 am_capacity, 
-                 wc_capacity, 
-                 priority=1):
+                 identifier: int, 
+                 earliest_pickup_time: float, 
+                 latest_pickup_time: float, 
+                 earliest_arrival_time: float,
+                 latest_arrival_time: float, 
+                 origin: Node, 
+                 destination: Node,
+                 dwell_pickup: int,
+                 dwell_alight: int,
+                 am_capacity: int, 
+                 wc_capacity: int, 
+                 priority: int =1):
         self.id = identifier
         # location and time information
         self.origin = origin
