@@ -30,6 +30,8 @@ if __name__ == "__main__":
     Assumptions (wilson - 02.02.2026):
     - All vehicles start from the same location (depot) and need to return there at the end of their shift.
     - Accepted waiting times are already defined in the request payload and currently not defined by the program (30 min between earliest and latest pickup - travel_time defines allowed dropoff times) 
+    - The first accepted request of a vehicle is directly considered as boarded (rationale: one vehicle has to commit trip and thus it is already fixed with that vehicle, second request is only considered boarded.)
+    - Rebalancing: Rejected requests are in underserved areas, so we need to send additional vehicles there.
     """
     # TODO move config management to YAML config or Hydra
     parser = argparse.ArgumentParser(description='Arguments for the RTV solver main script')
@@ -75,7 +77,7 @@ if __name__ == "__main__":
         
         # reduce the complexity by only considering a single vehicle
         driver_runs_total = data[PayloadParser.DRIVERS]
-        driver_runs_reduced = driver_runs_total[:1]
+        driver_runs_reduced = driver_runs_total[:3]
         # create a simplified set of requests, consider all requests that start before end_requests
         current_time = 5*3600 + 30*60
         step = 20*60
@@ -99,15 +101,15 @@ if __name__ == "__main__":
     else:
         off_solver = OfflineRTVSolver(config)
         updated_driver_runs, unserved_requests = off_solver.solve_rtv(payload, config.batch_interval, config.step_size)
+        
 
     # calculate statistics of each iteration; for now only the first vehicle
     stats_payload = {PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
                         PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
                         PayloadParser.DRIVERS: updated_driver_runs}
     stats_evaluator = StatsParser()
-    feasible, stats, violations = stats_evaluator.evaluate(stats_payload, unserved_requests)
+    feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, unserved_requests)
     
     logging.info(f"Stats: {json.dumps(stats.to_dict(), indent=4)}")
     logging.info(f'Violations: {violations}')
-    logging.info(f"{len(unserved_requests)} unserved requests with {unserved_requests}")
     logging.info(f"Total time: {time.time() - start_time}")
