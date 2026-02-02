@@ -19,7 +19,7 @@ class OfflineRTVSolver:
         # track progress of solver iterations
         iteration = 0
 
-        unserved_requests = []
+        requests_development = {}
         driver_runs = payload[PayloadParser.DRIVERS]
 
         while current_time < end_time:
@@ -51,10 +51,14 @@ class OfflineRTVSolver:
 
             # solve the RTV problem and update manifests
             if len(selected_requests) == 0:
-                new_driver_runs = driver_runs
+                new_driver_runs, request_development = driver_runs, {0: {"assigned": {}, "unserved": []}}
+
             else:    
-                new_driver_runs, unserved = online_rtv_solver.solve_pdptw_rtv(new_payload, iteration)
-                unserved_requests.extend(unserved)
+                new_driver_runs, request_development = online_rtv_solver.solve_pdptw_rtv(new_payload, iteration)
+            
+            # TODO i want the status development of requests (active, boarded, unserved, delivered) 
+            # TODO how do I get the status for already delivered requests
+            requests_development[current_time] = list(request_development.values())[0] # bit complex but required for compatibility with OnlineSolver
                 
             # increment time (might not be the size of the batch) and iteration
             current_time += step_size 
@@ -69,4 +73,4 @@ class OfflineRTVSolver:
         logging.info(f"Original stats: {stats}")
 
         # TODO unserved_requests is incorrect, some parts are recounted
-        return driver_runs, unserved_requests
+        return driver_runs, requests_development

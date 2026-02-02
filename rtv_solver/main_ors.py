@@ -49,6 +49,7 @@ if __name__ == "__main__":
     parser.add_argument('--largest_tsp', type=int,          default=8, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
     parser.add_argument('--share_cost_factor', type=int,    default=10, help='Shareable cost factor in factor of original single cost [???]') # TODO why 10, this is a crazy factor where this is used?
     parser.add_argument('--rebalancing', type=bool,         default=False, help='Whether to enable rebalancing of vehicles')
+    parser.add_argument('--keep_active', type=bool,         default=True, help='Active requests from a prior request must be kept') # TODO side effects are not clear yet (with default-value, results as expected)
     parser.add_argument('--dwell_pickup', type=int,         default=180, help='Dwell time at pickup in seconds')
     parser.add_argument('--dwell_alight', type=int,         default=60, help='Dwell time at alight (dropoff) in seconds')
     parser.add_argument('--walk_distance_cutoff', type=int, default=0, help="Walking distance between dropoff and final destination.")
@@ -97,10 +98,10 @@ if __name__ == "__main__":
     start_time = time.time()
     if ONLINE_MODE:
         on_solver = OnlineRTVSolver(config)
-        updated_driver_runs, unserved_requests = on_solver.solve_pdptw_rtv(payload)
+        updated_driver_runs, requests_development = on_solver.solve_pdptw_rtv(payload)
     else:
         off_solver = OfflineRTVSolver(config)
-        updated_driver_runs, unserved_requests = off_solver.solve_rtv(payload, config.batch_interval, config.step_size)
+        updated_driver_runs, requests_development = off_solver.solve_rtv(payload, config.batch_interval, config.step_size)
         
 
     # calculate statistics of each iteration; for now only the first vehicle
@@ -108,7 +109,7 @@ if __name__ == "__main__":
                         PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
                         PayloadParser.DRIVERS: updated_driver_runs}
     stats_evaluator = StatsParser()
-    feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, unserved_requests)
+    feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, requests_development)
     
     logging.info(f"Stats: {json.dumps(stats.to_dict(), indent=4)}")
     logging.info(f'Violations: {violations}')

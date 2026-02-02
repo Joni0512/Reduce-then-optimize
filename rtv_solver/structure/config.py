@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from argparse import Namespace
 
-@dataclass(frozen=False)
+@dataclass
 class Config:
     """
     facilitates the usage of arguments in the relevant classes below
@@ -23,6 +23,7 @@ class Config:
     largest_tsp: int = 8
     share_cost_factor: float = 10
     rebalancing: bool = False
+    keep_active: bool = True
     dwell_pickup: int = 180
     dwell_alight: int = 60
     walk_distance_cutoff: int = 0

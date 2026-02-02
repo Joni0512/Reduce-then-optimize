@@ -64,12 +64,13 @@ class OnlineRTVSolver:
 
         return feasible_time_slots
 
-    def resolve_pdptw_rtv(self, payload):
-        updated_driver_runs, unserved_requests = self.solve_pdptw_rtv(payload)
-        if len(unserved_requests) == 0:
-            return updated_driver_runs
-        else:
-            return payload
+    # NOTE no value from this method
+    # def resolve_pdptw_rtv(self, payload):
+    #     updated_driver_runs, unserved_requests = self.solve_pdptw_rtv(payload)
+    #     if len(unserved_requests) == 0:
+    #         return updated_driver_runs
+    #     else:
+    #         return payload
 
     def solve_pdptw_rtv(self, payload, iteration = 0): # TODO do we need to add current_time
         # initalize network and payload
@@ -93,7 +94,7 @@ class OnlineRTVSolver:
                     active_requests[req_id] = req
                 batch.append(req)
         
-        # initialize all vehicles as they are stores in the original payload-object
+        # initialize all vehicles as they are stored in the payload-object
         vehicle_handler = VehicleHandler(payload_object.depot, 
                                          payload_object.driver_runs,
                                          self.config)
@@ -109,7 +110,7 @@ class OnlineRTVSolver:
         
         NetworkHandler.initialize_travel_time_matrix()
         iteration += 1  # increase iteration as the prior step was just rebuilding from the last iteration (if there was a prior step)
-        unserved_requests = set([req.id for req in batch]) - set(active_requests.keys()) # number of requests that are not already confirmed to be served
+        
         try:
             # generate and assign trips to each vehicle using the RTV approach solved by an ILP
             trip_handler = TripHandler(
@@ -122,7 +123,8 @@ class OnlineRTVSolver:
             raise e
         
         # assign vehicles and add trips / sequence to each vehicle 
-        vehicle_assignment = trip_handler.get_veh_assignment()
+        vehicle_assignment = trip_handler.vehicle_assignment
+        unserved_requests = set([req.id for req in batch]) # - set(active_requests.keys()) # number of requests that are not already confirmed to be  served
 
         for vehicle_id in vehicle_assignment:
             vehicle = vehicle_handler.vehicles[vehicle_id]
@@ -144,45 +146,47 @@ class OnlineRTVSolver:
                                             updated_driver_runs,
                                             unserved_requests, 
                                             payload[PayloadParser.REQUESTS])
-        return updated_driver_runs, list(unserved_requests) # ,trip_handler, vehicle_handler, request_handler, payload_object
+        request_development = {0: {"assigned": trip_handler.request_assignment, "unserved": list(unserved_requests)}}
+        return updated_driver_runs, request_development # ,trip_handler, vehicle_handler, request_handler, payload_object
 
-    @staticmethod
-    def check_consistency_of_manifests(prev_driver_runs: list[dict], new_driver_runs: list[dict], unserved_requests: set[int], new_requests: list[dict]):
+    def check_consistency_of_manifests(self, prev_driver_runs: list[dict], new_driver_runs: list[dict], unserved_requests: set[int], new_requests: list[dict]):
         """ 
-        check if each requests are picked up AND dropped off exactly once,
-        unserved requests should not appear in the manifests
+        Checks whether the previously written manifest still aligns with the new manifest after new request have been assigned. This concerns previously boarded or selected active requests. Each requests must be picked up AND dropped off exactly once and unserved_requests should not appear in the manifests at all.
         """
-        # initialize all new requests that need to be picked, dropped or unserved
-        picked_requests = set([req["booking_id"] for req in new_requests])
-        dropped_requests = copy.deepcopy(picked_requests) # set([req["booking_id"] for req in new_requests]) # simplified as it does not have to run the same loop twice
-        # get all requests that are already in the previous manifest
-        for driver_run in prev_driver_runs:
-            for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
-                # TODO why is type of stop[booking_id] a string and the set of request_ids floats (wouldn't int suffice?)
-                # float is quickfix for type mismatch - id in stop is stored as string instead of float
-                stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
-                if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
-                    picked_requests.add(stop_id)
-                else:
-                    dropped_requests.add(stop_id)
-        # remove all requests that are picked up/dropped off
-        for driver_run in new_driver_runs:
-            for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
-                stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
-                if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
-                    picked_requests.remove(stop_id)
-                else:
-                    dropped_requests.remove(stop_id)
-        # remove all requests that are unserved            
-        for req_id in unserved_requests:
-            picked_requests.remove(req_id)
-            dropped_requests.remove(req_id)
+        if self.config.keep_active:
+            # initialize all new requests that need to be picked, dropped or unserved
+            picked_requests = set([req["booking_id"] for req in new_requests])
+            dropped_requests = copy.deepcopy(picked_requests) # set([req["booking_id"] for req in new_requests]) # simplified as it does not have to run the same loop twice
+            # get all requests that are already in the previous manifest
+            for driver_run in prev_driver_runs:
+                for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
+                    # TODO why is type of stop[booking_id] a string and the set of request_ids floats (wouldn't int suffice?)
+                    # float is quickfix for type mismatch - id in stop is stored as string instead of float
+                    stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
+                    if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
+                        picked_requests.add(stop_id)
+                    else:
+                        dropped_requests.add(stop_id)
+            # remove all requests that are picked up/dropped off
+            for driver_run in new_driver_runs:
+                for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
+                    stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
+                    if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
+                        picked_requests.remove(stop_id)
+                    else:
+                        dropped_requests.remove(stop_id)
+            # remove all requests that are unserved            
+            for req_id in unserved_requests:
+                picked_requests.remove(req_id)
+                dropped_requests.remove(req_id)
 
-        if len(picked_requests) > 0 or len(dropped_requests) > 0:
-            # TODO: fails with wilson_data, cardinality = 3, thread_cnt = 16, batch_interval = 1800, step_size = 1800 (should be reproducible with this)
-            print("Missing requests:", picked_requests, dropped_requests)
-            raise Exception("Error: Some requests could not be removed.")
-        return True
+            if len(picked_requests) > 0 or len(dropped_requests) > 0:
+                # TODO: fails with wilson_data, cardinality = 3, thread_cnt = 16, batch_interval = 1800, step_size = 1800 (should be reproducible with this)
+                print("Missing requests:", picked_requests, dropped_requests)
+                raise Exception("Error: Some requests could not be removed.")
+            return True
+        else:
+            return True # manifest consistency is not a target if we do not keep active requests fixed
 
     @staticmethod
     def update_run(vehicle_handler: VehicleHandler, driver_run: dict) -> dict:
@@ -215,12 +219,12 @@ class OnlineRTVSolver:
         new_driver_runs = []
         # TODO longterm: turn driver_run into an object that handles all the conditions and changes based on validated calls
         for driver_run in driver_runs:
+            # get data from vehicle
             state = driver_run[PayloadParser.DRIVER_STATE]
-            manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
-
             current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
             next_immediate_time = state[PayloadParser.DRIVER_STATE_DT_SEC]
             next_immediate_loc = state[PayloadParser.DRIVER_STATE_LOC]
+            manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
             
             # update time if manifest is already completed
             if len(manifest) == current_order and next_immediate_time < current_time:
@@ -235,7 +239,7 @@ class OnlineRTVSolver:
                     next_immediate_time += self.DWELL_PICKUP
                 else:
                     next_immediate_time += self.DWELL_ALIGHT
-                current_order+=1
+                current_order += 1
                 if next_immediate_time > current_time:
                     break
                 
@@ -326,7 +330,7 @@ class OnlineRTVSolver:
                 PayloadParser.DRIVER_MANIFEST: new_manifest})
             # FIXME - reduce the manifest so that only the part is covered that has actually already happened
         
-        # self.check_consistency_of_manifests(driver_runs, new_driver_runs, [], [])
+        self.check_consistency_of_manifests(driver_runs, new_driver_runs, [], [])
         return new_driver_runs
 
     def solve_pdptw_heuristic(self, payload, return_added_vmt=False):
@@ -357,6 +361,7 @@ class OnlineRTVSolver:
 
     def solve_pdptw(self, payload, skip_swapping=True):
         # NOTE what is the difference to PDPTW_RTV
+        # TODO  currently not working due to the changes of the return values of solve-pdptw-rtv
         remaining_requests = []
         for driver_run in payload[PayloadParser.DRIVERS]:
             current_order = driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_LOC_SERV]

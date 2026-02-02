@@ -214,11 +214,9 @@ class PayloadParser:
                 PayloadParser.DRIVER_STATE_END_TIME: run[PayloadParser.DRIVER_STATE_END_TIME],
                 PayloadParser.DRIVER_STATE_AM_CAP: run[PayloadParser.DRIVER_STATE_AM_CAP],
                 PayloadParser.DRIVER_STATE_WC_CAP: run[PayloadParser.DRIVER_STATE_WC_CAP],
-
                 # injected defaults
                 PayloadParser.DRIVER_STATE_LOC_SERV: 0,
                 PayloadParser.DRIVER_STATE_DT_SEC: 0,
-
                 # initialize location at depot
                 PayloadParser.DRIVER_STATE_LOC: {
                     "lat": depot_loc["lat"],

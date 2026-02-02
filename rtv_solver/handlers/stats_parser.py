@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Tuple
+from collections import defaultdict
 
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.network_handler import NetworkHandler
@@ -13,6 +14,8 @@ from rtv_solver.structure.config import Config
 class StopPair:
     pickup: Optional[dict] = None
     dropoff: Optional[dict] = None
+    pickup_time: Optional[float] = None
+    dropoff_time: Optional[float] = None
 
 @dataclass
 class Violation:
@@ -29,9 +32,9 @@ class Stats:
     TODO add rolling horizon stats: average backlog (complex: vehicles to be picked up), 
     TODO alternative stats on RTV generation, cannot be handled by this class as this is not tracked in the dictionary at the moment
     """
-    vmt: float = 0.0    # vehicle miles traveled (TODO seems like we only consider time in seconds)
-    pmt: float = 0.0    # passenger miles traveled (TODO seems like we only consider time in seconds)
-    serviced: int = 0   # total serviced requests         
+    vmt: float = 0.0        # vehicle miles traveled (TODO seems like we only consider time in seconds)
+    pmt: float = 0.0        # passenger miles traveled (TODO seems like we only consider time in seconds)
+    serviced: int = 0       # total serviced requests, higher is better
 
     wait_time: List[float] = field(default_factory=list) # list of wait times per vehicle
     detour: List[float] = field(default_factory=list) # list of detour times per vehicle
@@ -39,6 +42,9 @@ class Stats:
     vmt_over_pmt: float = 0.0       # higher is better
     average_wait_time: float = 0.0  # lower is better
     average_detour: float = 0.0     # lower is better
+
+    total_requests: int = 0       # total requests that were part of original payload
+    serviced_requests: list[float] = field(default_factory=list)  # list of serviced requests 
 
     def finalize(self) -> None:
         if self.pmt > 0:
@@ -58,15 +64,16 @@ class StatsParser:
         self.config = config or Config()
         self.server_url = self.config.server_url
 
-        # booking_id -> StopPair(pickup=..., dropoff=...)
+        # request booking_id -> StopPair(pickup=..., dropoff=...)
         self.request_stops: Dict[int, StopPair] = {}
 
         self.stats = Stats()
         self.violations: List[Violation] = []
+        self.unserved: List[float] = []
 
         self._network_initialized = False
 
-    def evaluate(self, payload: dict, unserved_requests: list[dict]) -> Tuple[bool, Stats, List[Violation]]:
+    def evaluate(self, payload: dict, requests_development: dict[int, list]) -> Tuple[bool, Stats, List[Violation]]:
         """
         evaluate the final result in relation to the input data 
 
@@ -91,10 +98,11 @@ class StatsParser:
             self._simulate_driver_run(depot, driver_run)
 
         self._compute_request_metrics()
+        self._compute_request_development(requests, requests_development)
 
         feasible = len(self.violations) == 0
         self.stats.finalize()
-        return feasible, self.stats, self.violations
+        return feasible, self.stats, self.violations, self.unserved
 
     def _init_network(self) -> None:
         if self._network_initialized:
@@ -165,14 +173,13 @@ class StatsParser:
                 # update load
                 current_load_am += am_delta
                 current_load_wc += wc_delta
-
-                # dwell time
                 service_end = service_start + self.config.dwell_pickup
 
                 # store pickup stop
                 if self.request_stops[booking_id].pickup is not None:
                     self._add_violation("Pickup already exists", booking_id, run_id, stop)
                 self.request_stops[booking_id].pickup = stop
+                self.request_stops[booking_id].pickup_time = scheduled_time
 
             else:  # DROPOFF
                 current_load_am -= am_delta
@@ -182,11 +189,10 @@ class StatsParser:
                 # dropoff ordering constraints
                 if self.request_stops[booking_id].dropoff is not None:
                     self._add_violation("Dropoff already exists", booking_id, run_id, stop)
-
                 if self.request_stops[booking_id].pickup is None:
                     self._add_violation("Dropoff before pickup", booking_id, run_id, stop)
-
                 self.request_stops[booking_id].dropoff = stop
+                self.request_stops[booking_id].dropoff_time = scheduled_time
 
             # capacity checks
             if current_load_am > max_am_capacity:
@@ -240,7 +246,44 @@ class StatsParser:
 
             # count as serviced if it has a full pair
             self.stats.serviced += 1
+            self.stats.serviced_requests.append(booking_id)
 
+    def _compute_request_development(self, requests, requests_development: Dict[int, Dict[str, List[float]]]) -> None:
+        """
+        Computes the history of how request assignment developed, showing differences in assignment when keeping active_requests or not. This relates to the effect of the boolean flag --keep_active
+        - boarded: requests that are currently inside a vehicle at that timestamp
+        - delivered: requests that have been dropped off at or before that timestamp
+        - assigned: requests that have been assigned in that timestamp to a vehicle
+        - unserved: requests that have not been served in that timestamp
+
+        TODO add changes based on vehicle, how often do requests change vehicles
+        """
+        assignment_history = {}
+        self.stats.total_requests = len(requests)
+        for timestamp in sorted(requests_development.keys()):
+            assignment_history[timestamp] = {}
+            boarded: List[int] = []
+            delivered: List[int] = []
+
+            for req_id, sp in self.request_stops.items():
+                pu = sp.pickup_time
+                do = sp.dropoff_time
+
+                if pu <= timestamp and timestamp < do:
+                    boarded.append(req_id)
+                elif timestamp >= do:
+                    delivered.append(req_id)
+            
+            assignment_history[timestamp]['boarded'] = boarded
+            assignment_history[timestamp]['delivered'] = delivered
+
+            per_vehicle = defaultdict(list)
+            for req_id, veh_id in requests_development[timestamp]['assigned'].items():
+                per_vehicle[veh_id].append(req_id)
+
+            assignment_history[timestamp]['assigned'] = dict(per_vehicle)
+            assignment_history[timestamp]['unserved'] = requests_development[timestamp]['unserved']
+                
     def _add_violation(
         self,
         message: str,

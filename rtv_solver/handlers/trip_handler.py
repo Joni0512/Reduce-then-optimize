@@ -50,7 +50,7 @@ class TripHandler:
         self.generate_trip_costs(vehicles, config.max_thread_cnt, 0)
         self.generate_shared_trips(vehicles, config.max_cardinality, config.max_thread_cnt, config.share_cost_factor)
         logging.info(f"Time spent on RTV generation: {time.time() - self.starting_time}")
-        self.assign_trips_gurobi(requests, active_requests, config.ilp_penalty)
+        self.assign_trips_gurobi(requests, active_requests, config.ilp_penalty, config.keep_active)
         if config.rebalancing:
             self.get_rebalancing_trips(vehicles,requests)
 
@@ -63,10 +63,7 @@ class TripHandler:
             raise Exception("RTV generation timedout: {0} > {1}".format(time_spent, self.config.rtv_timeout))
 
     def get_trip_cost(self, origin, destination):
-        return NetworkHandler.travel_distance(origin,destination)
-    
-    def get_veh_assignment(self) -> dict[int, tuple[list[Trip], StopSequence]]:
-        return self.vehicle_assignment  
+        return NetworkHandler.travel_distance(origin,destination)  
     
     def generate_ondemand_only_trips(self, requests: list[Request], iteration: int):
         """generate single trips from individual requests directly"""
@@ -250,7 +247,7 @@ class TripHandler:
             TripHandler.shared_trips_to_create.append(shared_trip)
 
     def update_shared_trip_numbers(self, cardinality):
-        """"""
+        # TODO add docstring
         for shared_trip in TripHandler.shared_trips_to_create:
             new_shared_trip_no = self.get_new_trip_no()
             shared_trip.number = new_shared_trip_no
@@ -395,47 +392,67 @@ class TripHandler:
                 # print("Time to process shared trips of cardinality {0}: {1}".format(cardinality,time.time()-st))
             
             self.update_shared_trip_numbers(cardinality)
+            
             if cardinality == 2: # NOTE why only for cardinality 2
                 self.create_rr_graph()
             if len(self.shared_trips_map[cardinality]) == 0:
-                break
+                break # NOTE why?
             self.generate_trip_costs(vehicles, max_num_thread, trip_start)
-            logging.info(f"Time to generate cardinal {cardinality} trips: {time.time()-st}")
-            logging.info(f"Number of cardinal {cardinality} trips: {len(self.shared_trips_map[cardinality])}")
-            logging.info(f"Number of trip costs: {len(TripHandler.trip_costs)}")
+
+            logging.info(f"{time.time()-st} seconds to generate cardinality {cardinality} trips.")
+            logging.info(f"{len(self.shared_trips_map[cardinality])} cardinality {cardinality} trips.")
+            logging.info(f"{len(TripHandler.trip_costs)} trip costs generated.")
             cardinality += 1
     
-    def assign_trips_gurobi(self, requests, active_requests, penalty):
+    def assign_trips_gurobi(self, requests: list, active_requests: list, penalty: int = 100_000, keep_active: bool = True):
         """
-        ILP optimization of the previously generated trips to the possible vehicles
-        
-        process the ILP to assign trips to vehicles
+        ## ILP optimization of the previously generated trips to the possible vehicles
+
+        :param list requests: Requests that are considered in this method call.
+        :param list active_requests: Requests that have been accepted in prior iterations and that need to be kept based on the keep_active bool.
+        :param int penalty: Changes the solution by penalizing requests that are not accepted.
+        :param bool keep_active: To get the actual best result, we do not care about what has been previously accepted. Prior iterations only influence the solutions by already boarded requests. If a new combination becomes better, we do not want to be constrained by trips that have been accepted because the solver saw only a partial (earlier picture) and it should not be stuck with previously selected requests.
         """
         trip_count = len(TripHandler.trip_costs)
         request_count = len(requests)
 
         logging.debug("Started building optimization problem")
+        # setup Integer Linear Program 
         with gp.Env(empty=True) as env:
             env.setParam('OutputFlag', 0)
             env.start()
-            m = gp.Model('RTV assignment',env=env)
-            var_type = GRB.BINARY
+            m = gp.Model('RTV assignment - Service rate + Minimum distance', env=env)
+            
+            # define trip variables with related costs
             trip_costs = np.zeros(trip_count)
             for i in range(trip_count):
                 trip_costs[i] = TripHandler.trip_costs[i].cost
-            x_t = m.addVars(trip_count,lb=0,ub=1,obj=trip_costs,name="t", vtype=var_type)
+            x_t = m.addVars(trip_count,
+                            lb=0,
+                            ub=1,
+                            obj=trip_costs,
+                            name="t", 
+                            vtype=GRB.BINARY)
 
             penalties = np.ones(request_count)
             request_no = 0
             for request in requests:
                 penalties[request_no] = request.priority
-                if request.id in active_requests:
+                if request.id in active_requests and keep_active:
                     penalties[request_no] = 100
                 request_no+=1
-            x_r = m.addVars(request_count,lb=0,ub=1,obj=penalties*penalty,name="r", vtype=var_type)
+            x_r = m.addVars(request_count,
+                            lb=0,
+                            ub=1,
+                            obj=penalties * penalty,
+                            name="r", 
+                            vtype=GRB.BINARY)
 
+            # constraint: each vehicle has at most on trip
             m.addConstrs((gp.quicksum(x_t[i] for i in self.vehicle_to_trips_cost_map[vehicle_id]) <= 1 for vehicle_id in list(self.vehicle_to_trips_cost_map.keys())), "veh")
 
+            # constraint: each request is either rejected or served by a single trip 
+            # active requests are handled with extra care
             request_no = 0
             for request in requests:
                 trip_no = self.ondemand_only_trip_map[request.id]
@@ -444,13 +461,14 @@ class TripHandler:
                 m.addConstr(x_r[request_no]+gp.quicksum(x_t[i] for i in cost_map_indices) == 1,"req_{0}".format(request.id))
                 
                 # all the previously assigned requests should be picked up
-                if request.id in active_requests:
+                if request.id in active_requests and keep_active:
                     m.addConstr(x_r[request_no] == 0,"active_req_{0}".format(request.id))
                 request_no+=1
 
             m.setParam('TimeLimit', self.config.ilp_timeout)
             m.optimize()
 
+            # # extract solution from Gurobi assignment
             self.trip_sizes = []
             self.unassigned_trip_count = 0
             self.taxi_only_trip_count = 0
@@ -461,7 +479,6 @@ class TripHandler:
             if m.Status == GRB.OPTIMAL or m.Status == GRB.SUBOPTIMAL:
                 logging.info("Total time spent on optimization: {0}".format(m.Runtime))
 
-                # extract solution from Gurobi assignment
                 for vehicle_id in self.vehicle_to_trips_cost_map:
                     for i in self.vehicle_to_trips_cost_map[vehicle_id]:
                         if x_t[i].X == 1:
@@ -504,8 +521,9 @@ class TripHandler:
 
     def get_rebalancing_trips(self, vehicles, requests):
         """ 
-        idling, empty vehicles can be reallocated to the origins of current requests that have not been covered
-        assuming that that area might be underserved and send the best vehicle instead
+        Idling, empty vehicles can be reallocated to the origins of current requests that have not been covered
+        
+        Assumption: rejected requests are in underserved areas, so we need to send additional vehicles there. 
         """
         empty_vehicles = []
         for vehicle_id in vehicles:

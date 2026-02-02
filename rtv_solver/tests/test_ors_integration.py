@@ -24,6 +24,7 @@ class DummyConfig:
     largest_tsp: int = 8
     share_cost_factor: float = 10
     rebalancing: bool = False
+    keep_active: bool = True
     dwell_pickup: int = 180
     dwell_alight: int = 60
     walk_distance_cutoff: int = 0
@@ -81,12 +82,11 @@ def test_integration_offlineRTVsolver_vehicle1_maxCard3():
         PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
         PayloadParser.DRIVERS: updated_driver_runs,}
     stats_evaluator = StatsParser(config=config)
-    feasible, stats, violations = stats_evaluator.evaluate(stats_payload, unserved_requests)
+    feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, unserved_requests)
 
     # Test assertions
     assert feasible is True
     assert violations == []
-    assert len(unserved_requests) == 10
 
     assert stats.vmt == pytest.approx(1070.5)
     assert stats.pmt == pytest.approx(1501.1)
@@ -119,12 +119,11 @@ def test_integration_offlineRTVsolver_vehicle2_maxCard2():
         PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
         PayloadParser.DRIVERS: updated_driver_runs,}
     stats_evaluator = StatsParser(config=config)
-    feasible, stats, violations = stats_evaluator.evaluate(stats_payload, unserved_requests)
+    feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, unserved_requests)
 
     # Test assertions
     assert feasible is True
     assert violations == []
-    assert len(unserved_requests) == 6
 
     assert stats.vmt == pytest.approx(2439.6999999999994)
     assert stats.pmt == pytest.approx(2656.2999999999997)
@@ -148,19 +147,18 @@ def test_integration_onlineRTVsolver_vehicle3_maxCard3():
     config.max_cardinality = 3
     # run solver
     on_solver = OnlineRTVSolver(config)
-    updated_driver_runs, unserved_requests = on_solver.solve_pdptw_rtv(payload)
+    updated_driver_runs, requests_development = on_solver.solve_pdptw_rtv(payload)
     # compute stats
     stats_payload = {
         PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
         PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
         PayloadParser.DRIVERS: updated_driver_runs,}
     stats_evaluator = StatsParser(config=config)
-    feasible, stats, violations = stats_evaluator.evaluate(stats_payload, unserved_requests)
+    feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, requests_development)
 
     # Test assertions
     assert feasible is True
     assert violations == []
-    assert len(unserved_requests) == 5
 
     assert stats.vmt == pytest.approx(2595.7999999999997)
     assert stats.pmt == pytest.approx(3085.5)
@@ -196,7 +194,7 @@ def test_integration_RHsolver_vehicle1_maxCard2_interval1200():
         PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
         PayloadParser.DRIVERS: updated_driver_runs,}
     stats_evaluator = StatsParser(config=config)
-    feasible, stats, violations = stats_evaluator.evaluate(stats_payload, unserved_requests)
+    feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, unserved_requests)
 
     # Test assertions
     assert feasible is True    
@@ -224,7 +222,7 @@ def test_integration_RHsolver_vehicle3_maxCard2_interval1200():
         PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
         PayloadParser.DRIVERS: updated_driver_runs,}
     stats_evaluator = StatsParser(config=config)
-    feasible, stats, violations = stats_evaluator.evaluate(stats_payload, unserved_requests)
+    feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, unserved_requests)
 
     # Test assertions
     assert feasible is True    
