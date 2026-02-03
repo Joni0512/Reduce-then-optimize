@@ -5,33 +5,10 @@ from dataclasses import dataclass
 from rtv_solver import OfflineRTVSolver, OnlineRTVSolver
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
+from rtv_solver.structure.config import Config
 
 # tests are built to run quickly and meant to test the general variants of the code base (extrapolating combinations such as different cardinality or solver approach (online, offline, rolling horizon)
 # This code is not meant for performance testing.
-
-@dataclass
-class DummyConfig:
-    """fixed to run stable tests and should not be changed"""
-    # technical setup
-    output_dir: str = ""
-    server_url: str = "http://127.0.0.1:5001/"
-    max_thread_cnt: int = 16
-    rtv_timeout: int = 120
-    ilp_timeout: int = 120
-    ilp_penalty: int = 1_000_000
-    # experiment parameters
-    max_cardinality: int = 1
-    largest_tsp: int = 8
-    share_cost_factor: float = 10
-    rebalancing: bool = False
-    keep_active: bool = True
-    dwell_pickup: int = 180
-    dwell_alight: int = 60
-    walk_distance_cutoff: int = 0
-    step_size: int = 600
-    batch_interval: int = 600
-    # stats parameters
-    travel_time_margin: int = 5
 
 def _init_payload(vehicle_count: int = 1) -> dict:
     """
@@ -67,8 +44,10 @@ def test_integration_offlineRTVsolver_vehicle1_maxCard3():
     """
     # initialize data and config
     payload = _init_payload(vehicle_count=1)
-    config = DummyConfig()
+    config = Config()
     config.max_cardinality = 3
+    config.step_size = 600
+    config.batch_interval = 600
     # run solver
     off_solver = OfflineRTVSolver(config)
     updated_driver_runs, unserved_requests = off_solver.solve_rtv(
@@ -104,8 +83,10 @@ def test_integration_offlineRTVsolver_vehicle2_maxCard2():
     """
     # initialize data and config
     payload = _init_payload(vehicle_count=2)
-    config = DummyConfig()
+    config = Config()
     config.max_cardinality = 2
+    config.step_size = 600
+    config.batch_interval = 600
     # run solver
     off_solver = OfflineRTVSolver(config)
     updated_driver_runs, unserved_requests = off_solver.solve_rtv(
@@ -143,8 +124,10 @@ def test_integration_onlineRTVsolver_vehicle3_maxCard3():
     """
     # initialize data and config
     payload = _init_payload(vehicle_count=3)
-    config = DummyConfig()
+    config = Config()
     config.max_cardinality = 3
+    config.step_size = 600
+    config.batch_interval = 600
     # run solver
     on_solver = OnlineRTVSolver(config)
     updated_driver_runs, requests_development = on_solver.solve_pdptw_rtv(payload)
@@ -178,8 +161,9 @@ def test_integration_RHsolver_vehicle1_maxCard2_interval1200():
     """
     # initialize data and config
     payload = _init_payload(vehicle_count=1)
-    config = DummyConfig()
+    config = Config()
     config.max_cardinality = 2
+    config.step_size = 600
     config.batch_interval = 1200
     # run solver
     off_solver = OfflineRTVSolver(config)
@@ -206,8 +190,9 @@ def test_integration_RHsolver_vehicle3_maxCard2_interval1200():
     """
     # initialize data and config
     payload = _init_payload(vehicle_count=2)
-    config = DummyConfig()
+    config = Config()
     config.max_cardinality = 2
+    config.step_size = 600
     config.batch_interval = 1200
     # run solver
     off_solver = OfflineRTVSolver(config)
