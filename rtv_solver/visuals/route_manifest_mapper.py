@@ -92,6 +92,8 @@ class RouteManifestMapper():
     @staticmethod
     def _build_stop_design_properties(stop: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         action = stop.get(PayloadParser.MANIFEST_ACTION, "")
+        run_id = stop.get(PayloadParser.MANIFEST_RUN_ID, "")
+        order = stop.get(PayloadParser.MANIFEST_ORDER, "")
         color, icon = "#000000", MakiIcon.CIRCLE
         if action == VehicleStop.ACT_PICKUP:
             color = "#7d8aff"
@@ -100,9 +102,11 @@ class RouteManifestMapper():
             color = "#c8cdff"
             icon = MakiIcon.TRIANGLE
         
-        return {"marker-color": color,
+        return {"title": f"{run_id}-{order}",
+                "marker-color": color,
                 "marker-size": "medium",
-                "marker-symbol": icon}
+                "marker-symbol": icon
+                }
     
     def _build_depot_feature(self, depot: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Build a Point feature for a stop action."""
@@ -154,10 +158,10 @@ if __name__ == '__main__':
     debug test for visualizer
     """
     # load data from file and update to canonical format for the entire system
-    filename = 'debug_output.json'
+    filename = 'rtv-solver/rtv_solver/visuals/debug_output.json'
     with open(filename, 'r') as json_file:
         loaded_data = json.load(json_file)
 
     mapper = RouteManifestMapper()
     geojson = mapper.manifest_to_geojson(loaded_data)
-    mapper.save_geojson(geojson, "route_manifest.geojson")
+    mapper.save_geojson(geojson, 'rtv-solver/rtv_solver/visuals/route_manifest.geojson')

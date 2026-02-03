@@ -1,0 +1,699 @@
+{
+    "depot": {
+        "pt": {
+            "lat": 35.723017652422435,
+            "lon": -77.90871990823223
+        },
+        "node_id": 0
+    },
+    "requests": [
+        {
+            "booking_id": 1.0,
+            "pickup_pt": {
+                "lon": -77.90247345,
+                "lat": 35.707904816
+            },
+            "dropoff_pt": {
+                "lon": -77.906433105,
+                "lat": 35.737380981
+            },
+            "pickup_time_window_start": 19822,
+            "pickup_time_window_end": 21622,
+            "dropoff_time_window_start": 20112.7,
+            "dropoff_time_window_end": 21912.7,
+            "am": 1,
+            "wc": 0
+        },
+        {
+            "booking_id": 2.0,
+            "pickup_pt": {
+                "lon": -77.924423218,
+                "lat": 35.75359726
+            },
+            "dropoff_pt": {
+                "lon": -77.963066101,
+                "lat": 35.740951538
+            },
+            "pickup_time_window_start": 19827,
+            "pickup_time_window_end": 21627,
+            "dropoff_time_window_start": 20270.9,
+            "dropoff_time_window_end": 22070.9,
+            "am": 1,
+            "wc": 0
+        },
+        {
+            "booking_id": 3.0,
+            "pickup_pt": {
+                "lon": -77.946334839,
+                "lat": 35.725849152
+            },
+            "dropoff_pt": {
+                "lon": -77.967590332,
+                "lat": 35.746833801
+            },
+            "pickup_time_window_start": 19828,
+            "pickup_time_window_end": 21628,
+            "dropoff_time_window_start": 20123.7,
+            "dropoff_time_window_end": 21923.7,
+            "am": 1,
+            "wc": 0
+        },
+        {
+            "booking_id": 4.0,
+            "pickup_pt": {
+                "lon": -77.909339905,
+                "lat": 35.733566284
+            },
+            "dropoff_pt": {
+                "lon": -77.902770996,
+                "lat": 35.699867249
+            },
+            "pickup_time_window_start": 19851,
+            "pickup_time_window_end": 21651,
+            "dropoff_time_window_start": 20238.9,
+            "dropoff_time_window_end": 22038.9,
+            "am": 1,
+            "wc": 0
+        },
+        {
+            "booking_id": 5.0,
+            "pickup_pt": {
+                "lon": -77.893722534,
+                "lat": 35.720035553
+            },
+            "dropoff_pt": {
+                "lon": -77.930335999,
+                "lat": 35.753082275
+            },
+            "pickup_time_window_start": 20002,
+            "pickup_time_window_end": 21802,
+            "dropoff_time_window_start": 20451,
+            "dropoff_time_window_end": 22251,
+            "am": 1,
+            "wc": 0
+        },
+        {
+            "booking_id": 6.0,
+            "pickup_pt": {
+                "lon": -77.909576416,
+                "lat": 35.728252411
+            },
+            "dropoff_pt": {
+                "lon": -77.930335999,
+                "lat": 35.753082275
+            },
+            "pickup_time_window_start": 20139,
+            "pickup_time_window_end": 21939,
+            "dropoff_time_window_start": 20457.8,
+            "dropoff_time_window_end": 22257.8,
+            "am": 1,
+            "wc": 0
+        },
+        {
+            "booking_id": 7.0,
+            "pickup_pt": {
+                "lon": -77.900428772,
+                "lat": 35.707904816
+            },
+            "dropoff_pt": {
+                "lon": -77.914161682,
+                "lat": 35.733039856
+            },
+            "pickup_time_window_start": 20385,
+            "pickup_time_window_end": 22185,
+            "dropoff_time_window_start": 20705.8,
+            "dropoff_time_window_end": 22505.8,
+            "am": 1,
+            "wc": 0
+        },
+        {
+            "booking_id": 8.0,
+            "pickup_pt": {
+                "lon": -77.920219421,
+                "lat": 35.731918335
+            },
+            "dropoff_pt": {
+                "lon": -77.967590332,
+                "lat": 35.746833801
+            },
+            "pickup_time_window_start": 20423,
+            "pickup_time_window_end": 22223,
+            "dropoff_time_window_start": 20807.1,
+            "dropoff_time_window_end": 22607.1,
+            "am": 1,
+            "wc": 0
+        },
+        {
+            "booking_id": 9.0,
+            "pickup_pt": {
+                "lon": -77.944015503,
+                "lat": 35.749149323
+            },
+            "dropoff_pt": {
+                "lon": -77.939537048,
+                "lat": 35.768268585
+            },
+            "pickup_time_window_start": 20463,
+            "pickup_time_window_end": 22263,
+            "dropoff_time_window_start": 20713.5,
+            "dropoff_time_window_end": 22513.5,
+            "am": 1,
+            "wc": 0
+        },
+        {
+            "booking_id": 10.0,
+            "pickup_pt": {
+                "lon": -77.900192261,
+                "lat": 35.721466064
+            },
+            "dropoff_pt": {
+                "lon": -77.944717407,
+                "lat": 35.737010956
+            },
+            "pickup_time_window_start": 20567,
+            "pickup_time_window_end": 22367,
+            "dropoff_time_window_start": 20978.3,
+            "dropoff_time_window_end": 22778.3,
+            "am": 1,
+            "wc": 0
+        },
+        {
+            "booking_id": 11.0,
+            "pickup_pt": {
+                "lon": -77.887863159,
+                "lat": 35.716983795
+            },
+            "dropoff_pt": {
+                "lon": -77.902740479,
+                "lat": 35.700027466
+            },
+            "pickup_time_window_start": 20625,
+            "pickup_time_window_end": 22425,
+            "dropoff_time_window_start": 20965.7,
+            "dropoff_time_window_end": 22765.7,
+            "am": 1,
+            "wc": 0
+        },
+        {
+            "booking_id": 12.0,
+            "pickup_pt": {
+                "lon": -77.923782349,
+                "lat": 35.721488953
+            },
+            "dropoff_pt": {
+                "lon": -77.902770996,
+                "lat": 35.699867249
+            },
+            "pickup_time_window_start": 20708,
+            "pickup_time_window_end": 22508,
+            "dropoff_time_window_start": 21033.7,
+            "dropoff_time_window_end": 22833.7,
+            "am": 1,
+            "wc": 0
+        },
+        {
+            "booking_id": 13.0,
+            "pickup_pt": {
+                "lon": -77.906143188,
+                "lat": 35.737335205
+            },
+            "dropoff_pt": {
+                "lon": -77.90247345,
+                "lat": 35.707904816
+            },
+            "pickup_time_window_start": 20884,
+            "pickup_time_window_end": 22684,
+            "dropoff_time_window_start": 21170.3,
+            "dropoff_time_window_end": 22970.3,
+            "am": 1,
+            "wc": 0
+        },
+        {
+            "booking_id": 14.0,
+            "pickup_pt": {
+                "lon": -77.928794861,
+                "lat": 35.700576782
+            },
+            "dropoff_pt": {
+                "lon": -77.902740479,
+                "lat": 35.700027466
+            },
+            "pickup_time_window_start": 20931,
+            "pickup_time_window_end": 22731,
+            "dropoff_time_window_start": 21222.8,
+            "dropoff_time_window_end": 23022.8,
+            "am": 1,
+            "wc": 0
+        }
+    ],
+    "driver_runs": [
+        {
+            "state": {
+                "run_id": 0,
+                "start_time": 18000,
+                "end_time": 72000,
+                "am_capacity": 8,
+                "wc_capacity": 3,
+                "locations_already_serviced": 8,
+                "location_dt_seconds": 23422,
+                "loc": {
+                    "lat": 35.737010956,
+                    "lon": -77.944717407,
+                    "node_id": 4.0
+                },
+                "total_locations": 8
+            },
+            "manifest": [
+                {
+                    "run_id": 0,
+                    "booking_id": 7.0,
+                    "order": 1,
+                    "action": "pickup",
+                    "loc": {
+                        "lat": 35.707904816,
+                        "lon": -77.900428772,
+                        "node_id": 17.0
+                    },
+                    "scheduled_time": 20385.0,
+                    "am": 1.0,
+                    "wc": 0.0,
+                    "time_window_start": 20385.0,
+                    "time_window_end": 22185.0
+                },
+                {
+                    "run_id": 0,
+                    "booking_id": 5.0,
+                    "order": 2,
+                    "action": "pickup",
+                    "loc": {
+                        "lat": 35.720035553,
+                        "lon": -77.893722534,
+                        "node_id": 11.0
+                    },
+                    "scheduled_time": 20707.8,
+                    "am": 1.0,
+                    "wc": 0.0,
+                    "time_window_start": 20002.0,
+                    "time_window_end": 21802.0
+                },
+                {
+                    "run_id": 0,
+                    "booking_id": 10.0,
+                    "order": 3,
+                    "action": "pickup",
+                    "loc": {
+                        "lat": 35.721466064,
+                        "lon": -77.900192261,
+                        "node_id": 5.0
+                    },
+                    "scheduled_time": 20967.3,
+                    "am": 1.0,
+                    "wc": 0.0,
+                    "time_window_start": 20567.0,
+                    "time_window_end": 22367.0
+                },
+                {
+                    "run_id": 0,
+                    "booking_id": 6.0,
+                    "order": 4,
+                    "action": "pickup",
+                    "loc": {
+                        "lat": 35.728252411,
+                        "lon": -77.909576416,
+                        "node_id": 1.0
+                    },
+                    "scheduled_time": 21262.8,
+                    "am": 1.0,
+                    "wc": 0.0,
+                    "time_window_start": 20139.0,
+                    "time_window_end": 21939.0
+                },
+                {
+                    "run_id": 0,
+                    "booking_id": 7.0,
+                    "order": 5,
+                    "action": "dropoff",
+                    "loc": {
+                        "lat": 35.733039856,
+                        "lon": -77.914161682,
+                        "node_id": 8.0
+                    },
+                    "scheduled_time": 21506.0,
+                    "am": 1.0,
+                    "wc": 0.0,
+                    "time_window_start": 20705.8,
+                    "time_window_end": 22505.8
+                },
+                {
+                    "run_id": 0,
+                    "booking_id": 5.0,
+                    "order": 6,
+                    "action": "dropoff",
+                    "loc": {
+                        "lat": 35.753082275,
+                        "lon": -77.930335999,
+                        "node_id": 2.0
+                    },
+                    "scheduled_time": 21821.6,
+                    "am": 1.0,
+                    "wc": 0.0,
+                    "time_window_start": 20451.0,
+                    "time_window_end": 22251.0
+                },
+                {
+                    "run_id": 0,
+                    "booking_id": 6.0,
+                    "order": 7,
+                    "action": "dropoff",
+                    "loc": {
+                        "lat": 35.753082275,
+                        "lon": -77.930335999,
+                        "node_id": 6.0
+                    },
+                    "scheduled_time": 21881.6,
+                    "am": 1.0,
+                    "wc": 0.0,
+                    "time_window_start": 20457.8,
+                    "time_window_end": 22257.8
+                },
+                {
+                    "run_id": 0,
+                    "booking_id": 10.0,
+                    "order": 8,
+                    "action": "dropoff",
+                    "loc": {
+                        "lat": 35.737010956,
+                        "lon": -77.944717407,
+                        "node_id": 4.0
+                    },
+                    "scheduled_time": 22151.3,
+                    "am": 1.0,
+                    "wc": 0.0,
+                    "time_window_start": 20978.3,
+                    "time_window_end": 22778.3
+                }
+            ]
+        },
+        {
+            "state": {
+                "run_id": 1,
+                "start_time": 18000,
+                "end_time": 72000,
+                "am_capacity": 8,
+                "wc_capacity": 3,
+                "locations_already_serviced": 8,
+                "location_dt_seconds": 23422,
+                "loc": {
+                    "lat": 35.707904816,
+                    "lon": -77.90247345,
+                    "node_id": 2.0
+                },
+                "total_locations": 8
+            },
+            "manifest": [
+                {
+                    "run_id": 1,
+                    "booking_id": 4.0,
+                    "order": 1,
+                    "action": "pickup",
+                    "loc": {
+                        "lat": 35.733566284,
+                        "lon": -77.909339905,
+                        "node_id": 23.0
+                    },
+                    "scheduled_time": 19851.0,
+                    "am": 1.0,
+                    "wc": 0.0,
+                    "time_window_start": 19851.0,
+                    "time_window_end": 21651.0
+                },
+                {
+                    "run_id": 1,
+                    "booking_id": 11.0,
+                    "order": 2,
+                    "action": "pickup",
+                    "loc": {
+                        "lat": 35.716983795,
+                        "lon": -77.887863159,
+                        "node_id": 17.0
+                    },
+                    "scheduled_time": 20625.0,
+                    "am": 1.0,
+                    "wc": 0.0,
+                    "time_window_start": 20625.0,
+                    "time_window_end": 22425.0
+                },
+                {
+                    "run_id": 1,
+                    "booking_id": 13.0,
+                    "order": 3,
+                    "action": "pickup",
+                    "loc": {
+                        "lat": 35.737335205,
+                        "lon": -77.906143188,
+                        "node_id": 3.0
+                    },
+                    "scheduled_time": 21038.4,
+                    "am": 1.0,
+                    "wc": 0.0,
+                    "time_window_start": 20884.0,
+                    "time_window_end": 22684.0
+                },
+                {
+                    "run_id": 1,
+                    "booking_id": 12.0,
+                    "order": 4,
+                    "action": "pickup",
+                    "loc": {
+                        "lat": 35.721488953,
+                        "lon": -77.923782349,
+                        "node_id": 5.0
+                    },
+                    "scheduled_time": 21466.0,
+                    "am": 1.0,
+                    "wc": 0.0,
+                    "time_window_start": 20708.0,
+                    "time_window_end": 22508.0
+                },
+                {
+                    "run_id": 1,
+                    "booking_id": 4.0,
+                    "order": 5,
+                    "action": "dropoff",
+                    "loc": {
+                        "lat": 35.699867249,
+                        "lon": -77.902770996,
+                        "node_id": 8.0
+                    },
+                    "scheduled_time": 21973.7,
+                    "am": 1.0,
+                    "wc": 0.0,
+                    "time_window_start": 20238.9,
+                    "time_window_end": 22038.9
+                },
+                {
+                    "run_id": 1,
+                    "booking_id": 12.0,
+                    "order": 6,
+                    "action": "dropoff",
+                    "loc": {
+                        "lat": 35.699867249,
+                        "lon": -77.902770996,
+                        "node_id": 14.0
+                    },
+                    "scheduled_time": 22033.7,
+                    "am": 1.0,
+                    "wc": 0.0,
+                    "time_window_start": 21033.7,
+                    "time_window_end": 22833.7
+                },
+                {
+                    "run_id": 1,
+                    "booking_id": 11.0,
+                    "order": 7,
+                    "action": "dropoff",
+                    "loc": {
+                        "lat": 35.700027466,
+                        "lon": -77.902740479,
+                        "node_id": 10.0
+                    },
+                    "scheduled_time": 22097.4,
+                    "am": 1.0,
+                    "wc": 0.0,
+                    "time_window_start": 20965.7,
+                    "time_window_end": 22765.7
+                },
+                {
+                    "run_id": 1,
+                    "booking_id": 13.0,
+                    "order": 8,
+                    "action": "dropoff",
+                    "loc": {
+                        "lat": 35.707904816,
+                        "lon": -77.90247345,
+                        "node_id": 2.0
+                    },
+                    "scheduled_time": 22304.800000000003,
+                    "am": 1.0,
+                    "wc": 0.0,
+                    "time_window_start": 21170.3,
+                    "time_window_end": 22970.3
+                }
+            ]
+        }
+    ],
+    "stats_assign_dev": {
+        "16222": {
+            "assigned": {},
+            "unserved": []
+        },
+        "16822": {
+            "assigned": {
+                "1.0": 0,
+                "2.0": 1,
+                "3.0": 1,
+                "5.0": 0,
+                "6.0": 1,
+                "7.0": 0
+            },
+            "unserved": [
+                4.0
+            ]
+        },
+        "17422": {
+            "assigned": {
+                "4.0": 1,
+                "5.0": 0,
+                "6.0": 0,
+                "7.0": 0,
+                "11.0": 1,
+                "13.0": 1
+            },
+            "unserved": [
+                1.0,
+                2.0,
+                3.0,
+                8.0,
+                9.0,
+                10.0,
+                12.0,
+                14.0
+            ]
+        },
+        "18022": {
+            "assigned": {
+                "4.0": 1,
+                "5.0": 0,
+                "6.0": 0,
+                "7.0": 0,
+                "11.0": 1,
+                "13.0": 1
+            },
+            "unserved": [
+                1.0,
+                2.0,
+                3.0,
+                8.0,
+                9.0,
+                10.0,
+                12.0,
+                14.0
+            ]
+        },
+        "18622": {
+            "assigned": {
+                "4.0": 1,
+                "5.0": 0,
+                "6.0": 0,
+                "7.0": 0,
+                "11.0": 1,
+                "13.0": 1
+            },
+            "unserved": [
+                1.0,
+                2.0,
+                3.0,
+                8.0,
+                9.0,
+                10.0,
+                12.0,
+                14.0
+            ]
+        },
+        "19222": {
+            "assigned": {
+                "4.0": 1,
+                "5.0": 0,
+                "6.0": 0,
+                "7.0": 0,
+                "11.0": 1,
+                "13.0": 1
+            },
+            "unserved": [
+                1.0,
+                2.0,
+                3.0,
+                8.0,
+                9.0,
+                10.0,
+                12.0,
+                14.0
+            ]
+        },
+        "19822": {
+            "assigned": {
+                "4.0": 1,
+                "5.0": 0,
+                "6.0": 0,
+                "7.0": 0,
+                "11.0": 1,
+                "13.0": 1
+            },
+            "unserved": [
+                1.0,
+                2.0,
+                3.0,
+                8.0,
+                9.0,
+                10.0,
+                12.0,
+                14.0
+            ]
+        },
+        "20422": {
+            "assigned": {
+                "5.0": 0,
+                "6.0": 0,
+                "10.0": 0,
+                "11.0": 1,
+                "12.0": 1,
+                "13.0": 1
+            },
+            "unserved": [
+                8.0,
+                9.0,
+                14.0
+            ]
+        },
+        "21022": {
+            "assigned": {
+                "6.0": 0,
+                "12.0": 1,
+                "13.0": 1
+            },
+            "unserved": []
+        },
+        "21622": {
+            "assigned": {},
+            "unserved": []
+        },
+        "22222": {
+            "assigned": {},
+            "unserved": []
+        },
+        "22822": {
+            "assigned": {},
+            "unserved": []
+        }
+    }
+}
