@@ -514,9 +514,10 @@ class VehicleHandler:
             locations[int(vehicle_id)] = self.get_vehicle_exact_location(vehicle_id)
         return locations
 
-    def add_rebalancing_trip(vehicle,destination,current_time):
-        time_at_destination = current_time + NetworkHandler.travel_time(vehicle.last_node,destination)
-        if VehicleHandler.can_return_to_deport(vehicle,destination,time_at_destination):
+    @staticmethod
+    def add_rebalancing_trip(vehicle, destination, current_time):
+        time_at_destination = current_time + NetworkHandler.travel_time(vehicle.last_node, destination)
+        if VehicleHandler.can_return_to_depot(vehicle, destination, time_at_destination):
             vehicle.rebalancing = True
             vehicle.time_at_last = current_time
             vehicle.stop_sequence = [VehicleStop(None, destination, VehicleStop.ACT_REBALANCE, 0)]

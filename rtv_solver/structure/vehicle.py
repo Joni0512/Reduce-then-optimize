@@ -1,6 +1,7 @@
 from enum import Enum
 from dataclasses import dataclass
 from typing import Optional
+import logging
 
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.handlers.network_handler import NetworkHandler
@@ -60,21 +61,18 @@ class Vehicle:
         return next_immediate_node,time_at_next_immediate_node
     
     def has_completed_operations(self, current_time: int):
-        # TODO delete when not used
         """boolean for checking whether the vehicle's operational time has run out and the vehicle is empty."""
         if len(self.stop_sequence) == 0 and self.end_time <= current_time:
             assert len(self.picked) == 0
-            # problem is not located here as the self.picked needs to be offloaded somehow
-            print(f"Vehicle {self.id} completed its operation and returned to depot.")
+            logging.info(f"Vehicle {self.id} completed its operation.")
             return True
-        else:
-            return False
+        return False
 
-    def return_to_depot(self):
+    def return_to_depot(self) -> VehicleStop:
         """handle steps to build stop to return to depot."""
         stop = VehicleStop(None, self.depot, VehicleStop.ACT_DEPOT, 0)
         stop.stop_time = self.final_stop_time + NetworkHandler.travel_time(self.last_node,self.depot)
-        stop.vehicle_id = self.id    
+        stop.vehicle_id = self.id 
         return stop
     
     # only used in Online_RTV_solver
