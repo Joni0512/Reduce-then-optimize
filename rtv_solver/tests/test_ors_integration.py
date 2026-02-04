@@ -212,3 +212,120 @@ def test_integration_RHsolver_vehicle3_maxCard2_interval1200():
     # Test assertions
     assert feasible is True    
     # TODO add actual results when it is run through
+
+def test_integration_RHsolver_vehicleDeactivation_keepActiveTrue():
+    """
+    Integration edge case with specific vehicle and request
+
+    ensures that assignment handles vehicles and active requests correctly that are close to being inactive  
+    
+    FIXME this fails because with keep_active = True, the assignment of active requests should happen to inactive vehicles that are not available anymore; possibly at 21000 or step_size 1800 the timing just fits that the request is not accepted while we keep a valid solution
+
+    condition keep_active = False makes it easier as it only keeps boarded_requests but re-assigns or removes active requests that were previously rejected 
+    """
+    input_file = "rtv-solver/inputs/wilson_nc_initial.pkl"
+    with open(input_file, "rb") as f:
+        data = pickle.load(f)
+    data = PayloadParser.normalize_to_canonical(data)
+
+    driver_runs_total = data[PayloadParser.DRIVERS]
+    driver_runs_reduced = driver_runs_total[:1]
+    vehicle_state = driver_runs_reduced[0][PayloadParser.DRIVER_STATE]
+    vehicle_manifest = driver_runs_reduced[0][PayloadParser.DRIVER_MANIFEST]
+    vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 22000 
+   
+    current_time = 5 * 3600 + 30 * 60
+    step = 90 * 60
+
+    selected_requests = []
+    for request in data[PayloadParser.REQUESTS]:
+        if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + step:
+            selected_requests.append(request)
+
+    payload = {
+        PayloadParser.DEPOT: data[PayloadParser.DEPOT],
+        PayloadParser.REQUESTS: selected_requests,
+        PayloadParser.DRIVERS: driver_runs_reduced,
+    }
+    
+    config = Config()
+    config.max_cardinality = 3
+    config.step_size = 1200
+    config.batch_interval = 3600
+    config.keep_active = True
+    # run solver
+    off_solver = OfflineRTVSolver(config)
+    updated_driver_runs, unserved_requests = off_solver.solve_rtv(
+        payload,
+        config.batch_interval,
+        config.step_size,
+    )
+    # compute stats
+    stats_payload = {
+        PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
+        PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
+        PayloadParser.DRIVERS: updated_driver_runs,}
+    stats_evaluator = StatsParser(config=config)
+    feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, unserved_requests)
+
+    # Test assertions
+    assert feasible is True    
+    # TODO add actual results when it is run through
+
+def test_integration_RHsolver_vehicleDeactivation():
+    """
+    Integration edge case with specific vehicle and requests, main result is whether vehicles return to depot if they should
+
+    FIXME iterations keep running and still try to optimize despite no active vehicle being left
+    
+    TODO how to set vehicles to inactive, so they are not part of the optimization anymore but are also completed in their manifest (depot return and complete manifest of prior assigned trips)
+    """
+    input_file = "rtv-solver/inputs/wilson_nc_initial.pkl"
+    with open(input_file, "rb") as f:
+        data = pickle.load(f)
+    data = PayloadParser.normalize_to_canonical(data)
+
+    driver_runs_total = data[PayloadParser.DRIVERS]
+    driver_runs_reduced = driver_runs_total[:1]
+    vehicle_state = driver_runs_reduced[0][PayloadParser.DRIVER_STATE]
+    vehicle_manifest = driver_runs_reduced[0][PayloadParser.DRIVER_MANIFEST]
+    vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 21000 
+   
+    current_time = 5 * 3600 + 30 * 60
+    step = 60 * 60
+
+    selected_requests = []
+    for request in data[PayloadParser.REQUESTS]:
+        if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + step:
+            selected_requests.append(request)
+
+    payload = {
+        PayloadParser.DEPOT: data[PayloadParser.DEPOT],
+        PayloadParser.REQUESTS: selected_requests,
+        PayloadParser.DRIVERS: driver_runs_reduced,
+    }
+    
+    config = Config()
+    config.max_cardinality = 2
+    config.step_size = 1200
+    config.batch_interval = 3600
+    config.return_depot = True
+    # run solver
+    off_solver = OfflineRTVSolver(config)
+    updated_driver_runs, unserved_requests = off_solver.solve_rtv(
+        payload,
+        config.batch_interval,
+        config.step_size,
+    )
+    # compute stats
+    stats_payload = {
+        PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
+        PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
+        PayloadParser.DRIVERS: updated_driver_runs,}
+    stats_evaluator = StatsParser(config=config)
+    feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, unserved_requests)
+
+    # Test assertions
+    assert feasible is True 
+    assert stats.depot_movements == 1   
+    # TODO add actual results when it is run through

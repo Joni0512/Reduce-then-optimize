@@ -20,8 +20,6 @@ def setup_logging():
         logging.FileHandler(config.output_dir + 'main.log'),
         logging.StreamHandler()]
         ) 
-    # TODO this does not work, it still spams my debug message
-    logging.getLogger("requests").setLevel(logging.WARNING)
 
 if __name__ == "__main__":
     """
@@ -43,18 +41,19 @@ if __name__ == "__main__":
     parser.add_argument('--max_thread_cnt', type=int,       default=16, help='Maximum thread count for parallel processing')
     parser.add_argument('--rtv_timeout', type=int,          default=120, help='RTV construction timeout in seconds')
     parser.add_argument('--ilp_timeout', type=int,          default=120, help='ILP solver timeout in seconds')
-    parser.add_argument('--ilp_penalty', type=int,          default=1000000, help='Penalty for not serving a trip')
+    parser.add_argument('--ilp_penalty', type=int,          default=1000_000, help='Penalty for not serving a trip')
     # experiment parameters
-    parser.add_argument('--max_cardinality', type=int,      default=2, help='Maximum trips to be shared when creating trips') # alt: total trips in same vehicle
+    parser.add_argument('--max_cardinality', type=int,      default=3, help='Maximum trips to be shared when creating trips in one batch_interval') # alt: total trips in same vehicle
     parser.add_argument('--largest_tsp', type=int,          default=8, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
     parser.add_argument('--share_cost_factor', type=int,    default=10, help='Shareable cost factor in factor of original single cost [???]') # TODO why 10, this is a crazy factor where this is used?
-    parser.add_argument('--rebalancing', type=bool,         default=False, help='Whether to enable rebalancing of vehicles')
-    parser.add_argument('--keep_active', type=bool,         default=True, help='Active requests from a prior request must be kept') # TODO side effects are not clear yet (with default-value, results as expected)
+    parser.add_argument('--rebalancing', type=bool,         default=True, help='Whether to enable rebalancing of vehicles')
+    parser.add_argument('--keep_active', type=bool,         default=False, help='Active requests from a prior request must be kept.') # TODO side effects are not clear yet (with default-value, results as expected)
+    parser.add_argument('--return_depot', type=bool,        default=False, help="Vehicles must return to the originating depot.")
     parser.add_argument('--dwell_pickup', type=int,         default=180, help='Dwell time at pickup in seconds')
     parser.add_argument('--dwell_alight', type=int,         default=60, help='Dwell time at alight (dropoff) in seconds')
     parser.add_argument('--walk_distance_cutoff', type=int, default=0, help="Walking distance between dropoff and final destination.")
     # parser.add_argument('--rh_factor', type=int,            default=0, help='Rolling horizon factor')  # NOTE alternative to step_size
-    parser.add_argument('--step_size', type=int,            default=300, help='Step size in seconds for rolling horizon')
+    parser.add_argument('--step_size', type=int,            default=1200, help='Step size in seconds for rolling horizon')
     parser.add_argument('--batch_interval', type=int,       default=3600, help='Batch interval in seconds')
     # stats parameters
     parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
@@ -78,14 +77,35 @@ if __name__ == "__main__":
         
         # reduce the complexity by only considering a single vehicle
         driver_runs_total = data[PayloadParser.DRIVERS]
-        driver_runs_reduced = driver_runs_total[:3]
+        driver_runs_reduced = driver_runs_total[:1] 
+        # test to change the first vehicle to trigger certain situations
+        vehicle_state = driver_runs_reduced[0][PayloadParser.DRIVER_STATE]
+        vehicle_manifest = driver_runs_reduced[0][PayloadParser.DRIVER_MANIFEST]        
+        # combination 1 fails
+        # TODO active requests can only be assigned when all conditions apply correctly and ILP constraints must be able to handle this edge case
+        # FIXME this fails because with keep_active = True, the assignment of active requests should happen to inactive vehicles that are not available anymore; possibly at 21000 or step_size 1800 the timing just fits that the request is not accepted while we keep a valid solution
+        # vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 22000 
+        # config.step_size = 1200 # with step_size = 1800 it works
+        # config.keep_active = True
+        # config.max_cardinality = 3
+
+        # combination 2 is not entirely correct (iteration keeps running and still tries to optimize despite no active vehicle being left, vehicle does not return to depot)
+        # TODO how to set vehicles to inactive, so they are not part of the optimization anymore but are also completed in their manifest (depot return and complete manifest of prior assigned trips)
+        # TODO # trigger depot return after all requests have been handled 
+        vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 21000 
+        config.return_depot = True
+        
         # create a simplified set of requests, consider all requests that start before end_requests
         current_time = 5*3600 + 30*60
-        step = 20*60
+        step = 30*60
         selected_requests = []
         for request in data[PayloadParser.REQUESTS]:
             if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + step:
                 selected_requests.append(request)
+
+        # combination 3 not yet implemented
+        # TODO create a payload where rebalancing is needed (minimal wait time between pickup window start and end, multiple requests and multiple vehicles)
+        
         # create a new payload with selected requests
         payload = {
             PayloadParser.DEPOT: data[PayloadParser.DEPOT],
@@ -98,19 +118,23 @@ if __name__ == "__main__":
     start_time = time.time()
     if ONLINE_MODE:
         on_solver = OnlineRTVSolver(config)
-        updated_driver_runs, requests_development = on_solver.solve_pdptw_rtv(payload)
+        updated_driver_runs, assignment_development = on_solver.solve_pdptw_rtv(payload)
     else:
         off_solver = OfflineRTVSolver(config)
-        updated_driver_runs, requests_development = off_solver.solve_rtv(payload, config.batch_interval, config.step_size)
+        updated_driver_runs, assignment_development = off_solver.solve_rtv(payload, config.batch_interval, config.step_size)
         
-
     # calculate statistics of each iteration; for now only the first vehicle
     stats_payload = {PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
-                        PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
-                        PayloadParser.DRIVERS: updated_driver_runs}
+                     PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
+                     PayloadParser.DRIVERS: updated_driver_runs}
     stats_evaluator = StatsParser()
-    feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, requests_development)
+    feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, assignment_development)
     
     logging.info(f"Stats: {json.dumps(stats.to_dict(), indent=4)}")
     logging.info(f'Violations: {violations}')
     logging.info(f"Total time: {time.time() - start_time}")
+    
+    # NOTE export data to test other functionality in tests and other approaches
+    # stats_payload[PayloadParser.STATS_ASSIGNMENT_DEVELOPMENT] = assignment_development
+    # with open("debug_output.json", 'w') as json_file:
+    #     json.dump(stats_payload, json_file, indent = 4)
