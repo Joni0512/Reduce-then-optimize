@@ -7,21 +7,23 @@ from rtv_solver.handlers.payload_parser import PayloadParser
 from datetime import timedelta
 
 class RequestHandler:
-    """"""
+    """
+    process request data from a list and handle a sorted dataframe for further processing
+    """
     def __init__(self, request_data, dwell_pickup, dwell_alight):
-        """create a sorted list of all requests in a pd.dataframe """
-        requests = [self.build_request_dict(req, dwell_pickup, dwell_alight) for req in request_data] 
+        """create a list of all requests in a pd.dataframe, sorted by the start of the pickup time window"""
+        requests = [self._build_request_dict(req, dwell_pickup, dwell_alight) for req in request_data] 
         len_requests_initial = len(requests)
-        self.requests = pd.DataFrame(requests).astype({PayloadParser.REQ_BOOKING_ID: 'int64'}).sort_values(by = [PayloadParser.REQ_PICKUP_WINDOW_START])
+        self.requests = pd.DataFrame(requests).astype({PayloadParser.REQ_BOOKING_ID: 'Int64'}).sort_values(by = [PayloadParser.REQ_PICKUP_WINDOW_START])
         self.requests.drop_duplicates(subset=PayloadParser.REQ_BOOKING_ID, keep="first")
         self.count = self.requests.shape[0]
         self.next_index = 0
 
-        assert len_requests_initial == self.count, f"{len_requests_initial - self.count} requests were dropped as duplicates. Where did they come from?"      
-        logging.info(f'{self.count} new and alreay assigned request(s) in payload')
+        assert len_requests_initial == self.count, f"{len_requests_initial - self.count} requests dropped as duplicates. Where did they come from?"      
+        logging.info(f'{self.count} new and already assigned request(s) in payload')
 
     @staticmethod
-    def build_request_dict(req, dwell_pickup, dwell_alight):
+    def _build_request_dict(req, dwell_pickup, dwell_alight):
         # simplified code to build a single request dictionary from the raw request data
         pickup = req[PayloadParser.REQ_PICKUP_PT]
         pickup_lat, pickup_lon = pickup['lat'], pickup['lon']
@@ -49,26 +51,6 @@ class RequestHandler:
             PayloadParser.REQ_DWELL_PICKUP: dwell_pickup,
             PayloadParser.REQ_DWELL_ALIGHT: dwell_alight,
         }
-
-    def update_request_location(self,index):
-        row = self.requests.iloc[index]
-        lat,lon = NetworkHandler.get_nearest_node(row[PayloadParser.REQ_PICKUP_LAT],row[PayloadParser.REQ_PICKUP_LON])
-        self.requests.at[index,PayloadParser.REQ_PICKUP_LAT] = lat
-        self.requests.at[index,PayloadParser.REQ_PICKUP_LON] = lon
-
-        lat,lon = NetworkHandler.get_nearest_node(row[PayloadParser.REQ_DROPOFF_LAT],row[PayloadParser.REQ_DROPOFF_LON])
-        self.requests.at[index,PayloadParser.REQ_DROPOFF_LAT] = lat
-        self.requests.at[index,PayloadParser.REQ_DROPOFF_LON] = lon
-    
-    def earliest_start_time(self):
-        start_time = self.get_request_by_iloc(0).earliest_pickup_time
-        logging.debug('Start time of first request: {0}'.format(start_time))
-        return start_time
-
-    def latest_start_time(self):
-        start_time = self.get_request_by_iloc(self.count-1).earliest_pickup_time
-        logging.debug('Start time of last request: {0}'.format(start_time))
-        return start_time
 
     @staticmethod
     def get_request(request_data) -> Request:
@@ -99,11 +81,19 @@ class RequestHandler:
             request_data[PayloadParser.REQ_AMBULATORY],
             request_data[PayloadParser.REQ_WHEELCHAIR],
         )
+    
+    def get_all_requests(self) -> list[Request]:
+        batch = []
+        for _, row in self.requests.iterrows():
+            request = self.get_request(row)
+            batch.append(request)
+        return batch
 
     def get_request_by_iloc(self, iloc):
         request_data = self.requests.iloc[iloc]
         return self.get_request(request_data)
 
+    # BELOW SIMULATION APPROACH METHODS
     def get_batch(self, end_time, max_batch_size) -> tuple[list[Request], int]:
         batch = []
         ending_index = min(self.next_index+max_batch_size,self.requests.shape[0])
@@ -128,18 +118,22 @@ class RequestHandler:
                 break
             batch.append(request)
         return batch
-
-    def get_all_requests(self) -> list[Request]:
-        batch = []
-        for _, row in self.requests.iterrows():
-            request = self.get_request(row)
-            batch.append(request)
-        return batch
     
+    def earliest_start_time(self):
+        start_time = self.get_request_by_iloc(0).earliest_pickup_time
+        logging.debug('Start time of first request: {0}'.format(start_time))
+        return start_time
+
+    def latest_start_time(self):
+        start_time = self.get_request_by_iloc(self.count-1).earliest_pickup_time
+        logging.debug('Start time of last request: {0}'.format(start_time))
+        return start_time
+
+    # BELOW UNUSED METHODS    
     def get_unique_nodes(self):
         return self.requests.origin.unique()
     
-    def get_all_nodes(self,round_at):
+    def get_all_nodes(self, round_at):
         coordinates = {}
         nodes = []
         for _,request_data in self.requests.iterrows():
@@ -150,3 +144,13 @@ class RequestHandler:
         for key in coordinates:
             nodes.append(Node(key[0],key[1]))
         return nodes
+
+    def update_request_location(self,index):
+        row = self.requests.iloc[index]
+        lat,lon = NetworkHandler.get_nearest_node(row[PayloadParser.REQ_PICKUP_LAT],row[PayloadParser.REQ_PICKUP_LON])
+        self.requests.at[index,PayloadParser.REQ_PICKUP_LAT] = lat
+        self.requests.at[index,PayloadParser.REQ_PICKUP_LON] = lon
+
+        lat,lon = NetworkHandler.get_nearest_node(row[PayloadParser.REQ_DROPOFF_LAT],row[PayloadParser.REQ_DROPOFF_LON])
+        self.requests.at[index,PayloadParser.REQ_DROPOFF_LAT] = lat
+        self.requests.at[index,PayloadParser.REQ_DROPOFF_LON] = lon

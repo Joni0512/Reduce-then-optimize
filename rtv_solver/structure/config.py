@@ -8,6 +8,8 @@ class Config:
     Class is frozen as there should not be any changes to the variables!
     
     no differentiation of separate configs but one object that carries all information
+    
+    The default values [output_dir, input_file, server_url]should be changed locally  as they also collect the basic information for debug runs. The default values also act as the default for tests. 
     """
     # technical setup
     output_dir: str = "output_format/debug/"
@@ -24,6 +26,7 @@ class Config:
     share_cost_factor: float = 10
     rebalancing: bool = False
     keep_active: bool = True
+    return_depot: bool = False
     dwell_pickup: int = 180
     dwell_alight: int = 60
     walk_distance_cutoff: int = 0

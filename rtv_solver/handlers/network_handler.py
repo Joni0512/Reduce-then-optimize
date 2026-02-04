@@ -90,7 +90,7 @@ class NetworkHandler:
                 url = f"{table_url}{';'.join(origins + destinations)}" \
                       f"?sources={';'.join(origin_indices)}" \
                       f"&destinations={';'.join(destination_indices)}"
-                data = NetworkHandler.get_response(url)
+                data = NetworkHandler._response(url)
                 matrix = np.array(data['durations'])
                 travel_time_matrix[
                     i * MAX_NUM_COORD:(i + 1) * MAX_NUM_COORD,
@@ -106,7 +106,7 @@ class NetworkHandler:
         return travel_time_matrix, no_of_nodes, SERVER_BASED, EUCLIDEAN
 
     @staticmethod
-    def get_response(url: str) -> dict:
+    def _response(url: str) -> dict:
         global session
         try_count = 0
         while True:
@@ -122,13 +122,13 @@ class NetworkHandler:
     @staticmethod
     def get_simple_route_reponse(source: Node, dest: Node) -> dict:
         url = f"{routing_url}{source.lon},{source.lat};{dest.lon},{dest.lat}"
-        return NetworkHandler.get_response(url)
+        return NetworkHandler._response(url)
 
     @staticmethod
     def get_detailed_route_reponse(source: Node, dest: Node) -> dict:
         url = f"{routing_url}{source.lon},{source.lat};{dest.lon},{dest.lat}" \
               "?steps=true&geometries=geojson"
-        return NetworkHandler.get_response(url)
+        return NetworkHandler._response(url)
 
     @staticmethod
     def get_location(source: Node, destination: Node) -> int:
@@ -158,11 +158,34 @@ class NetworkHandler:
         return travel_time_matrix[NetworkHandler.get_location(source, destination)]
 
     @staticmethod
-    def get_current_location_time(source: Node, destination: Node, starting_time: int, current_time: int):
+    def get_current_location_time(source: Node, destination: Node, starting_time: int, current_time: int) -> tuple[int, Node]:
         """
-        specifically tracks the actual geometry of the route and the specific times where position are reached
+        specifically tracks the actual geometry of the route and the specific times where positions are reached
+
+        :return int: time that the location is reached
+        :return Node: location somewhere on the route
         """
-        # we track the location based on time and not just the next sto
+        # NOTE new version code is not optimal, but currently behavior suffices, alternative behind comments (can be tested later)
+        # response = NetworkHandler.get_detailed_route_reponse(source, destination)
+        # if current_time <= starting_time:
+        #     return starting_time, source
+        # steps = response['routes'][0]['legs'][0]['steps']
+        # if not steps:
+        #     return starting_time, source
+        
+        # t = starting_time
+        # current_location = source
+        # for step in steps:
+        #     duration = step["duration"]
+        #     t += duration
+        #     lon, lat = step["geometry"]["coordinates"][-1]
+        #     current_location = Node(lat, lon)
+
+        #     if t >= current_time:
+        #         return t, current_location  
+        # return t, current_location
+        
+        # OLD VERSION (behavior above seems cleaner and more reasonable)
         response = NetworkHandler.get_detailed_route_reponse(source, destination)
         current_location = None
         for step in response['routes'][0]['legs'][0]['steps']:
@@ -178,7 +201,7 @@ class NetworkHandler:
     @staticmethod
     def get_nearest_node(lat: float, lon: float) -> tuple[float, float]:
         url = f"{nearest_url}{lon},{lat}"
-        data = NetworkHandler.get_response(url)
+        data = NetworkHandler._response(url)
         nearest_node = data['waypoints'][0]['location']
         return nearest_node[1], nearest_node[0]
 
@@ -197,7 +220,7 @@ class NetworkHandler:
                 node_indices[(node.lon, node.lat)] = index
                 index += 1
             url = f"{table_url}{';'.join(coordinates)}"
-            data = NetworkHandler.get_response(url)
+            data = NetworkHandler._response(url)
             return np.array(data['durations']), node_indices
         return None, None
 

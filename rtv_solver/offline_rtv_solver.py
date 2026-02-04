@@ -19,7 +19,7 @@ class OfflineRTVSolver:
         # track progress of solver iterations
         iteration = 0
 
-        requests_development = {}
+        assignment_development = {}
         driver_runs = payload[PayloadParser.DRIVERS]
 
         while current_time < end_time:
@@ -51,26 +51,21 @@ class OfflineRTVSolver:
 
             # solve the RTV problem and update manifests
             if len(selected_requests) == 0:
-                new_driver_runs, request_development = driver_runs, {0: {"assigned": {}, "unserved": []}}
+                new_driver_runs, assignment_status = driver_runs, {0: {"assigned": {}, "unserved": []}}
 
             else:    
-                new_driver_runs, request_development = online_rtv_solver.solve_pdptw_rtv(new_payload, iteration)
+                new_driver_runs, assignment_status = online_rtv_solver.solve_pdptw_rtv(new_payload, iteration)
             
             # TODO i want the status development of requests (active, boarded, unserved, delivered) 
             # TODO how do I get the status for already delivered requests
-            requests_development[current_time] = list(request_development.values())[0] # bit complex but required for compatibility with OnlineSolver
+            assignment_development[current_time] = list(assignment_status.values())[0] # bit complex but required for compatibility with OnlineSolver
                 
             # increment time (might not be the size of the batch) and iteration
             current_time += step_size 
             iteration += 1
 
             # update vehicles based on decisions in the previous step until current time (might not be the entire interval)
-            # FIXME currently it never updates the manifest (JW requests need to be removed from manifest if they have not been picked up yet as in the next iteration we want to reoptimize based on the last position and not a fixed schedule for the next how many steps)
             simulated_driver_runs = online_rtv_solver.simulate_manifest(current_time , new_driver_runs, intermediate_location=True)
             driver_runs = simulated_driver_runs
 
-        feasible, stats = online_rtv_solver.get_stats(depot=payload[PayloadParser.DEPOT], driver_runs=driver_runs)
-        logging.info(f"Original stats: {stats}")
-
-        # TODO unserved_requests is incorrect, some parts are recounted
-        return driver_runs, requests_development
+        return driver_runs, assignment_development

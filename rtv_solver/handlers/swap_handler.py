@@ -2,9 +2,11 @@ import numpy as np
 import logging
 import multiprocessing as mp
 import gurobipy as gp
-from gurobipy import GRB
 import time
 import copy
+import traceback
+
+from gurobipy import GRB
 
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
@@ -14,6 +16,7 @@ from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.config import Config
 
 class SwapHandler:
+    """TODO docstring and behavior of this class"""
     def __init__(self, server_url, driver_runs, depot, config: Config):
         self.config = config
         self.MAX_NUM_THREAD = config.max_thread_cnt
@@ -65,13 +68,14 @@ class SwapHandler:
                 else:
                     stop_loc["node_id"] = request[PayloadParser.REQ_DROPOFF_PT]["node_id"]
             
-        # Initialize the travel time matrix
+        # Initialize travel time matrix
         NetworkHandler.initialize_travel_time_matrix()
 
     def run_swap(self, rerunning=False):
         logging.debug("Started swap round")
         if rerunning:
             self.driver_runs = copy.deepcopy(self.new_driver_runs)
+        # collect requests per vehicle that have not been served yet
         driver_run_requests = {}
         for driver_run in self.driver_runs:
             state = driver_run[PayloadParser.DRIVER_STATE]
@@ -91,7 +95,7 @@ class SwapHandler:
             state = driver_run[PayloadParser.DRIVER_STATE]
             run_id = state[PayloadParser.DRIVER_STATE_RUN_ID]
             active_requests_in_manifest = driver_run_requests[run_id]
-            manifest_cost = SwapHandler.get_manifest_cost(driver_run)
+            manifest_cost = SwapHandler._manifest_cost(driver_run)
             initial_cost += manifest_cost
             SwapHandler.manifest_options.append((run_id,active_requests_in_manifest,manifest_cost,driver_run,0))
 
@@ -103,12 +107,14 @@ class SwapHandler:
                 requests_after.add(other_booking_id)
 
                 args = (self.depot, run_id, requests_after, driver_run, request, self.DWELL_PICKUP, self.DWELL_ALIGHT)
-                pool.apply_async(SwapHandler.create_manifest_option, args=args, callback=SwapHandler.process_result)
-
+                pool.apply_async(SwapHandler.create_manifest_option, 
+                                 args=args, 
+                                 callback=SwapHandler._process_swap_result,
+                                 error_callback=self._on_worker_error)
 
             for booking_id in active_requests_in_manifest:
-                driver_run_without_request = SwapHandler.remove_request_from_driver_run(driver_run, booking_id, self.DWELL_PICKUP, self.DWELL_ALIGHT)
-                cost = SwapHandler.get_manifest_cost(driver_run_without_request)
+                driver_run_without_request = SwapHandler._remove_request_from_driver_run(driver_run, booking_id, self.DWELL_PICKUP, self.DWELL_ALIGHT)
+                cost = SwapHandler._manifest_cost(driver_run_without_request)
                 requests_in_new_manifest = active_requests_in_manifest.copy()
                 requests_in_new_manifest.remove(booking_id)
                 SwapHandler.manifest_options.append((run_id, requests_in_new_manifest, cost, driver_run_without_request,0))
@@ -121,12 +127,14 @@ class SwapHandler:
                     requests_after.add(other_booking_id)
 
                     args = (self.depot, run_id, requests_after, driver_run_without_request, request, self.DWELL_PICKUP, self.DWELL_ALIGHT)
-                    pool.apply_async(SwapHandler.create_manifest_option, args=args, callback=SwapHandler.process_result)
+                    pool.apply_async(SwapHandler.create_manifest_option, 
+                                     args=args, 
+                                     callback=SwapHandler._process_swap_result,
+                                     error_callback=self._on_worker_error)
 
                     # cost, driver_run_with_new_request = SwapHandler.insert_request_to_driver_run(
                     #     self.depot, driver_run_without_request, request, self.DWELL_PICKUP, self.DWELL_ALIGHT)
                     # SwapHandler.manifest_options.append((run_id, requests_after, cost, driver_run_with_new_request))
-
         pool.close()
         pool.join()
 
@@ -179,8 +187,18 @@ class SwapHandler:
                 for i in range(no_options):
                     if x_t[i].X == 1:
                         selected_options.append(SwapHandler.manifest_options[i])
-
             else:
+                m.Params.OutputFlag = 1
+                m.computeIIS()
+                m.write("infeasible.ilp")   # human-readable
+                m.write("infeasible.lp")    # full model
+                m.write("infeasible.mps")   # optional
+
+                # Print which constraints are in IIS
+                print("\n--- IIS constraints ---")
+                for constraint in m.getConstrs():
+                    if constraint.IISConstr:
+                        print("IIS:", constraint.ConstrName)
                 raise Exception("Gurobi solver ended with code: {0}".format(m.Status))
         
         new_cost = 0
@@ -206,8 +224,9 @@ class SwapHandler:
 
         return self.new_driver_runs, initial_cost-new_cost, no_of_swaps
 
+    @staticmethod
     def create_manifest_option(depot_node, run_id, requests, driver_run, request, DWELL_PICKUP, DWELL_ALIGHT):
-        cost, new_driver_run, time_taken = SwapHandler.insert_request_to_driver_run(
+        cost, new_driver_run, time_taken = SwapHandler._insert_request_to_driver_run(
             depot_node, 
             driver_run, 
             request, 
@@ -215,43 +234,53 @@ class SwapHandler:
             DWELL_ALIGHT)
         return (run_id, requests, cost, new_driver_run, time_taken)
 
-    def process_result(result):
+    @staticmethod
+    def _process_swap_result(result):
         SwapHandler.manifest_options.append(result)
 
-    def get_manifest_cost(driver_run):
+    @staticmethod
+    def _on_worker_error(e):
+        print("Worker crashed:", repr(e))
+        traceback.print_exc()
+        raise e
+    
+    @staticmethod
+    def _manifest_cost(driver_run):
         cost = 0
 
         state = driver_run[PayloadParser.DRIVER_STATE]
         no_completed_stops = state[PayloadParser.DRIVER_STATE_LOC_SERV]
         remaining_stops = driver_run[PayloadParser.DRIVER_MANIFEST][no_completed_stops:]
 
-        current_node = SwapHandler.stop_to_node(state)
+        current_node = SwapHandler._stop_to_node(state)
         for stop in remaining_stops:
-            next_node = SwapHandler.stop_to_node(stop)
+            next_node = SwapHandler._stop_to_node(stop)
             cost += NetworkHandler.travel_time(current_node,next_node)
             current_node = next_node
         return cost
 
-    def stop_to_node(stop):
+    @staticmethod
+    def _stop_to_node(stop):
         stop_loc = stop[PayloadParser.MANIFEST_LOC]
         return Node(stop_loc["lat"],
                     stop_loc["lon"],
                     identifier = stop_loc["node_id"])
 
-    def remove_request_from_driver_run(driver_run, booking_id, DWELL_PICKUP, DWELL_ALIGHT):
+    @staticmethod
+    def _remove_request_from_driver_run(driver_run, booking_id, DWELL_PICKUP, DWELL_ALIGHT):
         state = copy.deepcopy(driver_run[PayloadParser.DRIVER_STATE])
         no_completed_stops = state[PayloadParser.DRIVER_STATE_LOC_SERV]
         menifest = copy.deepcopy(driver_run[PayloadParser.DRIVER_MANIFEST])
         new_manifest = menifest[:no_completed_stops]
         remaining_stops = []
 
-        current_node = SwapHandler.stop_to_node(state)
+        current_node = SwapHandler._stop_to_node(state)
         current_time = state[PayloadParser.DRIVER_STATE_DT_SEC]
         current_order = no_completed_stops
         for stop in menifest[no_completed_stops:]:
             if stop[PayloadParser.MANIFEST_BOOKING_ID] == booking_id:
                 continue
-            stop_node = SwapHandler.stop_to_node(stop)
+            stop_node = SwapHandler._stop_to_node(stop)
             travel_time = NetworkHandler.travel_time(current_node, stop_node)
             current_time += travel_time
             if current_time < stop[PayloadParser.MANIFEST_TIME_WINDOW_START]:
@@ -274,11 +303,11 @@ class SwapHandler:
             PayloadParser.DRIVER_STATE: state,
             PayloadParser.DRIVER_MANIFEST: new_manifest + remaining_stops
         }
-        
 
-    def insert_request_to_driver_run(depot_node, driver_run, request, DWELL_PICKUP, DWELL_ALIGHT):
+    @staticmethod  
+    def _insert_request_to_driver_run(depot_node, driver_run, request, DWELL_PICKUP, DWELL_ALIGHT) -> tuple[float, ]:
         driver_run_c = copy.deepcopy(driver_run)
-
+        # initialize stops
         pickup_stop = {
             PayloadParser.MANIFEST_RUN_ID: None, 
             PayloadParser.MANIFEST_BOOKING_ID: request[PayloadParser.REQ_BOOKING_ID], 
@@ -290,7 +319,6 @@ class SwapHandler:
             PayloadParser.MANIFEST_WHEELCHAIR: request[PayloadParser.REQ_WHEELCHAIR], 
             PayloadParser.MANIFEST_TIME_WINDOW_START: request[PayloadParser.REQ_PICKUP_WINDOW_START],
             PayloadParser.MANIFEST_TIME_WINDOW_END: request[PayloadParser.REQ_PICKUP_WINDOW_END]}
-
         dropoff_stop = {
             PayloadParser.MANIFEST_RUN_ID: None, 
             PayloadParser.MANIFEST_BOOKING_ID: request[PayloadParser.REQ_BOOKING_ID], 
@@ -305,11 +333,14 @@ class SwapHandler:
 
         load = 0
         state = driver_run_c[PayloadParser.DRIVER_STATE]
+        manifest = driver_run_c[PayloadParser.DRIVER_MANIFEST]
+        # insert vehicle to stops
         pickup_stop[PayloadParser.MANIFEST_RUN_ID] = state[PayloadParser.DRIVER_STATE_RUN_ID]
         dropoff_stop[PayloadParser.MANIFEST_RUN_ID] = state[PayloadParser.DRIVER_STATE_RUN_ID]
-        manifest = driver_run_c[PayloadParser.DRIVER_MANIFEST]
-        start_node = SwapHandler.stop_to_node(state)
+        
+        start_node = SwapHandler._stop_to_node(state)
         start_time = state[PayloadParser.DRIVER_STATE_DT_SEC]
+        # differentiate already completed stops and remaining stops in manifest
         completed_stops = []
         remaining_stops = []
         for stop in manifest:
@@ -321,11 +352,8 @@ class SwapHandler:
                 completed_stops.append(stop)
             else:
                 remaining_stops.append(stop)
-        
 
-        end_time = state[PayloadParser.DRIVER_STATE_END_TIME]
-        objective = "vmt"
-
+        # get pickup and dropoff indices in the manifest
         earliest_pickup_time = pickup_stop[PayloadParser.MANIFEST_TIME_WINDOW_START]
         latest_pickup_time = pickup_stop[PayloadParser.MANIFEST_TIME_WINDOW_END]
         earliest_dropoff_time = dropoff_stop[PayloadParser.MANIFEST_TIME_WINDOW_START]
@@ -363,13 +391,18 @@ class SwapHandler:
             drop_latest_index += 1
 
         st_time = time.time()
-        args_list = [(i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective,depot_node, end_time, DWELL_PICKUP, DWELL_ALIGHT) 
-                     for i in range(pick_earliest_index,pick_latest_index) 
-                     for j in range(max(i,drop_earliest_index) + 1, min(len(remaining_stops) +1 ,drop_latest_index) + 1)]
+        # build args for insertion evaluation
+        end_time = state[PayloadParser.DRIVER_STATE_END_TIME]
+        objective = "vmt"
+        args_list = [ # create args for each pickup index i & each dropoff index
+            (i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective,depot_node, end_time, DWELL_PICKUP, DWELL_ALIGHT) 
+            for i in range(pick_earliest_index, pick_latest_index) # all possible indices for pickup
+            for j in range(max(i, drop_earliest_index) + 1, min(len(remaining_stops) +1, drop_latest_index) + 1)]
         
-        results = [SwapHandler.evaluate_insertion(args) for args in args_list]
+        # TODO why is this not parallelized?
+        results = [SwapHandler._evaluate_insertion(args) for args in args_list]
 
-        time_taken_to_evaluate = time.time() - st_time
+        time_taken_to_evaluate = time.time() - st_time # why do we return the time_taken and never use it
 
         best_cost = float("inf")
         best_insertion = None
@@ -378,27 +411,29 @@ class SwapHandler:
                 best_cost = cost
                 best_insertion = new_manifest
 
-
         if best_insertion is None:
-            return -1,None, time_taken_to_evaluate
+            return -1, None, time_taken_to_evaluate
 
         new_driver_run = copy.deepcopy(driver_run)
         new_driver_run[PayloadParser.DRIVER_MANIFEST] = completed_stops + best_insertion
         new_driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_T_LOCS] = len(new_driver_run[PayloadParser.DRIVER_MANIFEST])
-        return best_cost,new_driver_run,time_taken_to_evaluate
 
+        return best_cost, new_driver_run, time_taken_to_evaluate
 
-    def evaluate_insertion(args):
-        i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective, depot, end_time, dwell_pickup, dwell_alight = args
+    @staticmethod
+    def _evaluate_insertion(args) -> tuple[float, dict]:
+        i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective, depot, end_time, dwell_pickup, dwell_alight = args # unpack args
+        # check all different insertions where one trip (pickup + dropoff is added to an existing manifest)
         new_manifest = copy.deepcopy(remaining_stops[:i] + [pickup_stop] + remaining_stops[i:j] + [dropoff_stop] + remaining_stops[j:])
         current_time = start_time
         current_node = start_node
         current_load = load
+        # initialize loop
         cost = 0
         order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
         index = 0
         for stop in new_manifest:
-            next_node = SwapHandler.stop_to_node(stop)
+            next_node = SwapHandler._stop_to_node(stop)
             travel_time = NetworkHandler.travel_time(current_node, next_node)
             cost += travel_time
             current_node = next_node
@@ -418,12 +453,13 @@ class SwapHandler:
                 current_time += dwell_alight
             if current_load > state[PayloadParser.DRIVER_STATE_AM_CAP]:
                 return float("inf"), None
+            # increment elements
             order += 1
             stop[PayloadParser.MANIFEST_ORDER] = order
             index += 1
 
-        if current_time+NetworkHandler.travel_time(current_node,depot) > end_time:
+        if current_time + NetworkHandler.travel_time(current_node,depot) > end_time:
             return float("inf"), None
-        if objective == "pick_up_time":
+        if objective == "pick_up_time": # result would not be cost but time?
             return new_manifest[i][PayloadParser.MANIFEST_SCHED_TIME], new_manifest
         return cost, new_manifest

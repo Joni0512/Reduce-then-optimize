@@ -11,6 +11,7 @@ class PayloadParser:
     # keys for payload dictionary that can be used globally
     DATE = "date"
     TIME_MATRIX = "time_matrix"
+    CURRENT_TIME = "current_time"
 
     DEPOT = "depot"
     DEPOT_PT = 'pt'
@@ -58,6 +59,12 @@ class PayloadParser:
     MANIFEST_TIME_WINDOW_START = "time_window_start"
     MANIFEST_TIME_WINDOW_END = "time_window_end"
 
+    STATS_ASSIGNMENT_DEVELOPMENT = "stats_assign_dev"   
+    STATS_ASSIGNED = 'assigned'
+    STATS_UNSERVED = 'unserved'
+    STATS_BOARDED = 'boarded'
+    STATS_DROPPED = 'dropped'
+
     @staticmethod
     def get_payload_object(payload, online=True) -> Payload:
         """
@@ -67,6 +74,7 @@ class PayloadParser:
         travel_time_matrix = payload.get(PayloadParser.TIME_MATRIX)
         
         # get current time from all vehicles (prefer already progressed vehicles, fallback to earliest start time vehicles)
+        # TODO fix current_time as it should be aligned with the offline Solver iterator, currently it just takes the most recent time of the vehicle? in addition the current_time is also never used
         SECONDS_IN_DAY = 24 * 3600
         driver_runs = payload[PayloadParser.DRIVERS]
         current_time = SECONDS_IN_DAY
@@ -98,7 +106,7 @@ class PayloadParser:
                     stop_order = stop[PayloadParser.MANIFEST_ORDER]
                     booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
                     if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
-                        request = PayloadParser.build_request_from_manifest_index(driver_manifest, index)
+                        request = PayloadParser._build_request_from_manifest_index(driver_manifest, index)
                         if stop_order <= driver_state[PayloadParser.DRIVER_STATE_LOC_SERV]:
                             # request is picked up as the vehicleState has already picked up the location
                             boarded_requests_data[booking_id] = request
@@ -112,7 +120,7 @@ class PayloadParser:
         
         # combine requests from new payload and add active and boarded requests from manifests (see preparation above)
         raw_requests = payload.get(PayloadParser.REQUESTS, [])
-        requests = [PayloadParser.build_request(request) for request in raw_requests]
+        requests = [PayloadParser._build_request(request) for request in raw_requests]
         for req_id in active_requests_data: # request must be handled as they were already accepted
             requests.append(active_requests_data[req_id])
         active_requests_keys = list(active_requests_data.keys())
@@ -142,15 +150,15 @@ class PayloadParser:
         return start_time, end_time
     
     @staticmethod
-    def build_request_from_manifest_index(manifest, pick_up_index):
+    def _build_request_from_manifest_index(manifest, pick_up_index):
         stop = manifest[pick_up_index]
         booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
         for drop_off_stop in manifest[pick_up_index+1:]:
             if drop_off_stop[PayloadParser.MANIFEST_BOOKING_ID] == booking_id:
-                return PayloadParser.build_request_from_stops(stop, drop_off_stop)
+                return PayloadParser._build_request_from_stops(stop, drop_off_stop)
 
     @staticmethod
-    def build_request_from_stops(pickup_stop, dropoff_stop):
+    def _build_request_from_stops(pickup_stop, dropoff_stop):
         """builds request from two separate stops out of manifest"""
         request = {
             PayloadParser.REQ_BOOKING_ID:               pickup_stop[PayloadParser.MANIFEST_BOOKING_ID],
@@ -166,7 +174,7 @@ class PayloadParser:
         return request
 
     @staticmethod
-    def build_request(request_data):
+    def _build_request(request_data):
         """no changes due to this method, but makes it easier to read"""
         request = {
             PayloadParser.REQ_BOOKING_ID:           request_data[PayloadParser.REQ_BOOKING_ID],
@@ -182,7 +190,7 @@ class PayloadParser:
         return request
 
     @staticmethod
-    def is_canonical_structure(data: dict) -> bool:
+    def _is_canonical_structure(data: dict) -> bool:
         """
         Detects whether the JSON already matches the canonical structure in the 'wilson' format.
         """
@@ -198,7 +206,7 @@ class PayloadParser:
         Converts the newer JSON structure from 'chattanooga' into the expected structure of 'wilson'. 
         For structural differences, see 'Documentation.md'. The changes are only additions and no prior information is lost.
         """
-        if PayloadParser.is_canonical_structure(data):
+        if PayloadParser._is_canonical_structure(data):
             return data  # Nothing to do
 
         normalized = copy.deepcopy(data)
@@ -232,9 +240,9 @@ class PayloadParser:
         return normalized
 
     # TODO
+    # def update_requests(data):
     """
     As all requests have exactly 30 minutes of allowed and combined wait + detour time, which does not seem very realistic if the direct travel_time of the trip is below 5 minutes, the data should be updated before usage. The requests should be updated once and for all before data is used.
      
     This also offers the option to add randomized versions of the same requests to get more training data sets while keeping realism."""
-    # def update_requests(data):
         

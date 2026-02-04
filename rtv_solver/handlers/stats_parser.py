@@ -45,6 +45,9 @@ class Stats:
 
     total_requests: int = 0       # total requests that were part of original payload
     serviced_requests: list[float] = field(default_factory=list)  # list of serviced requests 
+    # TODO can be used for easy testing whether vehicles reach final destination
+    rebalancing_movements: int = 0
+    depot_movements: int = 0
 
     def finalize(self) -> None:
         if self.pmt > 0:
@@ -63,6 +66,8 @@ class StatsParser:
     def __init__(self, config: Config | None = None):
         self.config = config or Config()
         self.server_url = self.config.server_url
+        self._network_initialized = False
+        self._init_network()
 
         # request booking_id -> StopPair(pickup=..., dropoff=...)
         self.request_stops: Dict[int, StopPair] = {}
@@ -71,7 +76,7 @@ class StatsParser:
         self.violations: List[Violation] = []
         self.unserved: List[float] = []
 
-        self._network_initialized = False
+        self.feature_payload = []
 
     def evaluate(self, payload: dict, requests_development: dict[int, list]) -> Tuple[bool, Stats, List[Violation]]:
         """
@@ -88,8 +93,6 @@ class StatsParser:
         requests = payload[PayloadParser.REQUESTS]
         driver_runs = payload[PayloadParser.DRIVERS]
 
-        self._init_network()
-
         self.request_stops.clear()
         self.stats = Stats()
         self.violations = []
@@ -102,6 +105,7 @@ class StatsParser:
 
         feasible = len(self.violations) == 0
         self.stats.finalize()
+
         return feasible, self.stats, self.violations, self.unserved
 
     def _init_network(self) -> None:
@@ -180,8 +184,7 @@ class StatsParser:
                     self._add_violation("Pickup already exists", booking_id, run_id, stop)
                 self.request_stops[booking_id].pickup = stop
                 self.request_stops[booking_id].pickup_time = scheduled_time
-
-            else:  # DROPOFF
+            elif action == VehicleStop.ACT_DROPOFF: 
                 current_load_am -= am_delta
                 current_load_wc -= wc_delta
                 service_end = service_start + self.config.dwell_alight
@@ -193,6 +196,13 @@ class StatsParser:
                     self._add_violation("Dropoff before pickup", booking_id, run_id, stop)
                 self.request_stops[booking_id].dropoff = stop
                 self.request_stops[booking_id].dropoff_time = scheduled_time
+
+            elif action == VehicleStop.ACT_REBALANCE:
+                self.stats.rebalancing_movements += 1
+
+            elif action == VehicleStop.ACT_DEPOT:
+                self.stats.depot_movements += 1
+
 
             # capacity checks
             if current_load_am > max_am_capacity:

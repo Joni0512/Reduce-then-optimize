@@ -55,7 +55,7 @@ class OnlineRTVSolver:
             request_copy[PayloadParser.REQ_DROPOFF_WINDOW_END] = time_window["dropoff_time_window_end"]
             best_cost = float("inf")
             for driver_run in payload[PayloadParser.DRIVERS]:
-                cost, _ = self.insert_request_to_driver_run(
+                cost, _ = self._insert_request_to_driver_run(
                     payload[PayloadParser.DEPOT], driver_run, request_copy)
                 if cost >= 0 and cost < best_cost:
                     best_cost = cost
@@ -63,14 +63,6 @@ class OnlineRTVSolver:
                 feasible_time_slots.append((time_window,best_cost / request_travel_time))
 
         return feasible_time_slots
-
-    # NOTE no value from this method
-    # def resolve_pdptw_rtv(self, payload):
-    #     updated_driver_runs, unserved_requests = self.solve_pdptw_rtv(payload)
-    #     if len(unserved_requests) == 0:
-    #         return updated_driver_runs
-    #     else:
-    #         return payload
 
     def solve_pdptw_rtv(self, payload, iteration = 0): # TODO do we need to add current_time
         # initalize network and payload
@@ -84,7 +76,6 @@ class OnlineRTVSolver:
         batch = []
         active_requests = {}
         boarded_requests = {}
-
         for req in temp_batch:
             req_id = req.id
             if req_id in payload_object.boarded_requests_keys:
@@ -124,9 +115,8 @@ class OnlineRTVSolver:
         
         # assign vehicles and add trips / sequence to each vehicle 
         vehicle_assignment = trip_handler.vehicle_assignment
-        unserved_requests = set([req.id for req in batch]) # - set(active_requests.keys()) # number of requests that are not already confirmed to be  served
-
-        for vehicle_id in vehicle_assignment:
+        unserved_requests = set([req.id for req in batch]) # number of requests that are not already confirmed to be  served
+        for vehicle_id in vehicle_assignment: # if it is empty the assignment is skipped
             vehicle = vehicle_handler.vehicles[vehicle_id]
             trips, prev_sequence = vehicle_assignment[vehicle_id]
             plan = VehicleHandler.plan_trip_insertions(vehicle, trips, prev_sequence=prev_sequence)
@@ -135,25 +125,35 @@ class OnlineRTVSolver:
                 if trip.request_id in unserved_requests:
                     unserved_requests.remove(trip.request_id)
 
+        # TODO add rebalancing handling based on trip_handler.rebalancing_assignment that already checks required permissions
+
+        # TODO add depot return before vehicle shift ends, probably in update_run and not in this location as we do not want a trip but rather an entire step
+
         # update driver runs
         updated_driver_runs = []
         for driver_run in payload_object.driver_runs:
-            new_driver_run = self.update_run(vehicle_handler, driver_run) # TODO do we not do this already in simulate_manifest()
+            new_driver_run = self.update_run(vehicle_handler, driver_run)
             updated_driver_runs.append(new_driver_run)
             
         # check invariants whether manifest is still correct
-        self.check_consistency_of_manifests(payload[PayloadParser.DRIVERS], 
+        self._check_consistency_of_manifests(payload[PayloadParser.DRIVERS], 
                                             updated_driver_runs,
                                             unserved_requests, 
-                                            payload[PayloadParser.REQUESTS])
-        request_development = {0: {"assigned": trip_handler.request_assignment, "unserved": list(unserved_requests)}}
-        return updated_driver_runs, request_development # ,trip_handler, vehicle_handler, request_handler, payload_object
+                                            payload[PayloadParser.REQUESTS],
+                                            keep_active = self.config.keep_active)
+        # TODO remove this complex data structure to move data up the stack; integrate JSON logger that records information to a standardized JSON file and can later be rebuilt and analyzed using that JSON file (probably requires something similar to OutputHandler that was used in the simulation)
+        assignment_status = {0: {PayloadParser.STATS_ASSIGNED: trip_handler.request_assignment, 
+                                   PayloadParser.STATS_UNSERVED: list(unserved_requests)}}
+        return updated_driver_runs, assignment_status # ,trip_handler, vehicle_handler, request_handler, payload_object
 
-    def check_consistency_of_manifests(self, prev_driver_runs: list[dict], new_driver_runs: list[dict], unserved_requests: set[int], new_requests: list[dict]):
+    @staticmethod
+    def _check_consistency_of_manifests(prev_driver_runs: list[dict], new_driver_runs: list[dict], unserved_requests: set[int], new_requests: list[dict], keep_active: bool =False):
         """ 
         Checks whether the previously written manifest still aligns with the new manifest after new request have been assigned. This concerns previously boarded or selected active requests. Each requests must be picked up AND dropped off exactly once and unserved_requests should not appear in the manifests at all.
+
+        TODO keep_active should only restrict certain parts of this check and the extra check is just a far too simple quickfix
         """
-        if self.config.keep_active:
+        if keep_active:
             # initialize all new requests that need to be picked, dropped or unserved
             picked_requests = set([req["booking_id"] for req in new_requests])
             dropped_requests = copy.deepcopy(picked_requests) # set([req["booking_id"] for req in new_requests]) # simplified as it does not have to run the same loop twice
@@ -191,6 +191,7 @@ class OnlineRTVSolver:
     @staticmethod
     def update_run(vehicle_handler: VehicleHandler, driver_run: dict) -> dict:
         """
+        TODO move into vehicleHandler!!!
         Update manifest of a driver_run by keeping all already-served stops and regenerating the remaining stops from the vehicle's stop_sequence.
         Returns a new driver_run dict (state + manifest).
         """
@@ -215,6 +216,9 @@ class OnlineRTVSolver:
         return new_driver_run
     
     def simulate_manifest(self, current_time, driver_runs, intermediate_location=True):
+        """
+        Update the driver_run for the offlineSolver so that the last results fits the time that we have used for it.
+        """
         NetworkHandler.init(True, self.SERVER_URL)
         new_driver_runs = []
         # TODO longterm: turn driver_run into an object that handles all the conditions and changes based on validated calls
@@ -259,7 +263,7 @@ class OnlineRTVSolver:
                 PayloadParser.DRIVER_STATE: state,
                 PayloadParser.DRIVER_MANIFEST: manifest})
         
-        self.check_consistency_of_manifests(driver_runs, new_driver_runs, [], [])
+        self._check_consistency_of_manifests(driver_runs, new_driver_runs, [], [])
         return new_driver_runs
     
     def simulate_manifest_new(self, current_time, driver_runs: list[dict], intermediate_location=True):
@@ -268,7 +272,7 @@ class OnlineRTVSolver:
 
         NOTE currently JW understanding incomplete what this should change and what should happen with the manifest
 
-        FIXME possible issue with in-place changes because the return value is never changed
+        FIXME possible issue with in-place changes because the return value is never changed, same behavior that bool keep_active now establishes
         """
         NetworkHandler.init(True, self.SERVER_URL)
         new_driver_runs = []
@@ -343,7 +347,7 @@ class OnlineRTVSolver:
             cheapest_vehicle_index = -1
             for vehicle_index in range(len(updated_driver_runs)):
                 driver_run = updated_driver_runs[vehicle_index]
-                cost, new_driver_run = self.insert_request_to_driver_run(payload[PayloadParser.DEPOT], driver_run, request)
+                cost, new_driver_run = self._insert_request_to_driver_run(payload[PayloadParser.DEPOT], driver_run, request)
                 if cost >=0 and cost < cheapest_cost:
                     cheapest_cost = cost
                     cheapest_vehicle = new_driver_run
@@ -354,14 +358,14 @@ class OnlineRTVSolver:
             else:
                 unserved_requests.append(request[PayloadParser.REQ_BOOKING_ID])
         
-        self.check_consistency_of_manifests(payload[PayloadParser.DRIVERS], updated_driver_runs, unserved_requests, payload[PayloadParser.REQUESTS])
+        self._check_consistency_of_manifests(payload[PayloadParser.DRIVERS], updated_driver_runs, unserved_requests, payload[PayloadParser.REQUESTS])
         if return_added_vmt:
             return updated_driver_runs, unserved_requests, total_cost
         return updated_driver_runs, unserved_requests
 
     def solve_pdptw(self, payload, skip_swapping=True):
         # NOTE what is the difference to PDPTW_RTV
-        # TODO  currently not working due to the changes of the return values of solve-pdptw-rtv
+        # TODO currently not working due to the changes of the return values of solve-pdptw-rtv
         remaining_requests = []
         for driver_run in payload[PayloadParser.DRIVERS]:
             current_order = driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_LOC_SERV]
@@ -404,7 +408,8 @@ class OnlineRTVSolver:
 
         return swaped_driver_runs, unserved_requests
 
-    def evaluate_insertion(args):
+    @staticmethod
+    def _evaluate_insertion(args):
         """ accepts a single set of args and evaluates the benefit or cost of the insertion into the existing route """
         i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective, depot, end_time, dwell_pickup, dwell_alight = args
         new_manifest = copy.deepcopy(remaining_stops[:i] + [pickup_stop] + remaining_stops[i:j] + [dropoff_stop] + remaining_stops[j:])
@@ -448,7 +453,7 @@ class OnlineRTVSolver:
             return new_manifest[i][PayloadParser.MANIFEST_SCHED_TIME], new_manifest
         return cost, new_manifest
 
-    def insert_request_to_driver_run(self, depot, driver_run, request, objective="vmt"):
+    def _insert_request_to_driver_run(self, depot, driver_run, request, objective="vmt"):
         NetworkHandler.init(True, self.SERVER_URL)
         driver_run_c = copy.deepcopy(driver_run)
         depot_pt = depot[PayloadParser.DEPOT_PT]
@@ -534,7 +539,7 @@ class OnlineRTVSolver:
                     self.DWELL_ALIGHT) 
                     for i in range(len(remaining_stops) + 1) 
                     for j in range(i + 1, len(remaining_stops) + 2)]
-        results = pool.map(OnlineRTVSolver.evaluate_insertion, args_list)
+        results = pool.map(OnlineRTVSolver._evaluate_insertion, args_list)
         pool.close()
         pool.join()
 
@@ -566,7 +571,7 @@ class OnlineRTVSolver:
             earliest_vehicle_index = -1
             for vehicle_index in range(len(updated_driver_runs)):
                 driver_run = updated_driver_runs[vehicle_index]
-                pick_up_time, new_driver_run = self.insert_request_to_driver_run(payload[PayloadParser.DEPOT], driver_run, request, objective = "pick_up_time")
+                pick_up_time, new_driver_run = self._insert_request_to_driver_run(payload[PayloadParser.DEPOT], driver_run, request, objective = "pick_up_time")
                 if pick_up_time >=0 and pick_up_time < earliest_time:
                     earliest_time = pick_up_time
                     earliest_vehicle = new_driver_run
@@ -576,96 +581,3 @@ class OnlineRTVSolver:
             else:
                 updated_driver_runs[earliest_vehicle_index] = earliest_vehicle
         return updated_driver_runs, unserved_requests
-
-    def get_stats(self, depot, driver_runs, travel_time_error_margin=5):
-        """
-        deprecated with new StatsParser class
-        """
-        feasible = True
-        stats = {
-            "vmt": 0,
-            "pmt": 0,
-            "vmt/pmt": 0,
-            "serviced": 0,
-            "average_wait_time": 0,
-            "average_detour": 0,
-            "wait_time": [],
-            "detour": [],
-        }
-
-        NetworkHandler.init(True, self.SERVER_URL)
-        request_stops = {}
-        for driver_run in driver_runs:
-            load = 0
-            current_node = Node(depot[PayloadParser.DEPOT_PT]["lat"], 
-                                depot[PayloadParser.DEPOT_PT]["lon"])
-            current_time = driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_START_TIME]
-            for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
-                booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
-                if booking_id not in request_stops:
-                    request_stops[booking_id] = {}
-                action = stop[PayloadParser.MANIFEST_ACTION]
-                served_time = stop[PayloadParser.MANIFEST_SCHED_TIME]
-                next_node = Node(stop["loc"]["lat"],stop["loc"]["lon"])
-                duration = NetworkHandler.travel_time(current_node,next_node)
-                stats["vmt"] += duration
-                current_time += duration
-                if current_time > served_time + travel_time_error_margin:  # Allow a small margin of error
-                    feasible = False
-                    print("Error: Scheduled time is impossible ", current_time-served_time)
-                    if duration > 0:
-                        print(100*(current_time - served_time)/duration)
-                    print("Current time: ",current_time)
-                    print("Scheduled time: ",served_time)
-                    print(stop)
-                if current_time < served_time:
-                    current_time = served_time
-                
-                if served_time < stop[PayloadParser.MANIFEST_TIME_WINDOW_START]:
-                    feasible = False
-                    print("Error: Served before window start")
-                if served_time > stop[PayloadParser.MANIFEST_TIME_WINDOW_END]:
-                    feasible = False
-                    print("Error: Served after window end")
-                if action == VehicleStop.ACT_PICKUP:
-                    load += stop[PayloadParser.MANIFEST_AMBULATORY]
-                    current_time += 180
-                    if "pick_up" in request_stops[booking_id]:
-                        print("Error: Pick up already exists")
-                    request_stops[booking_id]["pick_up"] = stop
-                else:
-                    current_time += 60
-                    load -= stop[PayloadParser.MANIFEST_AMBULATORY]
-                    if "drop_off" in request_stops[booking_id]:
-                        feasible = False
-                        print("Error: Drop off already exists")
-                    if "pick_up" not in request_stops[booking_id]:
-                        feasible = False
-                        print("Error: Drop off before pick up")
-                    request_stops[booking_id]["drop_off"] = stop
-                    stats["serviced"] += 1
-                if load > driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_AM_CAP]:
-                    feasible = False
-                    print("Error: Over capacity")
-                current_node = next_node
-
-        for served in request_stops:
-            if "drop_off" not in request_stops[served]:
-                feasible = False
-                raise RuntimeError("Error: Request not dropped off")
-            origin = Node(request_stops[served]["pick_up"]["loc"]["lat"],request_stops[served]["pick_up"]["loc"]["lon"])
-            destination = Node(request_stops[served]["drop_off"]["loc"]["lat"],request_stops[served]["drop_off"]["loc"]["lon"])
-            travel_time = NetworkHandler.travel_time(origin,destination)
-            stats["pmt"] += travel_time
-            stats["wait_time"].append(
-                request_stops[served]["pick_up"]["scheduled_time"]-
-                request_stops[served]["pick_up"]["time_window_start"])
-            stats["detour"].append(request_stops[served]["drop_off"]["scheduled_time"]-
-                                   request_stops[served]["pick_up"]["scheduled_time"]-
-                                   travel_time)
-        if stats["pmt"] > 0:
-            stats["vmt/pmt"] = stats["vmt"] / stats["pmt"]
-        if stats["serviced"] > 0:
-            stats["average_wait_time"] = sum(stats["wait_time"]) / stats["serviced"]
-            stats["average_detour"] = sum(stats["detour"]) / stats["serviced"]
-        return feasible, stats
