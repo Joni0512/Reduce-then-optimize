@@ -137,6 +137,31 @@ class VehicleHandler:
                     break
             self.add_manifest_to_vehicle(vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup)
 
+    def update_run(self, driver_run: dict) -> dict:
+        """
+        Update manifest of a driver_run by keeping all already-served stops and regenerating the remaining stops from the vehicle's stop_sequence.
+        Returns a new driver_run dict (state + manifest).
+        """
+        # retrieve old information
+        state = driver_run[PayloadParser.DRIVER_STATE]
+        old_manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
+        current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
+        
+        vehicle_id = state[PayloadParser.DRIVER_STATE_RUN_ID]
+        vehicle = self.vehicles[vehicle_id]
+
+        # Keep already served part, rebuild future part
+        new_manifest = old_manifest[:current_order]
+        added_manifest = self.get_manifest(vehicle, current_order)
+        new_manifest.extend(added_manifest)
+        # Update state meta info
+        new_state = state.copy()
+        new_state[PayloadParser.DRIVER_STATE_T_LOCS] = len(new_manifest)
+        # Build new driver run from both parts
+        new_driver_run = {PayloadParser.DRIVER_STATE: new_state, 
+                          PayloadParser.DRIVER_MANIFEST: new_manifest}
+        return new_driver_run
+    
     @staticmethod
     def add_manifest_to_vehicle(vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup):
         """

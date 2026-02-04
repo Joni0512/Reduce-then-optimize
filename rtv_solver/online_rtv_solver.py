@@ -132,7 +132,8 @@ class OnlineRTVSolver:
         # update driver runs
         updated_driver_runs = []
         for driver_run in payload_object.driver_runs:
-            new_driver_run = self.update_run(vehicle_handler, driver_run)
+            new_driver_run = vehicle_handler.update_run(driver_run)
+            # new_driver_run = self.update_run(vehicle_handler, driver_run)
             updated_driver_runs.append(new_driver_run)
             
         # check invariants whether manifest is still correct
@@ -187,33 +188,6 @@ class OnlineRTVSolver:
             return True
         else:
             return True # manifest consistency is not a target if we do not keep active requests fixed
-
-    @staticmethod
-    def update_run(vehicle_handler: VehicleHandler, driver_run: dict) -> dict:
-        """
-        TODO move into vehicleHandler!!!
-        Update manifest of a driver_run by keeping all already-served stops and regenerating the remaining stops from the vehicle's stop_sequence.
-        Returns a new driver_run dict (state + manifest).
-        """
-        # retrieve old information
-        state = driver_run[PayloadParser.DRIVER_STATE]
-        old_manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
-        current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
-        
-        vehicle_id = state[PayloadParser.DRIVER_STATE_RUN_ID]
-        vehicle = vehicle_handler.vehicles[vehicle_id]
-
-        # Keep already served part, rebuild future part
-        new_manifest = old_manifest[:current_order]
-        added_manifest = vehicle_handler.get_manifest(vehicle, current_order)
-        new_manifest.extend(added_manifest)
-        # Update state meta info
-        new_state = state.copy()
-        new_state[PayloadParser.DRIVER_STATE_T_LOCS] = len(new_manifest)
-        # Build new driver run from both parts
-        new_driver_run = {PayloadParser.DRIVER_STATE: new_state, 
-                          PayloadParser.DRIVER_MANIFEST: new_manifest}
-        return new_driver_run
     
     def simulate_manifest(self, current_time, driver_runs, intermediate_location=True):
         """
