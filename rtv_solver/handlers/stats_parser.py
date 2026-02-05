@@ -29,7 +29,9 @@ class Violation:
 class Stats:
     """
     TODO add more stats on the use of vehicles: total cars involved (just number of driver_runs), average capacity usage (complex?: how many vehicles are in the car for how long?)
+
     TODO add rolling horizon stats: average backlog (complex: vehicles to be picked up), 
+
     TODO alternative stats on RTV generation, cannot be handled by this class as this is not tracked in the dictionary at the moment
     """
     vmt: float = 0.0        # vehicle miles traveled (TODO seems like we only consider time in seconds)
@@ -39,19 +41,24 @@ class Stats:
     wait_time: List[float] = field(default_factory=list) # list of wait times per vehicle
     detour: List[float] = field(default_factory=list) # list of detour times per vehicle
 
-    vmt_over_pmt: float = 0.0       # higher is better
-    average_wait_time: float = 0.0  # lower is better
-    average_detour: float = 0.0     # lower is better
+    vmt_over_pmt: float = 0.0           # higher is better
+    vmt_over_pmt_woDepot: float = 0.0   # accounts for depot trips    
+    average_wait_time: float = 0.0      # lower is better
+    average_detour: float = 0.0         # lower is better
 
     total_requests: int = 0       # total requests that were part of original payload
     serviced_requests: list[float] = field(default_factory=list)  # list of serviced requests 
-    # TODO can be used for easy testing whether vehicles reach final destination
-    rebalancing_movements: int = 0
-    depot_movements: int = 0
+    
+    depot_movements: int = 0        # must be equal to number of vehicles if config.return_depot = True
+    depot_vmt: float = 0.0          # tracked to counterweigh vmt
+
+    rebalancing_movements: int = 0  # can only be != 0 when config.rebalance = True
+    rebalancing_vmt: float = 0.0    # lower is better
 
     def finalize(self) -> None:
         if self.pmt > 0:
             self.vmt_over_pmt = self.vmt / self.pmt
+            self.vmt_over_pmt_woDepot = (self.vmt - self.depot_vmt) / self.pmt
         if self.serviced > 0:
             self.average_wait_time = sum(self.wait_time) / self.serviced
             self.average_detour = sum(self.detour) / self.serviced
@@ -141,9 +148,14 @@ class StatsParser:
 
             next_node = self._node_from_stop(stop)
 
-            # travel
+            # travel distance (per category)
             travel_time = NetworkHandler.travel_time(current_node, next_node)
             self.stats.vmt += travel_time
+            if action == VehicleStop.ACT_DEPOT:
+                self.stats.depot_vmt += travel_time
+            if action == VehicleStop.ACT_REBALANCE:
+                self.stats.rebalancing_vmt += travel_time
+            
             arrival_time = current_time + travel_time
 
             # check "schedule impossible" (arrival after scheduled_time + margin)
@@ -196,13 +208,12 @@ class StatsParser:
                     self._add_violation("Dropoff before pickup", booking_id, run_id, stop)
                 self.request_stops[booking_id].dropoff = stop
                 self.request_stops[booking_id].dropoff_time = scheduled_time
-
             elif action == VehicleStop.ACT_REBALANCE:
                 self.stats.rebalancing_movements += 1
-
             elif action == VehicleStop.ACT_DEPOT:
                 self.stats.depot_movements += 1
-
+            else:
+                self._add_violation("Unknown stop action", booking_id=booking_id, run_id=run_id)
 
             # capacity checks
             if current_load_am > max_am_capacity:
@@ -232,7 +243,8 @@ class StatsParser:
         """
         for booking_id, pair in self.request_stops.items():
             if pair.pickup is None:
-                self._add_violation("Request missing pickup", booking_id)
+                if booking_id >= 0: # negative value for dropoff
+                    self._add_violation("Request missing pickup", booking_id)
                 continue
             if pair.dropoff is None:
                 self._add_violation("Request not dropped off", booking_id)
@@ -276,13 +288,15 @@ class StatsParser:
             delivered: List[int] = []
 
             for req_id, sp in self.request_stops.items():
-                pu = sp.pickup_time
-                do = sp.dropoff_time
-
-                if pu <= timestamp and timestamp < do:
-                    boarded.append(req_id)
-                elif timestamp >= do:
-                    delivered.append(req_id)
+                if req_id >= 0:
+                    pu = sp.pickup_time
+                    do = sp.dropoff_time
+                    if pu <= timestamp and timestamp < do:
+                        boarded.append(req_id)
+                    elif timestamp >= do:
+                        delivered.append(req_id)
+                else: # artificial depot_request
+                    continue
             
             assignment_history[timestamp]['boarded'] = boarded
             assignment_history[timestamp]['delivered'] = delivered

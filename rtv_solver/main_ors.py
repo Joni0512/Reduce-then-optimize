@@ -46,9 +46,9 @@ if __name__ == "__main__":
     parser.add_argument('--max_cardinality', type=int,      default=3, help='Maximum trips to be shared when creating trips in one batch_interval') # alt: total trips in same vehicle
     parser.add_argument('--largest_tsp', type=int,          default=8, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
     parser.add_argument('--share_cost_factor', type=int,    default=10, help='Shareable cost factor in factor of original single cost [???]') # TODO why 10, this is a crazy factor where this is used?
-    parser.add_argument('--rebalancing', type=bool,         default=True, help='Whether to enable rebalancing of vehicles')
-    parser.add_argument('--keep_active', type=bool,         default=False, help='Active requests from a prior request must be kept.') # TODO side effects are not clear yet (with default-value, results as expected)
-    parser.add_argument('--return_depot', type=bool,        default=False, help="Vehicles must return to the originating depot.")
+    parser.add_argument('--rebalancing', type=bool,         default=True, help='Vehicles are rebalanced if the need arises based on missed requests and idling vehicles.')
+    parser.add_argument('--keep_active', type=bool,         default=False, help='Active requests from an ILP solution in a prior iteration must be kept.') # BUG it breaks the conditions if True in some certain cases (side effects of changes are not clear yet)
+    parser.add_argument('--return_depot', type=bool,        default=True, help="Vehicles must return to the originating depot.")
     parser.add_argument('--dwell_pickup', type=int,         default=180, help='Dwell time at pickup in seconds')
     parser.add_argument('--dwell_alight', type=int,         default=60, help='Dwell time at alight (dropoff) in seconds')
     parser.add_argument('--walk_distance_cutoff', type=int, default=0, help="Walking distance between dropoff and final destination.")
@@ -92,12 +92,17 @@ if __name__ == "__main__":
         # combination 2 is not entirely correct (iteration keeps running and still tries to optimize despite no active vehicle being left, vehicle does not return to depot)
         # TODO how to set vehicles to inactive, so they are not part of the optimization anymore but are also completed in their manifest (depot return and complete manifest of prior assigned trips)
         # TODO # trigger depot return after all requests have been handled 
-        vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 21000 
+        vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 22000 
         config.return_depot = True
+        # config.keep_active = True
+
+        # combination 3 
+        # if trip is not considered in recent trips but is the last dropoff (situation: new trip is injected before that last dropoff in a new iteration)
+        # BUG find situation where this issue rises and build a test from it, relevant for multiple issues
         
         # create a simplified set of requests, consider all requests that start before end_requests
         current_time = 5*3600 + 30*60
-        step = 30*60
+        step = 60*60
         selected_requests = []
         for request in data[PayloadParser.REQUESTS]:
             if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + step:

@@ -4,7 +4,7 @@ class Node:
     """
     Position of a node in the street network defined by latitude and longitude.
     """
-    def __init__(self, lat, lon, identifier = None):
+    def __init__(self, lat: float, lon: float, identifier = None):
         self.lat = lat
         self.lon = lon
         self.id = identifier # uncertain what this id is for, seems to be stored in NetworkHandler and not as part of the node itself

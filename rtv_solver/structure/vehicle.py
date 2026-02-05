@@ -1,35 +1,41 @@
-from enum import Enum
-from dataclasses import dataclass
-from typing import Optional
 import logging
 
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from rtv_solver.structure.trip import Trip
+
 from rtv_solver.structure.vehicle_stop import VehicleStop
-from rtv_solver.handlers.network_handler import NetworkHandler
-from rtv_solver.handlers.payload_parser import PayloadParser
-from rtv_solver.structure.sequence import StopSequence
 from rtv_solver.structure.trip import Trip
 from rtv_solver.structure.node import Node
 
+from rtv_solver.handlers.network_handler import NetworkHandler
+from rtv_solver.handlers.payload_parser import PayloadParser
+
 @dataclass
 class TripInsertionPlan:
-    feasible: bool
-    added_cost: float
-    sequence: list[VehicleStop]
-    trips: Optional[list] = None
-    next_immediate_node: Optional[Node] = None
-    time_at_next_immediate_node: Optional[float] = None
-    veh_travel_time: Optional[float] = None
+    depot_feasible: bool = False
+    sequence_feasible: bool = False
+    # feasible: bool = False# sequence_feasible && depot_feasible
+    added_cost: float = -1
+    sequence: list[VehicleStop] = None
+    trips: list[Trip] = None # TODO turn into a dict[id, Trip] where I can more easily access the information, it should also be clearly limited to the scope of tripAssignment as far as I can tell
+    next_immediate_node: Node = None
+    time_at_next_immediate_node: float = None
+    # add information on veh_travel from last vehicle location to next_immediate_node, and depot_return
+    veh_travel_time: float = None
+    depot_travel_time: float = None
     
 class Vehicle:
     """Vehicle-related information covering basic vehicle information and simulation state during runtime"""
     def __init__(self, 
-                 vehicle_id, 
-                 start_node, 
-                 am_capacity, 
-                 wc_capacity, 
-                 start_time, 
-                 end_time, 
-                 depot):
+                 vehicle_id: int, 
+                 start_node: Node, 
+                 am_capacity: int, 
+                 wc_capacity: int, 
+                 start_time: float, 
+                 end_time: float, 
+                 depot: Node):
         # Static vehicle information
         self.id = vehicle_id
         self.start_time = start_time
@@ -62,6 +68,18 @@ class Vehicle:
             next_immediate_node = self.next_immediate_node
         return next_immediate_node, time_at_next_immediate_node
     
+    def can_return_to_depot(self, last_node: Node, time_at_last_node: int) -> tuple[bool, float]:
+        """
+        checks if the vehicle can still reach the depot after fulfilling its last service, also calculates the travel_time directly in order to facilitate future application
+        
+        :return: depot_feasible: checks whether depot can still be reached in-time
+        :rtype: bool
+        """
+        travel_time = NetworkHandler.travel_time(last_node, self.depot)
+        if time_at_last_node + travel_time < self.end_time:
+            return True, travel_time
+        return False, -1
+    
     # BELOW DEPRECATED METHODS FOR SIMULATION
     def has_completed_operations(self, current_time: int):
         """boolean for checking whether the vehicle's operational time has run out and the vehicle is empty."""
@@ -75,7 +93,7 @@ class Vehicle:
         """handle steps to build stop to return to depot."""
         # TODO FIXME this currently does not work, the final_stop_time does not seem to be correct as it is never updated
         stop = VehicleStop(None, self.depot, VehicleStop.ACT_DEPOT, 0)
-        stop.stop_time = self.final_stop_time + NetworkHandler.travel_time(self.last_node,self.depot)
+        stop.stop_time = self.final_stop_time + NetworkHandler.travel_time(self.last_node, self.depot)
         stop.vehicle_id = self.id 
         return stop
     
@@ -140,9 +158,11 @@ class Vehicle:
         self.last_node = next_immediate_node
         self.time_at_last = time_at_next_immediate_node
 
-    def apply_trip_insertion(self, plan: TripInsertionPlan):
+    def apply_trip_insertion(self, plan: TripInsertionPlan):    
         """
-        Adds the trip stored in the TripInsertionPlan as it was all previously checked
+        Updates vehicle state based on the trip plan that is be applied
+
+        :param TripInsertionPlan plan: stores trip details for application
         """
         # read and apply relevant information from plan to vehicle 
         self.rebalancing = False

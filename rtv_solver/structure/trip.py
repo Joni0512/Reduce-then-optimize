@@ -1,6 +1,10 @@
 from __future__ import annotations
+from typing import TYPE_CHECKING
 
-from rtv_solver.structure.request import Request
+if TYPE_CHECKING:
+    from rtv_solver.structure.vehicle import Vehicle
+    from rtv_solver.structure.request import Request    
+    from rtv_solver.structure.node import Node
 
 class Trip:
     """
@@ -10,26 +14,26 @@ class Trip:
     """
     def __init__(
             self, 
-            request_id, 
-            trip_number, 
-            am_capacity, 
-            wc_capacity, 
-            pick_up_time, 
-            latest_pick_up_time, 
-            earliest_arrival_time,
-            latest_arrival_time, 
-            origin, 
-            destination, 
-            dwell_pickup, 
-            dwell_alight, 
-            iteration, 
-            cost = None, 
+            request_id: int, 
+            trip_number: int, 
+            am_capacity: int, 
+            wc_capacity: int, 
+            pick_up_time: float, 
+            latest_pick_up_time: float, 
+            earliest_arrival_time: float,
+            latest_arrival_time: float, 
+            origin: Node, 
+            destination: Node, 
+            dwell_pickup: int, 
+            dwell_alight: int, 
+            iteration: int, 
+            cost: float = None, 
             bus_combination = None, 
-            first_last_mile_type = 0, 
-            vehicle = None):
+            first_last_mile_type: int = 0, 
+            vehicle: Vehicle = None):
         # identifiers
-        self.request_id: int = request_id
-        self.number: int = trip_number
+        self.request_id = request_id
+        self.number = trip_number
         if bus_combination == None:
             self.id = "{0}-{1}".format(iteration, request_id)
         else:
@@ -76,20 +80,6 @@ class Trip:
             bus_combination, 
             first_last_mile_type
         )
-
-    # NOTE DEBUG Checks
-    @property
-    def vehicle(self):
-        print(f"Trip {self.id}: vehicle accessed")
-        return self._vehicle
-
-    @vehicle.setter
-    def vehicle(self, vehicle):
-        if vehicle is None:
-            raise ValueError("vehicle cannot be None")
-        if self._vehicle is not None:
-            raise RuntimeError("Vehicle already assigned")
-        self._vehicle = vehicle
 
     def __str__(self):
         return f"<Trip {self.id}: pickup: {self.pick_up_time}, origin: {self.origin}, destination: {self.destination}>"

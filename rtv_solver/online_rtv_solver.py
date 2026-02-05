@@ -18,6 +18,9 @@ from rtv_solver.structure.node import Node
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.config import Config
 
+class ManifestConsistencyError(Exception):
+    """Raised when a manifest consistency check fails."""
+
 class OnlineRTVSolver:
     """solves entire RTV problem for a given payload """
     def __init__(self, config: Config = None):
@@ -140,54 +143,95 @@ class OnlineRTVSolver:
         self._check_consistency_of_manifests(payload[PayloadParser.DRIVERS], 
                                             updated_driver_runs,
                                             unserved_requests, 
-                                            payload[PayloadParser.REQUESTS],
-                                            keep_active = self.config.keep_active)
+                                            payload[PayloadParser.REQUESTS])
         # TODO remove this complex data structure to move data up the stack; integrate JSON logger that records information to a standardized JSON file and can later be rebuilt and analyzed using that JSON file (probably requires something similar to OutputHandler that was used in the simulation)
         assignment_status = {0: {PayloadParser.STATS_ASSIGNED: trip_handler.request_assignment, 
                                    PayloadParser.STATS_UNSERVED: list(unserved_requests)}}
         return updated_driver_runs, assignment_status # ,trip_handler, vehicle_handler, request_handler, payload_object
 
-    @staticmethod
-    def _check_consistency_of_manifests(prev_driver_runs: list[dict], new_driver_runs: list[dict], unserved_requests: set[int], new_requests: list[dict], keep_active: bool =False):
+    def _check_consistency_of_manifests(self, 
+                                        prev_driver_runs: list[dict], 
+                                        new_driver_runs: list[dict], 
+                                        unserved_requests: set[int], 
+                                        new_requests: list[dict]):
         """ 
-        Checks whether the previously written manifest still aligns with the new manifest after new request have been assigned. This concerns previously boarded or selected active requests. Each requests must be picked up AND dropped off exactly once and unserved_requests should not appear in the manifests at all.
+        Checks whether the previously written manifest still aligns with the new manifest after new requests have been assigned. This concerns previously boarded or selected active requests. Each requests must be picked up AND dropped off exactly once and unserved_requests should not appear in the manifests at all.
 
-        TODO keep_active should only restrict certain parts of this check and the extra check is just a far too simple quickfix
+        If config.keep_active = True - boarded and previously active requests are still part of the manifest.
+        If config.keep_active = False - boarded requests must always remain, active requests can but need not be discarded.
+        
+        If config.return_depot = True - each vehicle needs a depot return trip in their manifest.
+        If config.return_depot = False - each vehicle should not have a depot return.
         """
-        if keep_active:
-            # initialize all new requests that need to be picked, dropped or unserved
-            picked_requests = set([req["booking_id"] for req in new_requests])
-            dropped_requests = copy.deepcopy(picked_requests) # set([req["booking_id"] for req in new_requests]) # simplified as it does not have to run the same loop twice
-            # get all requests that are already in the previous manifest
-            for driver_run in prev_driver_runs:
-                for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
-                    # TODO why is type of stop[booking_id] a string and the set of request_ids floats (wouldn't int suffice?)
-                    # float is quickfix for type mismatch - id in stop is stored as string instead of float
-                    stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
-                    if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
-                        picked_requests.add(stop_id)
-                    else:
-                        dropped_requests.add(stop_id)
-            # remove all requests that are picked up/dropped off
-            for driver_run in new_driver_runs:
-                for stop in driver_run[PayloadParser.DRIVER_MANIFEST]:
-                    stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
-                    if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
-                        picked_requests.remove(stop_id)
-                    else:
-                        dropped_requests.remove(stop_id)
-            # remove all requests that are unserved            
-            for req_id in unserved_requests:
-                picked_requests.remove(req_id)
-                dropped_requests.remove(req_id)
+        # TODO test why are the booking_id np.float here? they must be changed in some position
+        # required to check whether all items have 1 pickup and 1 dropoff
+        picked_requests = set([req["booking_id"] for req in new_requests])
+        dropped_requests = copy.deepcopy(picked_requests)
+        # required to correctly consider the active or boarded condition in the previous manifest
+        active_requests = set()
+        boarded_requests = set()
+        for driver_run in prev_driver_runs:
+            state = driver_run[PayloadParser.DRIVER_STATE]
+            manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
+            serviced_locations = state[PayloadParser.DRIVER_STATE_LOC_SERV] # vehicle state condition for active / boarding
+            for stop in manifest:
+                stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
+                action = stop[PayloadParser.MANIFEST_ACTION]
+                stop_order = stop[PayloadParser.MANIFEST_ORDER]
+                if action == VehicleStop.ACT_PICKUP:
+                    if stop_order <= serviced_locations: # i.e., already boarded or finished
+                        boarded_requests.add(stop_id)
+                    else: 
+                        active_requests.add(stop_id)
+                    picked_requests.add(stop_id)
+                elif action == VehicleStop.ACT_DROPOFF:
+                    dropped_requests.add(stop_id) 
+        # print("active", active_requests)
+        # print("boarded", boarded_requests)
+        
+        # depending on config.keep_active, active requests also need to be part of the new_driver_runs
+        # remove all requests that are picked up/dropped off (ensures that all stops exist twice) and track depot runs
+        depot_requests = []
+        manifests = []
+        for driver_run in new_driver_runs:
+            state = driver_run[PayloadParser.DRIVER_STATE]
+            manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
+            manifests.append(manifest)
 
-            if len(picked_requests) > 0 or len(dropped_requests) > 0:
-                # TODO: fails with wilson_data, cardinality = 3, thread_cnt = 16, batch_interval = 1800, step_size = 1800 (should be reproducible with this)
-                print("Missing requests:", picked_requests, dropped_requests)
-                raise Exception("Error: Some requests could not be removed.")
-            return True
+            for stop in manifest:
+                stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
+                action = stop[PayloadParser.MANIFEST_ACTION]
+                if action == VehicleStop.ACT_PICKUP:
+                    boarded_requests.discard(stop_id)
+                    if self.config.keep_active: # only additionally remove active requests when keep_active = True
+                        active_requests.discard(stop_id)
+                    picked_requests.remove(stop_id)
+                elif action == VehicleStop.ACT_DROPOFF:
+                    dropped_requests.remove(stop_id)
+                elif action == VehicleStop.ACT_DEPOT and self.config.return_depot:
+                    depot_requests.append(stop_id) # stop_id should be -(vehicle.id+1) as defined in VehicleHandler.get_manifest()
+        # remove all requests that are unserved            
+        for req_id in unserved_requests:
+            picked_requests.remove(req_id)
+            dropped_requests.remove(req_id)
+        
+        # print("depot:", depot_requests)
+
+        if len(boarded_requests) > 0:
+            raise ManifestConsistencyError(f"ManifestError: boarded_requests {boarded_requests} were not picked up.")
+        if self.config.keep_active and len(active_requests) > 0:
+            raise ManifestConsistencyError(f"ManifestError: active_requests {active_requests} were not kept in the manifest despite config.keep_active = True.")
+        if len(picked_requests) > 0 or len(dropped_requests) > 0:
+            # TODO: fails with wilson_data, cardinality = 3, thread_cnt = 16, batch_interval = 1800, step_size = 1800 (should be reproducible with this)
+            raise ManifestConsistencyError(f"ManifestError: Some requests could not be removed. Missing requests: {picked_requests}, {dropped_requests}")
+        active_manifests = sum(1 for lst in manifests if lst) # compare against already active manifests
+        if self.config.return_depot:
+            if len(depot_requests) != active_manifests: # as many depot returns as vehicles are running
+                raise ManifestConsistencyError(f"ManifestError: Depot return was not added, instead depot_returns {depot_requests} exist.") # more or less?
         else:
-            return True # manifest consistency is not a target if we do not keep active requests fixed
+            if len(depot_requests) != 0:
+                raise ManifestConsistencyError(f"ManifestError: {len(depot_requests)} depot return was added despite self.config.return_depot = False.")
+        return True
     
     def simulate_manifest(self, current_time, driver_runs, intermediate_location=True):
         """

@@ -86,9 +86,12 @@ class TripHandler:
 
     # TRIP COST GENERATION
     @staticmethod
-    def create_trip_cost(vehicle, trip_no, trips, prev_sequence):
+    def create_trip_cost(vehicle: Vehicle, trip_no, trips, prev_sequence, config: Config):
         plan = VehicleHandler.plan_trip_insertions(vehicle, trips, prev_sequence=prev_sequence)
-        if plan.feasible:
+        feasible = plan.sequence_feasible
+        if config.return_depot:
+            feasible = plan.sequence_feasible and plan.depot_feasible
+        if feasible:
             return TripCost(trip_no, vehicle.id, plan.added_cost, plan.sequence)
         return None
     
@@ -149,7 +152,7 @@ class TripHandler:
                                 break
                     pool.apply_async(
                         TripHandler.create_trip_cost, 
-                        args=(vehicles[vehicle_id], trip.number, trips, prev_sequence,), 
+                        args=(vehicles[vehicle_id], trip.number, trips, prev_sequence, self.config), 
                         callback=TripHandler._process_trip_cost_result,
                         error_callback=TripHandler._on_worker_error)
             pool.close()
