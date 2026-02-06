@@ -4,6 +4,8 @@ import logging
 import time
 import json
 
+from pathlib import Path
+
 from rtv_solver import OnlineRTVSolver, OfflineRTVSolver
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
@@ -48,7 +50,7 @@ if __name__ == "__main__":
     parser.add_argument('--ilp_timeout', type=int,          default=120, help='ILP solver timeout in seconds')
     parser.add_argument('--ilp_penalty', type=int,          default=100_000, help='Penalty for not serving a trip')
     # experiment parameters
-    parser.add_argument('--max_cardinality', type=int,      default=3, help='Maximum trips to be shared when creating trips in one batch_interval') # alt: total trips in same vehicle
+    parser.add_argument('--max_cardinality', type=int,      default=5, help='Maximum trips to be shared when creating trips in one batch_interval') # alt: total trips in same vehicle
     parser.add_argument('--largest_tsp', type=int,          default=8, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
     parser.add_argument('--share_cost_factor', type=int,    default=10, help='Shareable cost factor in factor of original single cost [???]') # TODO why 10, this is a crazy factor where this is used?
     parser.add_argument('--rebalancing', type=bool,         default=True, help='Vehicles are rebalanced if the need arises based on missed requests and idling vehicles.')
@@ -85,12 +87,20 @@ if __name__ == "__main__":
         
         # reduce the complexity by only considering a single vehicle
         driver_runs_total = data[PayloadParser.DRIVERS]
-        driver_runs_reduced = driver_runs_total[:2] 
+        driver_runs_reduced = driver_runs_total[:1] 
         # test to change the first vehicle to trigger certain situations
         vehicle_state = driver_runs_reduced[0][PayloadParser.DRIVER_STATE]
         vehicle_manifest = driver_runs_reduced[0][PayloadParser.DRIVER_MANIFEST]        
-        vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 22000
-            
+
+        # TODO next combination that fails (figure it out)
+        # Assumption: problem is that the cardinality > 2 (without multiprocessing) does not check for depot_return as cardinality <= 2 does
+        # Solution: implement multiprocessing and sequence creation of this cardinality > 3
+        vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 25000
+        config.max_cardinality = 3
+        config.step_size = 1200
+        config.batch_interval = 3600
+        config.keep_active = True
+        config.return_depot = True
 
         # BUG combination 2 > iteration keeps running and still tries to optimize despite no active vehicle being left
         # TODO how to set vehicles to inactive, so they are not part of the optimization anymore but are also completed in their manifest (depot return and complete manifest of prior assigned trips)
