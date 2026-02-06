@@ -1,9 +1,6 @@
 import logging
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from rtv_solver.structure.trip import Trip
 
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.trip import Trip

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from argparse import Namespace
+from pathlib import Path
 
 @dataclass
 class Config:
@@ -12,7 +13,7 @@ class Config:
     The default values [output_dir, input_file, server_url]should be changed locally  as they also collect the basic information for debug runs. The default values also act as the default for tests. 
     """
     # technical setup
-    output_dir: str = "output_format/debug/"
+    output_dir: Path = Path("output_format") / "debug"
     input_file: str = "rtv-solver/inputs/wilson_nc_initial.pkl"
     server_url: str = "http://127.0.0.1:5001/"
     max_thread_cnt: int = 16

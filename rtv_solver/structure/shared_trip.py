@@ -2,8 +2,8 @@ class SharedTrip:
     """
     TODO Docstring for ShareTrip and when it is used
     """
-    def __init__(self, prev_trip_number, number, trips, cost, sequence):
-        self.number = number # initially 0 and overwritten before it is actually tested
+    def __init__(self, prev_trip_number: int, trip_number: int, trips: set, cost: float, sequence: list):
+        self.number = trip_number # initially 0 and overwritten before it is actually tested
         self.trips = trips
         self.cardinality = len(trips)
         self.cost = cost
