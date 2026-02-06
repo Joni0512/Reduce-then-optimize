@@ -244,7 +244,7 @@ class TripHandler:
 
     def generate_shared_trips(self, vehicles, max_cardinality, max_num_thread, SHAREABLE_COST_FACTOR):
         """
-        TODO docstring
+        create all possible shared trips with as many of the initial requests up to max_cardinality.
         """
         cardinality = 2
         self.selected_combinations = []
@@ -275,13 +275,13 @@ class TripHandler:
                             error_callback=TripHandler._on_worker_error)
                 pool.close()
                 pool.join()
-            else: # TODO check how cardinality > 2 works, but currently problem occurs with cardinality = 2, so deepdive not necessary for now
+            else:
                 tried_combinations = {}
                 shared_trips_to_process = []
                 prev_shared_trips = self.shared_trips_map[cardinality-1]
                 block_size = 500
                 logging.debug("Starting to process shared trips of cardinality {0}".format(cardinality))
-                for shared_trip1_index in prev_shared_trips:
+                for shared_trip1_index in prev_shared_trips: # iterate only trips that already work for prior cardinality
                     shared_trip1 = self.trips[shared_trip1_index]
                     for request_id in self.ondemand_only_trip_map:
                         # check for timeout every block_size iterations
@@ -294,7 +294,7 @@ class TripHandler:
                         # Check if the trip is already part of the shared trip
                         if trip_no in shared_trip1.trips:
                             continue
-
+                        # create the new trip_nos by adding the new one
                         trip_nos = shared_trip1.trips.copy()
                         trip_nos.add(trip_no)
 
@@ -304,7 +304,9 @@ class TripHandler:
                             continue
                         tried_combinations[trips_signature] = 0
 
+                        # if no cost was created prior, we can skip this particular request? NOTE why is that here? it should fail for all of them right?
                         if len(self.trip_to_vehicle_cost_map[shared_trip1_index]) == 0:
+                            logging.debug(f"Trip<>Vehicle check {shared_trip1_index} failed with {request_id}")
                             continue
 
                         # Check if this trip can share a ride with all other trips in shared_trip1
@@ -316,18 +318,20 @@ class TripHandler:
                             if temp_trip_no not in self.rr_graph[trip_no]:
                                 rr_check_fail = True
                                 break
-                        # If any of the rideshare checks fail, skip this combination
                         if rr_check_fail:
                             continue
                         
-                        if self._check_any_vehicles_available([shared_trip1, trip]):
+                        # if there is an available vehicle, add cost from both trips; collect partial trips and check if vehicle is available
+                        if self._check_any_vehicles_available([shared_trip1, trip]): # pre-check
                             current_cost = trip.cost + shared_trip1.cost
+                            trips = {}
                             for trip_no in trip_nos:
                                 temp_trip = self.trips[trip_no]
                                 trips[temp_trip.id] = temp_trip
-                            if self._check_any_vehicles_available(trips.values()):
-                                args=(shared_trip1_index,trips,trip_nos,trip,current_cost,shared_trip1.sequence, SHAREABLE_COST_FACTOR,)
-                                shared_trips_to_process.append(args)
+                            if self._check_any_vehicles_available(trips.values()): # detailed check for specific trips
+                                # create args for parallel execution but it is never used
+                                args=(shared_trip1_index, trips, trip_nos, trip, current_cost, shared_trip1.sequence, SHAREABLE_COST_FACTOR,)
+                                shared_trips_to_process.append(args) # TODO we should be able to get rid of this as we do not parallelize? NOTE why do we not parallelize?
                                 
                                 new_shared_trip = SharedTrip(shared_trip1_index, 0, trip_nos, current_cost, [])
                                 TripHandler._process_shared_trip_result(new_shared_trip)

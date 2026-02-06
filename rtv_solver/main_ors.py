@@ -41,7 +41,7 @@ if __name__ == "__main__":
     parser.add_argument('--max_thread_cnt', type=int,       default=16, help='Maximum thread count for parallel processing')
     parser.add_argument('--rtv_timeout', type=int,          default=120, help='RTV construction timeout in seconds')
     parser.add_argument('--ilp_timeout', type=int,          default=120, help='ILP solver timeout in seconds')
-    parser.add_argument('--ilp_penalty', type=int,          default=1000_000, help='Penalty for not serving a trip')
+    parser.add_argument('--ilp_penalty', type=int,          default=100_000, help='Penalty for not serving a trip')
     # experiment parameters
     parser.add_argument('--max_cardinality', type=int,      default=3, help='Maximum trips to be shared when creating trips in one batch_interval') # alt: total trips in same vehicle
     parser.add_argument('--largest_tsp', type=int,          default=8, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
@@ -75,25 +75,20 @@ if __name__ == "__main__":
         logging.getLogger().setLevel(logging.INFO)
         config.rtv_timeout = 600000 # if I am clicking through inputs, it never breaks due to timeout
         
+        
         # reduce the complexity by only considering a single vehicle
         driver_runs_total = data[PayloadParser.DRIVERS]
-        driver_runs_reduced = driver_runs_total[:1] 
+        driver_runs_reduced = driver_runs_total[:2] 
         # test to change the first vehicle to trigger certain situations
         vehicle_state = driver_runs_reduced[0][PayloadParser.DRIVER_STATE]
         vehicle_manifest = driver_runs_reduced[0][PayloadParser.DRIVER_MANIFEST]        
-        # combination 1 fails
-        # TODO active requests can only be assigned when all conditions apply correctly and ILP constraints must be able to handle this edge case
-        # FIXME this fails because with keep_active = True, the assignment of active requests should happen to inactive vehicles that are not available anymore; possibly at 21000 or step_size 1800 the timing just fits that the request is not accepted while we keep a valid solution
-        # vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 22000 
-        # config.step_size = 1200 # with step_size = 1800 it works
-        # config.keep_active = True
-        # config.max_cardinality = 3
+        vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 22000
+            
 
-        # combination 2 is not entirely correct (iteration keeps running and still tries to optimize despite no active vehicle being left, vehicle does not return to depot)
+        # BUG combination 2 > iteration keeps running and still tries to optimize despite no active vehicle being left
         # TODO how to set vehicles to inactive, so they are not part of the optimization anymore but are also completed in their manifest (depot return and complete manifest of prior assigned trips)
-        # TODO # trigger depot return after all requests have been handled 
-        vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 22000 
-        config.return_depot = True
+        # vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 22000 
+        # config.return_depot = True
         # config.keep_active = True
 
         # combination 3 
@@ -102,7 +97,7 @@ if __name__ == "__main__":
         
         # create a simplified set of requests, consider all requests that start before end_requests
         current_time = 5*3600 + 30*60
-        step = 60*60
+        step = 90*60
         selected_requests = []
         for request in data[PayloadParser.REQUESTS]:
             if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + step:
