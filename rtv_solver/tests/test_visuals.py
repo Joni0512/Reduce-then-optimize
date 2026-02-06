@@ -1,5 +1,7 @@
 import json
 
+from pathlib import Path
+
 from rtv_solver.visuals.route_manifest_mapper import RouteManifestMapper
 
 ALLOWED_GEOMETRY_TYPES = {
@@ -11,8 +13,10 @@ ALLOWED_GEOMETRY_TYPES = {
 def test_visual_geoJsonCreation():
     """check if the structure of the output is valid GeoJson"""
     # initialize data
-    filename = 'rtv-solver/rtv_solver/visuals/debug_output.json'
-    with open(filename, 'r') as json_file:
+    TEST_DIR = Path(__file__).resolve().parent
+    INPUTS_DIR = TEST_DIR.parent / "visuals"
+    path = INPUTS_DIR / "debug_output.json"
+    with open(path, 'r') as json_file:
         loaded_data = json.load(json_file)
 
     mapper = RouteManifestMapper()

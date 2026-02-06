@@ -1,0 +1,127 @@
+import pytest
+
+from rtv_solver.offline_rtv_solver import OfflineRTVSolver
+
+from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.handlers.stats_parser import StatsParser
+
+from rtv_solver.structure.config import Config
+
+from rtv_solver.tests.test_integration_basics import _init_payload
+
+"""
+The following integration tests run rolling horizon approaches across different configurations. We hope to find issues with certain time ranges or combinations of configurations.
+
+Add configurations that once returned errors so we can update the tool accordingly.
+"""
+
+
+@pytest.mark.parametrize(
+    "vehicle_count," \
+    "first_vehicle_reduced_time," \
+    "request_time_span_minutes," \
+    "max_cardinality," \
+    "batch_interval," \
+    "step_size," \
+    "keep_active," \
+    "return_depot," \
+    "expected_feasible" ,
+    [   
+        pytest.param(
+            1, 22_000, 90, 3, 3600, 1200, True, True,      True,
+            marks=[pytest.mark.integration, pytest.mark.rh],
+            id = "rh-1"
+        ),
+        pytest.param(
+            1, 22_000, 90, 3, 3600, 1200, False, True,      True,
+            marks=[pytest.mark.integration, pytest.mark.rh],
+            id = "rh-2"
+        ),
+        pytest.param(
+            1, 22_000, 90, 3, 3600, 1200, False, False,      True,
+            marks=[pytest.mark.integration, pytest.mark.rh],
+            id = "rh-3"
+        ),
+        pytest.param(
+            1, 22_000, 90, 3, 3600, 1200, True, False,      True,
+            marks=[pytest.mark.integration, pytest.mark.rh],
+            id = "rh-3"
+        ),
+        pytest.param(
+            1, 72000, 20, 2, 1200, 600, True, False,      True,
+            marks=[pytest.mark.integration, pytest.mark.rh],
+            id = "rh-5"
+        ),
+        pytest.param(
+            2, 72_000, 60, 3, 1200, 600, True, False,      True,
+            marks=[pytest.mark.integration, pytest.mark.rh],
+            id = "rh-6"
+        ),
+        pytest.param(
+            1, 21000, 60, 3, 3600, 1200, True, True,      True,
+            marks=[pytest.mark.integration, pytest.mark.rh],
+            id = "rh-7"
+        ),
+        pytest.param(
+            2, 21000, 60, 3, 3600, 1200, True, True,      True,
+            marks=[pytest.mark.integration, pytest.mark.rh],
+            id = "rh-8"
+        ),
+        pytest.param(
+            2, 30000, 60, 3, 3600, 1200, True, True,      True,
+            marks=[pytest.mark.integration, pytest.mark.rh],
+            id = "rh-9"
+        ),
+        pytest.param(
+            1, 25000, 90, 3, 3600, 1200, True, True,      True,
+            marks=[pytest.mark.integration, pytest.mark.rh, pytest.mark.xfail(reason="Bug: depot_return for cardinality=3 not implemented")],
+            id = "rh-10"
+        ),
+    ],)
+def test_integration_solver_parametrized(
+        vehicle_count: int, 
+        first_vehicle_reduced_time: int, 
+        request_time_span_minutes: int,
+        max_cardinality: int,
+        batch_interval: int,
+        step_size: int,
+        keep_active: bool,
+        return_depot: bool,
+        expected_feasible: bool):
+    """
+    Integration edge case with specific vehicle that ends before requests are finished
+
+    ensures that assignment handles vehicles and active requests correctly that are close to being inactive
+
+    FIXME performance increase if we removed any vehicles from the TripGeneration once they are inactive and do not iterate if our vehicle are not active anymore
+    """
+    payload = _init_payload(vehicle_count, first_vehicle_reduced_time, request_time_span_minutes)
+    config = Config()
+    config.max_cardinality = max_cardinality
+    config.step_size = step_size
+    config.batch_interval = batch_interval
+    config.keep_active = keep_active
+    config.return_depot = return_depot
+
+    expected_depot_movements = 0
+    if return_depot:
+        expected_depot_movements = vehicle_count
+    
+    # run solver
+    off_solver = OfflineRTVSolver(config)
+    updated_driver_runs, unserved_requests = off_solver.solve_rtv(
+        payload,
+        config.batch_interval,
+        config.step_size,
+    )
+    # compute stats
+    stats_payload = {
+        PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
+        PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
+        PayloadParser.DRIVERS: updated_driver_runs,}
+    stats_evaluator = StatsParser(config=config)
+    feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, unserved_requests)
+
+    # Test assertions
+    assert feasible is expected_feasible
+    assert stats.depot_movements == expected_depot_movements

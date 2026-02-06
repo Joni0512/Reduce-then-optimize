@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rtv_solver"
+version = "0.1.36"
+description = "A solver for real-time vehicle routing problems"
+readme = "README.md"
+readme-content-type = "text/markdown"
+authors = [
+    { name = "Danushka Edirimanna", email = "ke233@cornell.edu" },
+    { name = "Jasper Wiltfang", email = "jiw42@cornell.edu" }
+]
+license = { text = "MIT" }
+requires-python = ">=3.10"
+
+dependencies = [
+    "pandas>=1.5.3",
+    "numpy>=1.26.0",
+    "requests>=2.31.0",
+    "gurobipy>=10.0.3",
+]
+
+[tool.setuptools.packages.find]
+include = [
+    "rtv_solver",
+    "rtv_solver.handlers",
+    "rtv_solver.structure",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "basic: easy checks to see if pipelines are running",
+    "slow: marks tests as slow-running",
+    "integration: marks integration-level tests running the entire pipeline and the backend",
+    "rh: rolling horizon approach where batch_size != step_size",
+    "offline: offline solver with batch_size == step_size",
+    "online: online solver that solves entire payload at once"
+]
