@@ -12,12 +12,17 @@ from rtv_solver.structure.config import Config
 DEBUG_MODE = True # reduces number of vehicles and requests for easier debugging
 ONLINE_MODE = False # runs all requests in one go without rolling horizon batching
 
-def setup_logging():
+def setup_logging(config: Config):
+    ROOT_DIR = Path(__file__).resolve().parent
+    output_dir = ROOT_DIR.parent / config.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+    log_file = output_dir / 'main.log'
+
     logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler(config.output_dir + 'main.log'),
+        logging.FileHandler(log_file),
         logging.StreamHandler()]
         ) 
 
@@ -34,8 +39,8 @@ if __name__ == "__main__":
     # TODO move config management to YAML config or Hydra
     parser = argparse.ArgumentParser(description='Arguments for the RTV solver main script')
     # technical setup
-    parser.add_argument('--output_dir', type=str,           default="output_format/debug/", help='output directory')
-    parser.add_argument('--input_file', type=str,           default="rtv-solver/inputs/wilson_nc_initial.pkl", help='Request file') 
+    parser.add_argument('--output_dir', type=Path,           default=Path("outputs") / "debug", help='output directory')
+    parser.add_argument('--input_file', type=str,           default="wilson_nc_initial.pkl", help='Request file') 
     # alternative: rtv-solver/inputs/localDB_payload_oct.pkl
     parser.add_argument('--server_url', type=str,           default="http://127.0.0.1:5001/", help='Server URL')
     parser.add_argument('--max_thread_cnt', type=int,       default=16, help='Maximum thread count for parallel processing')
@@ -59,15 +64,17 @@ if __name__ == "__main__":
     parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
     # TODO COAML parameters 
     arguments = parser.parse_args()
-    config = Config.from_args(arguments)
+    config = Config.from_args(arguments) 
 
     # load data from file and update to canonical format for the entire system
-    file = open(config.input_file, 'rb')
+    ROOT_DIR = Path(__file__).resolve().parent
+    path = ROOT_DIR.parent / "inputs" / config.input_file
+    file = open(path, 'rb')
     data = pickle.load(file)
     file.close()
     data = PayloadParser.normalize_to_canonical(data)
     
-    setup_logging()
+    setup_logging(config)
     logging.info(f' --- Start: RTV simulation online {ONLINE_MODE}')
     logging.info(f'Arguments: {config}')
 
