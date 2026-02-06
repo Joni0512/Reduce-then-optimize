@@ -54,9 +54,10 @@ class TripHandler:
             self.generate_trip_costs(vehicles, config.max_thread_cnt, 0)
             self.generate_shared_trips(vehicles, config.max_cardinality, config.max_thread_cnt, config.share_cost_factor)
             logging.info(f"Time spent on RTV generation: {time.time() - self.starting_time}")
-            self.assign_trips_gurobi(requests, active_requests, config.ilp_penalty, config.keep_active)
-            if config.rebalancing:
-                self.get_rebalancing_trips(vehicles,requests)
+            if len(TripHandler.trip_costs) > 0: 
+                self.assign_trips_gurobi(requests, active_requests, config.ilp_penalty, config.keep_active)
+                if config.rebalancing: # NOTE not sure if this should apply with trip_costs == 0; but it normally means that the vehicles are not in operation anymore
+                    self.get_rebalancing_trips(vehicles,requests)
     
     # SINGLE TRIP GENERATION
     def generate_ondemand_only_trips(self, requests: list[Request], iteration: int):
@@ -228,7 +229,7 @@ class TripHandler:
         return common_vehicles
 
     def _create_rr_graph(self):
-        """creates a matrix of two trips that can be shared"""
+        """creates a matrix of two single trips (respectively requests) that can be shared"""
         # FIXME where does the KeyError come from in the second full iteration of a RH run?
         try: 
             self.rr_graph = {}
@@ -333,30 +334,30 @@ class TripHandler:
                                 args=(shared_trip1_index, trips_collection, trip_nos, trip, current_cost, shared_trip1.sequence, SHAREABLE_COST_FACTOR,)
                                 shared_trips_to_process.append(args) # TODO we should be able to get rid of this as we do not parallelize? NOTE why do we not parallelize?
                                 
-                                new_shared_trip = SharedTrip(shared_trip1_index, 0, trip_nos, current_cost, [])
-                                TripHandler._process_shared_trip_result(new_shared_trip)
-
-                # logging.info("Number of shared trip combinations to process: {0}, time: {1}".format(len(shared_trips_to_process),time.time()-st))
-                # for block_start in range(0, len(shared_trips_to_process), block_size):
-                #     self.check_rtv_timeout()
-                #     block_end = min(block_start + block_size, len(shared_trips_to_process))
-                #     pool = mp.Pool(max_num_thread)
-                #     for args in shared_trips_to_process[block_start:block_end]:
-                #         pool.apply_async(TripHandler.can_share_trips, args=args, callback=TripHandler.process_shared_trip_result)
-                #     pool.close()
-                #     pool.join()
-                # print("Time to process shared trips of cardinality {0}: {1}".format(cardinality,time.time()-st))
+                                # new_shared_trip = SharedTrip(shared_trip1_index, 0, trip_nos, current_cost, [])
+                                # TripHandler._process_shared_trip_result(new_shared_trip)
+                # logging.info(f"Number of shared trip combinations to process: {0}, time: {1}".format(len(shared_trips_to_process),time.time()-st))
+                for block_start in range(0, len(shared_trips_to_process), block_size):
+                    self._check_rtv_timeout()
+                    block_end = min(block_start + block_size, len(shared_trips_to_process))
+                    pool = mp.Pool(max_num_thread)
+                    for args in shared_trips_to_process[block_start:block_end]:
+                        pool.apply_async(TripHandler.can_share_trips, 
+                                         args=args, 
+                                         callback=TripHandler._process_shared_trip_result,
+                                         error_callback=TripHandler._on_worker_error)
+                    pool.close()
+                    pool.join()
+                logging.debug("Time to process shared trips of cardinality {0}: {1}".format(cardinality,time.time()-st))
             
             self._update_shared_trip_numbers(cardinality)
             
-            if cardinality == 2: # NOTE why only for cardinality 2
+            if cardinality == 2: 
                 self._create_rr_graph()
             if len(self.shared_trips_map[cardinality]) == 0:
-                break # NOTE why?
-            self.generate_trip_costs(vehicles, max_num_thread, trip_start)
-
-            logging.info(f"{len(self.shared_trips_map[cardinality])} cardinality {cardinality} trips generated.")
-            logging.info(f"{time.time()-st} seconds to generate cardinality {cardinality} trips.")
+                break # no trip_cost generation if no trips exist
+            logging.info(f"{len(self.shared_trips_map[cardinality])} cardinality {cardinality} trips generated in {time.time()-st} seconds .")
+            self.generate_trip_costs(vehicles, max_num_thread, trip_start)           
             cardinality += 1
     
     # FINAL ASSIGNMENT OF REQUEST-TRIP-VEHICLE combinations
@@ -450,7 +451,7 @@ class TripHandler:
                                     trips.append(self.trips[sub_trip_no])
                             self.trip_sizes.append(len(trips))
                             self.vehicle_assignment[vehicle_id] = (trips, trip_cost.sequence)
-                            logging.debug(f"Assignment: {trip_cost}")
+                            logging.info(f"Assignment: {trip_cost}")
                             # print(f"Assign: veh-{vehicle_id} with trips {[trip.id for trip in trips]} under cost {trip_cost.cost} with sequence {TripCost.sequence_to_str(trip_cost.sequence)}")
 
                 for request in requests:
