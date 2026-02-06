@@ -324,13 +324,13 @@ class TripHandler:
                         # if there is an available vehicle, add cost from both trips; collect partial trips and check if vehicle is available
                         if self._check_any_vehicles_available([shared_trip1, trip]): # pre-check
                             current_cost = trip.cost + shared_trip1.cost
-                            trips = {}
+                            trips_collection = {}
                             for trip_no in trip_nos:
                                 temp_trip = self.trips[trip_no]
-                                trips[temp_trip.id] = temp_trip
-                            if self._check_any_vehicles_available(trips.values()): # detailed check for specific trips
+                                trips_collection[temp_trip.id] = temp_trip
+                            if self._check_any_vehicles_available(trips_collection.values()): # detailed check for specific trips
                                 # create args for parallel execution but it is never used
-                                args=(shared_trip1_index, trips, trip_nos, trip, current_cost, shared_trip1.sequence, SHAREABLE_COST_FACTOR,)
+                                args=(shared_trip1_index, trips_collection, trip_nos, trip, current_cost, shared_trip1.sequence, SHAREABLE_COST_FACTOR,)
                                 shared_trips_to_process.append(args) # TODO we should be able to get rid of this as we do not parallelize? NOTE why do we not parallelize?
                                 
                                 new_shared_trip = SharedTrip(shared_trip1_index, 0, trip_nos, current_cost, [])
@@ -360,7 +360,7 @@ class TripHandler:
             cardinality += 1
     
     # FINAL ASSIGNMENT OF REQUEST-TRIP-VEHICLE combinations
-    def assign_trips_gurobi(self, requests: list, active_requests: list, penalty: int = 100_000, keep_active: bool = True):
+    def assign_trips_gurobi(self, requests: list[Request], active_requests: dict[int, Request], penalty: int = 100_000, keep_active: bool = True):
         """
         ## ILP optimization of the previously generated trips to the possible vehicles
 
@@ -383,23 +383,20 @@ class TripHandler:
             m.Params.OutputFlag = 0
             
             # define trip variables with related costs
-            trip_costs = np.zeros(trip_count)
-            for i in range(trip_count):
-                trip_costs[i] = TripHandler.trip_costs[i].cost
+            trip_costs_obj = np.fromiter((tc.cost for tc in TripHandler.trip_costs), dtype=float, count=trip_count)
             x_t = m.addVars(trip_count,
                             lb=0,
                             ub=1,
-                            obj=trip_costs,
+                            obj=trip_costs_obj,
                             name="t", 
                             vtype=GRB.BINARY)
 
-            penalties = np.ones(request_count)
-            request_no = 0
-            for request in requests:
-                penalties[request_no] = request.priority
-                if request.id in active_requests and keep_active:
-                    penalties[request_no] = 100
-                request_no+=1
+            # create penalties per request
+            request_ids = np.array([r.id for r in requests])
+            priorities  = np.array([r.priority for r in requests])
+            penalties = priorities.copy()
+            if keep_active:
+                penalties[np.isin(request_ids, list(active_requests))] = 100
             x_r = m.addVars(request_count,
                             lb=0,
                             ub=1,
@@ -417,11 +414,11 @@ class TripHandler:
                 trip_no = self.ondemand_only_trip_map[request.id]
                 cost_map_indices = self.trip_to_vehicle_cost_map[trip_no]
 
-                m.addConstr(x_r[request_no]+gp.quicksum(x_t[i] for i in cost_map_indices) == 1,"req_{0}".format(request.id))
+                m.addConstr(x_r[request_no]+gp.quicksum(x_t[i] for i in cost_map_indices) == 1, "req_{0}".format(request.id))
                 
                 # all the previously assigned requests should be picked up
                 if request.id in active_requests and keep_active:
-                    m.addConstr(x_r[request_no] == 0,"active_req_{0}".format(request.id))
+                    m.addConstr(x_r[request_no] == 0, "active_req_{0}".format(request.id))
                 request_no+=1
 
             m.setParam('TimeLimit', self.config.ilp_timeout)
@@ -470,7 +467,7 @@ class TripHandler:
                             break
 
                     if not found_assignment:
-                        self.unassigned_trip_count+=1
+                        self.unassigned_trip_count += 1
             else:
                 self.unassigned_trip_count = request_count
                 # Compute IIS (conflicting constraints)

@@ -227,7 +227,7 @@ class OnlineRTVSolver:
         active_manifests = sum(1 for lst in manifests if lst) # compare against already active manifests
         if self.config.return_depot:
             if len(depot_requests) != active_manifests: # as many depot returns as vehicles are running
-                raise ManifestConsistencyError(f"ManifestError: Depot return was not added, instead depot_returns {depot_requests} exist.") # more or less?
+                raise ManifestConsistencyError(f"ManifestError: Depot return was not added, instead depot_returns {depot_requests} exist.") # debug: more or less than expected?
         else:
             if len(depot_requests) != 0:
                 raise ManifestConsistencyError(f"ManifestError: {len(depot_requests)} depot return was added despite self.config.return_depot = False.")
