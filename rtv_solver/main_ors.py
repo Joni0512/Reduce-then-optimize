@@ -147,7 +147,7 @@ if __name__ == "__main__":
     stats_evaluator = StatsParser()
     feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, assignment_development)
     
-    logging.info(f"Stats: {json.dumps(stats.to_dict(), indent=4)}")
+    logging.info(stats)
     logging.info(f'Violations: {violations}')
     logging.info(f"Total time: {time.time() - start_time}")
     
