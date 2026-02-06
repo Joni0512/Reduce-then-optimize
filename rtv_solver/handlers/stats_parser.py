@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
@@ -63,8 +64,21 @@ class Stats:
             self.average_wait_time = sum(self.wait_time) / self.serviced
             self.average_detour = sum(self.detour) / self.serviced
 
-    def to_dict(self):
-        return asdict(self)
+    @staticmethod
+    def format_top_level(data: dict) -> str:
+        """ prepare data object to print it well for the logging """
+        lines = ["{"]
+        for i, (key, value) in enumerate(data.items()):
+            if isinstance(value, list): # Convert list of floats to list of ints
+                value = [int(round(v)) if isinstance(v, (float, int)) else v for v in value]
+            val_str = json.dumps(value) # Convert child to a single line string
+            comma = "," if i < len(data) - 1 else "" # Add a comma unless it's the last item
+            lines.append(f'    "{key}": {val_str}{comma}')
+        lines.append("}")
+        return "\n".join(lines)
+    
+    def __str__(self):
+        return f"Stats:\n {self.format_top_level(asdict(self))}"
 
 class StatsParser:
     """
