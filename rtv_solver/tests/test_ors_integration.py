@@ -350,5 +350,26 @@ def test_config_RHsolver_vehicleDeactivation_keepActiveTrue():
     feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, unserved_requests)
 
     # Test assertions
-    assert feasible is True    
-    # TODO add actual results when it is run through
+    assert feasible is True
+    assert violations == []
+
+    assert stats.vmt == pytest.approx(1051.1999999999998)
+    assert stats.pmt == pytest.approx(897.8)
+    assert stats.serviced == 3
+
+    # sometimes wait_time has different order, FIX sorted lists (avg is more important test)
+    assert sorted(stats.wait_time) == pytest.approx(sorted([0, 0, 0]))
+    assert sorted(stats.detour) == pytest.approx(sorted([952.8999999999985, 495.79999999999853, 388.49999999999926]))
+
+    assert stats.vmt_over_pmt == pytest.approx(1.1708621073735797)
+    assert stats.vmt_over_pmt_woDepot == pytest.approx(0.9680329694809533)
+    assert stats.average_wait_time == pytest.approx(0.0)
+    assert stats.average_detour == pytest.approx(612.3999999999988)
+
+    assert stats.depot_movements == 1
+    assert stats.total_requests == 47
+
+# if __name__ == '__main__':
+    # if we require a test of the results here, just add it to the main loop and start a debug run
+
+    # DEBUGGING
