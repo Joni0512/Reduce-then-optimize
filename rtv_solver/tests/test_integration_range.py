@@ -74,7 +74,7 @@ Add configurations that once returned errors so we can update the tool according
         ),
         pytest.param(
             1, 25000, 90, 3, 3600, 1200, True, True,      True,
-            marks=[pytest.mark.integration, pytest.mark.rh, pytest.mark.xfail(reason="Bug: depot_return for cardinality=3 not implemented")],
+            marks=[pytest.mark.integration, pytest.mark.rh],
             id = "rh-10"
         ),
     ],)

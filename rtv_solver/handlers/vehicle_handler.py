@@ -32,6 +32,8 @@ class VehicleHandler:
     def _load_vehicles(self, depot, driver_runs):
         """
         Load all vehicles and initialize their location at the depot
+
+        # TODO remove vehicles that are not active anymore based on the current_time of the iteration in relation to their end_time; how should the behaviour look like
         """
         start_location = depot.copy() # requires copy, otherwise they all point to the same dictionary of the depot-dict
 
@@ -158,28 +160,27 @@ class VehicleHandler:
             last_node, time_at_last_node = node, stop_time + dwell 
         
         # at the end of the manifest, add a trip to depot (might be overwritten if the trip is not complete yet or the vehicle is still active)
-        # easier to add here than in a separate function as a lot of information would have to be handed over
-        # 
-        if self.config.return_depot and len(vehicle.stop_sequence) > 0:
+        if self.config.return_depot and vehicle.started:
             # TODO remove dwell time for ACT_DEPOT wherever that is
-            depot_arrival_time = time_at_last_node + NetworkHandler.travel_time(last_node, vehicle.depot)
-            artificial_request_id = -(vehicle.id + 1)
-            depot_stop = {
-                    PayloadParser.MANIFEST_RUN_ID: vehicle.id, 
-                    PayloadParser.MANIFEST_BOOKING_ID: artificial_request_id, # easy recognition in the manifest
-                    PayloadParser.MANIFEST_ORDER: current_order + 1, 
-                    PayloadParser.MANIFEST_ACTION: VehicleStop.ACT_DEPOT, 
-                    PayloadParser.MANIFEST_LOC: {
-                        'lat': vehicle.depot.lat, 
-                        'lon': vehicle.depot.lon, 
-                        'node_id': vehicle.depot.id},
-                    PayloadParser.MANIFEST_SCHED_TIME: depot_arrival_time, # arrival time at stop
-                    PayloadParser.MANIFEST_AMBULATORY: 0, 
-                    PayloadParser.MANIFEST_WHEELCHAIR: 0, 
-                    PayloadParser.MANIFEST_TIME_WINDOW_START: depot_arrival_time-10, 
-                    PayloadParser.MANIFEST_TIME_WINDOW_END: depot_arrival_time+10
-                    }
-            manifest.append(depot_stop)
+            if last_node != vehicle.depot:
+                depot_arrival_time = time_at_last_node + NetworkHandler.travel_time(last_node, vehicle.depot)
+                artificial_request_id = -(vehicle.id + 1)
+                depot_stop = {
+                        PayloadParser.MANIFEST_RUN_ID: vehicle.id, 
+                        PayloadParser.MANIFEST_BOOKING_ID: artificial_request_id, # easy recognition in the manifest
+                        PayloadParser.MANIFEST_ORDER: current_order + 1, 
+                        PayloadParser.MANIFEST_ACTION: VehicleStop.ACT_DEPOT, 
+                        PayloadParser.MANIFEST_LOC: {
+                            'lat': vehicle.depot.lat, 
+                            'lon': vehicle.depot.lon, 
+                            'node_id': vehicle.depot.id},
+                        PayloadParser.MANIFEST_SCHED_TIME: depot_arrival_time, # arrival time at stop
+                        PayloadParser.MANIFEST_AMBULATORY: 0, 
+                        PayloadParser.MANIFEST_WHEELCHAIR: 0, 
+                        PayloadParser.MANIFEST_TIME_WINDOW_START: depot_arrival_time-10, 
+                        PayloadParser.MANIFEST_TIME_WINDOW_END: depot_arrival_time+10
+                        }
+                manifest.append(depot_stop)
         return manifest
         
     def add_manifest_to_vehicles(self, driver_runs, boarded_requests, boarded_trips, dwell_alight, dwell_pickup):
@@ -574,9 +575,9 @@ class VehicleHandler:
         #     starting_locations.append(current_sequence[0].node)
         #     starting_locations.append(trips[new_trip].origin)
         for starting_location in starting_locations:
-            sequence,cost,t_feasible = None,None,None
-            if 2*len(trips) <= VehicleHandler.LARGEST_TSP:
-                sequence, cost, t_feasible, _, _ = VehicleHandler.get_exact_stop_sequence(
+            sequence, cost, t_feasible = None, None, None
+            if 2 * len(trips) <= VehicleHandler.LARGEST_TSP:
+                sequence, cost, t_feasible, last_node, time_at_last_node = VehicleHandler.get_exact_stop_sequence(
                     starting_location,
                     current_time,
                     VehicleHandler.MAX_AM_CAPACITY,
@@ -589,7 +590,7 @@ class VehicleHandler:
                     tt_matrix, 
                     node_indices)
             else:
-                sequence, cost, t_feasible, _, _ = VehicleHandler.get_heuristic_stop_sequence(
+                sequence, cost, t_feasible, last_node, time_at_last_node = VehicleHandler.get_heuristic_stop_sequence(
                     starting_location,
                     current_time,
                     VehicleHandler.MAX_AM_CAPACITY,
@@ -605,7 +606,7 @@ class VehicleHandler:
                     feasible = t_feasible
                     best_cost = cost
                     best_sequence = sequence
-        return feasible,best_cost,best_sequence
+        return feasible, best_cost, best_sequence
 
     # BELOW DEPRECATED METHODS - ONLY USED IN SIMULATION APPROACH
     def simulate_vehicle(self, vehicle, current_time):

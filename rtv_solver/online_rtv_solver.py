@@ -130,8 +130,6 @@ class OnlineRTVSolver:
 
         # TODO add rebalancing handling based on trip_handler.rebalancing_assignment that already checks required permissions
 
-        # TODO add depot return before vehicle shift ends, probably in update_run and not in this location as we do not want a trip but rather an entire step
-
         # update driver runs
         updated_driver_runs = []
         for driver_run in payload_object.driver_runs:
