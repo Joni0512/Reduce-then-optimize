@@ -264,7 +264,7 @@ class SwapHandler:
         stop_loc = stop[PayloadParser.MANIFEST_LOC]
         return Node(stop_loc["lat"],
                     stop_loc["lon"],
-                    identifier = stop_loc["node_id"])
+                    id = stop_loc["node_id"])
 
     @staticmethod
     def _remove_request_from_driver_run(driver_run, booking_id, DWELL_PICKUP, DWELL_ALIGHT):

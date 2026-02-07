@@ -21,7 +21,7 @@ def test_node_from_dict():
     assert node.id is None
 
 def test_node_copy_independence():
-    original = Node(34.0, -118.0, identifier=1)
+    original = Node(34.0, -118.0, id=1)
     cloned = original.copy()
     
     assert original == cloned

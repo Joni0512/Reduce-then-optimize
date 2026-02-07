@@ -68,4 +68,5 @@ class OfflineRTVSolver:
             simulated_driver_runs = online_rtv_solver.simulate_manifest(current_time , new_driver_runs, intermediate_location=True)
             driver_runs = simulated_driver_runs
 
-        return driver_runs, assignment_development
+        final_driver_runs = online_rtv_solver.finalize_driverRuns(driver_runs, payload[PayloadParser.DEPOT])
+        return final_driver_runs, assignment_development

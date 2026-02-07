@@ -83,7 +83,7 @@ class VehicleHandler:
         if len(vehicle.stop_sequence) > 0:
             time_at_next_immediate_node = vehicle.time_at_next_immediate_node
             next_immediate_node = vehicle.next_immediate_node
-        return next_immediate_node,time_at_next_immediate_node
+        return next_immediate_node, time_at_next_immediate_node
 
     def update_run(self, driver_run: dict) -> dict:
         """
@@ -98,8 +98,8 @@ class VehicleHandler:
         vehicle_id = state[PayloadParser.DRIVER_STATE_RUN_ID]
         vehicle = self.vehicles[vehicle_id]
 
-        # Keep already served part, rebuild future part
-        new_manifest = old_manifest[:current_order]
+        # TODO what is the difference on vehicle.time_at_next and vehicle.time_at_next_immediate_node???    
+        new_manifest = old_manifest[:current_order]                  
         added_manifest = self.get_manifest(vehicle, current_order)
         new_manifest.extend(added_manifest)
         # Update state meta info
@@ -109,12 +109,10 @@ class VehicleHandler:
         new_driver_run = {PayloadParser.DRIVER_STATE: new_state, 
                           PayloadParser.DRIVER_MANIFEST: new_manifest}
         return new_driver_run
-     
+
     def get_manifest(self, vehicle: Vehicle, current_order: int):
         """
         from current_order, build new manifest
-        
-        if config.return_depot = True: append depot_stop 
         """
         manifest = []
         last_node, time_at_last_node = VehicleHandler.get_current_location_time(vehicle)
@@ -158,31 +156,9 @@ class VehicleHandler:
             manifest.append(stop)
             # local update for vehicle state to create complete manifest over next iteration
             last_node, time_at_last_node = node, stop_time + dwell 
-        
-        # at the end of the manifest, add a trip to depot (might be overwritten if the trip is not complete yet or the vehicle is still active)
-        if self.config.return_depot and vehicle.started:
-            # TODO remove dwell time for ACT_DEPOT wherever that is
-            if last_node != vehicle.depot:
-                depot_arrival_time = time_at_last_node + NetworkHandler.travel_time(last_node, vehicle.depot)
-                artificial_request_id = -(vehicle.id + 1)
-                depot_stop = {
-                        PayloadParser.MANIFEST_RUN_ID: vehicle.id, 
-                        PayloadParser.MANIFEST_BOOKING_ID: artificial_request_id, # easy recognition in the manifest
-                        PayloadParser.MANIFEST_ORDER: current_order + 1, 
-                        PayloadParser.MANIFEST_ACTION: VehicleStop.ACT_DEPOT, 
-                        PayloadParser.MANIFEST_LOC: {
-                            'lat': vehicle.depot.lat, 
-                            'lon': vehicle.depot.lon, 
-                            'node_id': vehicle.depot.id},
-                        PayloadParser.MANIFEST_SCHED_TIME: depot_arrival_time, # arrival time at stop
-                        PayloadParser.MANIFEST_AMBULATORY: 0, 
-                        PayloadParser.MANIFEST_WHEELCHAIR: 0, 
-                        PayloadParser.MANIFEST_TIME_WINDOW_START: depot_arrival_time-10, 
-                        PayloadParser.MANIFEST_TIME_WINDOW_END: depot_arrival_time+10
-                        }
-                manifest.append(depot_stop)
+
         return manifest
-        
+  
     def add_manifest_to_vehicles(self, driver_runs, boarded_requests, boarded_trips, dwell_alight, dwell_pickup):
         """
         iterate over all manifests to update each vehicle based on its manifest and previously boarded requests

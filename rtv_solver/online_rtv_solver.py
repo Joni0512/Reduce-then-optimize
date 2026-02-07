@@ -17,6 +17,7 @@ from rtv_solver.handlers.swap_handler import SwapHandler
 from rtv_solver.structure.node import Node
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.config import Config
+from rtv_solver.structure.driver_run import DriverRun, ManifestEntry
 
 class ManifestConsistencyError(Exception):
     """Raised when a manifest consistency check fails."""
@@ -68,6 +69,11 @@ class OnlineRTVSolver:
         return feasible_time_slots
 
     def solve_pdptw_rtv(self, payload, iteration = 0): # TODO do we need to add current_time
+        """
+        Based on the payload, it solves the entire problem.
+        
+        With conifg.return_depot, this method will not add the final trips to the depot. The user has to call finalize_driverRuns(...) to add those final stops. 
+        """
         # initalize network and payload
         NetworkHandler.init(True, self.SERVER_URL)
         payload_object = PayloadParser.get_payload_object(payload)
@@ -151,13 +157,15 @@ class OnlineRTVSolver:
                                         prev_driver_runs: list[dict], 
                                         new_driver_runs: list[dict], 
                                         unserved_requests: set[int], 
-                                        new_requests: list[dict]):
+                                        new_requests: list[dict],
+                                        check_depot: bool = False):
         """ 
         Checks whether the previously written manifest still aligns with the new manifest after new requests have been assigned. This concerns previously boarded or selected active requests. Each requests must be picked up AND dropped off exactly once and unserved_requests should not appear in the manifests at all.
 
         If config.keep_active = True - boarded and previously active requests are still part of the manifest.
         If config.keep_active = False - boarded requests must always remain, active requests can but need not be discarded.
         
+        If check_depot = True, checks the depot conditions but not required during the assignment of trips.
         If config.return_depot = True - each vehicle needs a depot return trip in their manifest.
         If config.return_depot = False - each vehicle should not have a depot return.
         """
@@ -176,6 +184,9 @@ class OnlineRTVSolver:
                 stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
                 action = stop[PayloadParser.MANIFEST_ACTION]
                 stop_order = stop[PayloadParser.MANIFEST_ORDER]
+                if stop_id == 59:
+                    # TODO create a test case to reproduce the behavior and add a XFAIL mark and then we remove the entire depot shit to make it cleaner and more readable
+                    print("Test 59", driver_run['state']['run_id'], action, stop_order)
                 if action == VehicleStop.ACT_PICKUP:
                     if stop_order <= serviced_locations: # i.e., already boarded or finished
                         boarded_requests.add(stop_id)
@@ -199,6 +210,8 @@ class OnlineRTVSolver:
             for stop in manifest:
                 stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
                 action = stop[PayloadParser.MANIFEST_ACTION]
+                if stop_id == 59:
+                    print("Test 59", driver_run['state']['run_id'], action)
                 if action == VehicleStop.ACT_PICKUP:
                     boarded_requests.discard(stop_id)
                     if self.config.keep_active: # only additionally remove active requests when keep_active = True
@@ -206,7 +219,7 @@ class OnlineRTVSolver:
                     picked_requests.remove(stop_id)
                 elif action == VehicleStop.ACT_DROPOFF:
                     dropped_requests.remove(stop_id)
-                elif action == VehicleStop.ACT_DEPOT and self.config.return_depot:
+                elif action == VehicleStop.ACT_DEPOT:
                     depot_requests.append(stop_id) # stop_id should be -(vehicle.id+1) as defined in VehicleHandler.get_manifest()
         # remove all requests that are unserved            
         for req_id in unserved_requests:
@@ -223,12 +236,13 @@ class OnlineRTVSolver:
             # TODO: fails with wilson_data, cardinality = 3, thread_cnt = 16, batch_interval = 1800, step_size = 1800 (should be reproducible with this)
             raise ManifestConsistencyError(f"ManifestError: Some requests could not be removed. Missing requests: {picked_requests}, {dropped_requests}")
         active_manifests = sum(1 for lst in manifests if lst) # compare against already active manifests
-        if self.config.return_depot:
-            if len(depot_requests) != active_manifests: # as many depot returns as vehicles are running
-                raise ManifestConsistencyError(f"ManifestError: Depot return was not added, instead depot_returns {depot_requests} exist.") # debug: more or less than expected?
-        else:
-            if len(depot_requests) != 0:
-                raise ManifestConsistencyError(f"ManifestError: {len(depot_requests)} depot return was added despite self.config.return_depot = False.")
+        if check_depot: 
+            if self.config.return_depot:
+                if len(depot_requests) != active_manifests: # as many depot returns as vehicles are running
+                    raise ManifestConsistencyError(f"ManifestError: Depot return was not added, instead depot_returns {depot_requests} exist.") # debug: more or less than expected?
+            else:
+                if len(depot_requests) != 0:
+                    raise ManifestConsistencyError(f"ManifestError: {len(depot_requests)} depot return was added despite self.config.return_depot = False.")
         return True
     
     def simulate_manifest(self, current_time, driver_runs, intermediate_location=True):
@@ -280,77 +294,6 @@ class OnlineRTVSolver:
                 PayloadParser.DRIVER_MANIFEST: manifest})
         
         self._check_consistency_of_manifests(driver_runs, new_driver_runs, [], [])
-        return new_driver_runs
-    
-    def simulate_manifest_new(self, current_time, driver_runs: list[dict], intermediate_location=True):
-        """
-        Based on the entire manifest, this simulates vehicles up to a certain point in time instead of until the end of the manifest
-
-        NOTE currently JW understanding incomplete what this should change and what should happen with the manifest
-
-        FIXME possible issue with in-place changes because the return value is never changed, same behavior that bool keep_active now establishes
-        """
-        NetworkHandler.init(True, self.SERVER_URL)
-        new_driver_runs = []
-        # TODO longterm: turn driver_run into an object that handles all the conditions and changes based on validated calls
-        for driver_run in driver_runs:
-            state = driver_run[PayloadParser.DRIVER_STATE]
-            manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
-
-            current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
-            next_immediate_time = state[PayloadParser.DRIVER_STATE_DT_SEC]
-            next_immediate_loc = state[PayloadParser.DRIVER_STATE_LOC]
-            
-            # update time if manifest is already completed
-            if len(manifest) == current_order and next_immediate_time < current_time:
-                next_immediate_time = current_time
-
-            # iterate through manifest over all steps until the current_time is reached (aligning current_time and progress in manifest)
-            # track requests that have been picked up yet to update manifest and remove incomplete trips
-            picked_trips = []
-            while len(manifest) > current_order:
-                next_stop = manifest[current_order]
-                booking_id = next_stop[PayloadParser.MANIFEST_BOOKING_ID]
-                if current_time >= manifest[current_order][PayloadParser.MANIFEST_SCHED_TIME]:
-                    next_immediate_time = next_stop[PayloadParser.MANIFEST_SCHED_TIME]
-                    next_immediate_loc = next_stop[PayloadParser.MANIFEST_LOC]
-                    # apply dwell time if applicable
-                    if next_stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
-                        next_immediate_time += self.DWELL_PICKUP
-                        picked_trips.append(booking_id)
-                    else:
-                        next_immediate_time += self.DWELL_ALIGHT
-                    current_order += 1
-                    if next_immediate_time > current_time:
-                        break
-                else: # this could work, but not sure why it does not
-                    picked_trips.append(booking_id)
-                    break
-                
-            if len(manifest) > current_order and next_immediate_time < current_time and intermediate_location:
-                # if manifest is longer than final stop (according to time limit) AND next_immediate_time is still smaller than current_time AND we want to have the location in between stops, we will get that location here
-                next_immediate_node = NetworkHandler.get_node_from_manifest_location(next_immediate_loc)
-                target_node = NetworkHandler.get_node_from_manifest_location(manifest[current_order][PayloadParser.MANIFEST_LOC])
-                # NODE these location seem to be the same or not?, current-order is incremented though
-                next_immediate_time, next_immediate_node = NetworkHandler.get_current_location_time(
-                    next_immediate_node, target_node, next_immediate_time, current_time)
-                next_immediate_loc = {"lat":next_immediate_node.lat,
-                                      "lon":next_immediate_node.lon}
-                
-            # update state 
-            new_state = copy.deepcopy(state)
-            new_state[PayloadParser.DRIVER_STATE_DT_SEC] = next_immediate_time
-            new_state[PayloadParser.DRIVER_STATE_LOC] = next_immediate_loc
-            new_state[PayloadParser.DRIVER_STATE_LOC_SERV] = current_order
-            # update manifest - trial desired behavior: throw out requests entirely (open for reoptimization) that are not yet picked up, but keep the dropoffs of the other request
-            new_manifest = [stop for stop in manifest if stop[PayloadParser.MANIFEST_BOOKING_ID] in picked_trips]
-            logging.info(f"Manifest change (remove trip from manifest): {len(manifest)/2} > {len(new_manifest)/2} ")
-            new_driver_runs.append({
-                PayloadParser.DRIVER_STATE: new_state,
-                PayloadParser.DRIVER_MANIFEST: new_manifest})
-            # FIXME - reduce the manifest so that only the part is covered that has actually already happened
-        
-        self.check_consistency_of_manifests(driver_runs, new_driver_runs, [], [])
         return new_driver_runs
 
     def solve_pdptw_heuristic(self, payload, return_added_vmt=False):
@@ -439,7 +382,7 @@ class OnlineRTVSolver:
             stop_location = stop[PayloadParser.MANIFEST_LOC]
             next_node = Node(stop_location["lat"], 
                              stop_location["lon"],
-                             identifier = stop_location["node_id"])
+                             id = stop_location["node_id"])
             travel_time = NetworkHandler.travel_time(current_node, next_node)
             cost += travel_time
             current_node = next_node
@@ -477,7 +420,7 @@ class OnlineRTVSolver:
         depot_node = Node(
             depot_pt["lat"], 
             depot_pt["lon"], 
-            identifier=depot_node_id)
+            id =depot_node_id)
 
         pickup_stop = {
             PayloadParser.MANIFEST_RUN_ID: None, 
@@ -518,7 +461,7 @@ class OnlineRTVSolver:
         state_loc = state[PayloadParser.DRIVER_STATE_LOC]
         node_id = NetworkHandler.get_next_node_id(state_loc["lat"],state_loc["lon"])
         state_loc["node_id"] = node_id
-        start_node = Node(state_loc["lat"], state_loc["lon"], identifier=node_id)
+        start_node = Node(state_loc["lat"], state_loc["lon"], id =node_id)
         start_time = state[PayloadParser.DRIVER_STATE_DT_SEC]
         completed_stops = []
         remaining_stops = []
@@ -543,7 +486,7 @@ class OnlineRTVSolver:
             stop_loc = stop[PayloadParser.MANIFEST_LOC]
             next_node = Node(stop_loc["lat"],
                              stop_loc["lon"],
-                             identifier=stop_loc["node_id"])
+                             id=stop_loc["node_id"])
             prev_cost += NetworkHandler.travel_time(current_node,next_node)
             current_node = next_node
 
@@ -597,3 +540,57 @@ class OnlineRTVSolver:
             else:
                 updated_driver_runs[earliest_vehicle_index] = earliest_vehicle
         return updated_driver_runs, unserved_requests
+    
+    def finalize_driverRuns(self, driver_runs: dict, depot_dict: dict) -> dict:
+        """
+        if config.return_depot finalize the vehicles by adding a depot stop to each ride, otherwise return input
+
+        Behaviour: Depot_returns will be added straight from the last position of the vehicle where it finalized a previous trip, i.e., some vehicles might return already early during the day back to the depot despite more requests coming in. Our offline approach however has assigned all requests and thus, it is already fixed that no further requests have been accepted. 
+        Alternative behaviour: Get back to the depot right before the final_end_time of each driver-run (condition depot_feasible confirms the options), but then depot_arrival_time would just be driver_run.state.end_time
+        """
+        if not self.config.return_depot:
+            return driver_runs
+        else: 
+            driver_runs_c = copy.deepcopy(driver_runs) # keep oly one as is to not change information in place
+            updated_driver_runs = []
+            for run in driver_runs_c:
+                driver_run = DriverRun.from_dict(run)
+                if driver_run.manifest: # # manifest is not empty
+                    # TODO check if those numbers are right
+                    # Location are same, manifest seems to be more correct though
+                    last_node = driver_run.state.loc
+                    time_at_last_node = driver_run.state.location_dt_seconds # TODO why is this number different and this looks like an issue in the simulation?
+                    # get last position and time from manifest
+                    last_entry = driver_run.manifest[-1]
+                    manifest_time = last_entry.scheduled_time
+                    manifest_location = last_entry.loc
+                    manifest_action = last_entry.action
+                    assert manifest_action == VehicleStop.ACT_DROPOFF, f"Last stop {manifest_action} should have been a dropoff"
+
+                    print("State:", last_node, time_at_last_node)
+                    print("Manifest:", manifest_location, manifest_time)
+
+                    # TODO remove dwell time for ACT_DEPOT wherever that is
+                    depot_node = Node.from_dict(depot_dict[PayloadParser.DEPOT_PT])
+                    depot_arrival_time = time_at_last_node + NetworkHandler.travel_time(last_node, depot_node)
+                    artificial_request_id = -(driver_run.state.run_id + 1)
+
+                    depot_stop = ManifestEntry.from_dict({
+                            PayloadParser.MANIFEST_RUN_ID: driver_run.state.run_id, 
+                            PayloadParser.MANIFEST_BOOKING_ID: artificial_request_id, # easy recognition in the manifest
+                            PayloadParser.MANIFEST_ORDER: driver_run.state.locations_already_serviced + 1, 
+                            PayloadParser.MANIFEST_ACTION: VehicleStop.ACT_DEPOT, 
+                            PayloadParser.MANIFEST_LOC: Node.to_dict(depot_node),
+                            PayloadParser.MANIFEST_SCHED_TIME: depot_arrival_time,
+                            PayloadParser.MANIFEST_AMBULATORY: 0, 
+                            PayloadParser.MANIFEST_WHEELCHAIR: 0, 
+                            PayloadParser.MANIFEST_TIME_WINDOW_START: depot_arrival_time-10, 
+                            PayloadParser.MANIFEST_TIME_WINDOW_END: depot_arrival_time+10
+                            })
+                    driver_run.state.total_locations = 19
+                    driver_run.state.locations_already_serviced = 19
+                    driver_run.manifest.append(depot_stop)
+
+                updated_driver_runs.append(driver_run.to_dict())
+            self._check_consistency_of_manifests(driver_runs_c, updated_driver_runs, [], [], check_depot=True)
+            return updated_driver_runs  
