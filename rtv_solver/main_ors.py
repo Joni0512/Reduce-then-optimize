@@ -117,21 +117,25 @@ if __name__ == "__main__":
     start_time = time.time()
     if ONLINE_MODE:
         on_solver = OnlineRTVSolver(config)
-        updated_driver_runs, assignment_development = on_solver.solve_pdptw_rtv(payload)
+        updated_driver_runs, _ = on_solver.solve_pdptw_rtv(payload)
     else:
         off_solver = OfflineRTVSolver(config)
-        updated_driver_runs, assignment_development = off_solver.solve_rtv(payload, config.batch_interval, config.step_size)
+        updated_driver_runs = off_solver.solve_rtv(payload, config.batch_interval, config.step_size)
         
     # calculate statistics of each iteration; for now only the first vehicle
     stats_payload = {PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
                      PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
                      PayloadParser.DRIVERS: updated_driver_runs}
     stats_evaluator = StatsParser(config)
-    feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, assignment_development)
+    feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
+    assignment_history = stats_evaluator.evaluate_development(stats_payload)
     
     console_logger.info(stats)
     console_logger.info(f'Violations: {violations}')
     console_logger.info(f"Total time: {time.time() - start_time}")
+
+    console_logger.info("Request history analysed.")
+    console_logger.info(assignment_history)
 
     save_json(stats_payload, 
               config.output_dir / "result_driver_runs.json")

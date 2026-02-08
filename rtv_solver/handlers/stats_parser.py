@@ -2,13 +2,23 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from collections import defaultdict
 
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.structure.node import Node
 from rtv_solver.structure.vehicle_stop import VehicleStop
+
+if TYPE_CHECKING:
+    from rtv_solver.structure.config import Config
+
+from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
+import logging
+
+console_logger = logging.getLogger(BASIC_LOGGER)
+data_logger = logging.getLogger(DATA_LOGGER)
+
 
 @dataclass
 class StopPair:
@@ -86,7 +96,7 @@ class StatsParser:
     """
     Evaluate final feasibility + compute KPIs for a complete payload (incl. filled manifests) and unserved requests
     """
-    def __init__(self, config: 'Config' | None = None):
+    def __init__(self, config: Config | None = None):
         self.config = config
         self.server_url = self.config.server_url
         self._network_initialized = False
@@ -101,7 +111,7 @@ class StatsParser:
 
         self.feature_payload = []
 
-    def evaluate(self, payload: dict, requests_development: dict[int, list]) -> Tuple[bool, Stats, List[Violation]]:
+    def evaluate(self, payload: dict) -> Tuple[bool, Stats, List[Violation]]:
         """
         evaluate the final result in relation to the input data 
 
@@ -124,12 +134,16 @@ class StatsParser:
             self._simulate_driver_run(depot, driver_run)
 
         self._compute_request_metrics()
-        self._compute_request_development(requests, requests_development)
 
         feasible = len(self.violations) == 0
+        self.stats.total_requests = len(requests)
         self.stats.finalize()
 
-        return feasible, self.stats, self.violations, self.unserved
+        return feasible, self.stats, self.violations
+    
+    def evaluate_development(self, payload: dict):
+        requests = payload[PayloadParser.REQUESTS]
+        return self._compute_request_development(requests)
 
     def _init_network(self) -> None:
         if self._network_initialized:
@@ -286,7 +300,7 @@ class StatsParser:
             self.stats.serviced += 1
             self.stats.serviced_requests.append(booking_id)
 
-    def _compute_request_development(self, requests, requests_development: Dict[int, Dict[str, List[float]]]) -> None:
+    def _compute_request_development(self, requests) -> None:
         """
         Computes the history of how request assignment developed, showing differences in assignment when keeping active_requests or not. This relates to the effect of the boolean flag --keep_active
         - boarded: requests that are currently inside a vehicle at that timestamp
@@ -297,32 +311,41 @@ class StatsParser:
         TODO add changes based on vehicle, how often do requests change vehicles
         """
         assignment_history = {}
-        self.stats.total_requests = len(requests)
-        for timestamp in sorted(requests_development.keys()):
-            assignment_history[timestamp] = {}
-            boarded: List[int] = []
-            delivered: List[int] = []
+        
+        with open(self.config.output_dir / "assignment_data.jsonl", "r") as f:
+            for line in f:
+                entry = json.loads(line)
 
-            for req_id, sp in self.request_stops.items():
-                if req_id >= 0:
-                    pu = sp.pickup_time
-                    do = sp.dropoff_time
-                    if pu <= timestamp and timestamp < do:
-                        boarded.append(req_id)
-                    elif timestamp >= do:
-                        delivered.append(req_id)
-                else: # artificial depot_request
-                    continue
-            
-            assignment_history[timestamp]['boarded'] = boarded
-            assignment_history[timestamp]['delivered'] = delivered
+                sim_ts = int(entry["extra"]["timestamp"])
+                assigned_status = entry["extra"]["status"][PayloadParser.STATS_ASSIGNED]
+                unserved_status = entry["extra"]["status"][PayloadParser.STATS_UNSERVED] 
 
-            per_vehicle = defaultdict(list)
-            for req_id, veh_id in requests_development[timestamp]['assigned'].items():
-                per_vehicle[veh_id].append(req_id)
+                assignment_history[sim_ts] = {}
+                boarded: List[int] = []
+                delivered: List[int] = []
 
-            assignment_history[timestamp]['assigned'] = dict(per_vehicle)
-            assignment_history[timestamp]['unserved'] = requests_development[timestamp]['unserved']
+                for req_id, sp in self.request_stops.items():
+                    if req_id >= 0:
+                        pu = sp.pickup_time
+                        do = sp.dropoff_time
+                        if pu <= sim_ts and sim_ts < do:
+                            boarded.append(req_id)
+                        elif sim_ts >= do:
+                            delivered.append(req_id)
+                    else: # artificial depot_request
+                        continue
+                
+                assignment_history[sim_ts][PayloadParser.STATS_BOARDED] = boarded
+                assignment_history[sim_ts][PayloadParser.STATS_DROPPED] = delivered # TODO only the dropped from the last step and not from all stops before
+
+                per_vehicle = defaultdict(list)
+                for req_id, veh_id in assigned_status.items():
+                    per_vehicle[veh_id].append(req_id)
+
+                assignment_history[sim_ts][PayloadParser.STATS_ASSIGNED] = dict(per_vehicle)
+                assignment_history[sim_ts][PayloadParser.STATS_UNSERVED] = unserved_status
+
+        return assignment_history
                 
     def _add_violation(
         self,

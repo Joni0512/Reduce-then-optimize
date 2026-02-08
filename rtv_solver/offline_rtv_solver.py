@@ -23,7 +23,6 @@ class OfflineRTVSolver:
         # track progress of solver iterations
         iteration = 0
 
-        assignment_development = {}
         driver_runs = payload[PayloadParser.DRIVERS]
 
         while current_time < end_time:
@@ -72,4 +71,4 @@ class OfflineRTVSolver:
 
         final_driver_runs = online_rtv_solver.finalize_driverRuns(driver_runs, payload[PayloadParser.DEPOT])
         # TODO update assignment_devlopment calculation. based on the data stores to JSONL instead of handing it over here
-        return final_driver_runs, assignment_development
+        return final_driver_runs

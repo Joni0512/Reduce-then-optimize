@@ -109,7 +109,7 @@ def test_integration_solver_parametrized(
     
     # run solver
     off_solver = OfflineRTVSolver(config)
-    updated_driver_runs, unserved_requests = off_solver.solve_rtv(
+    updated_driver_runs = off_solver.solve_rtv(
         payload,
         config.batch_interval,
         config.step_size,
@@ -120,7 +120,7 @@ def test_integration_solver_parametrized(
         PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
         PayloadParser.DRIVERS: updated_driver_runs,}
     stats_evaluator = StatsParser(config=config)
-    feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, unserved_requests)
+    feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
 
     # Test assertions
     assert feasible is expected_feasible
