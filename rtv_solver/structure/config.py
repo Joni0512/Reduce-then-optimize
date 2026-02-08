@@ -3,10 +3,17 @@ import uuid
 import argparse
 import os
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
+from typing import List
 from pathlib import Path
 
 from rtv_solver.util.helper import save_json, load_json
+
+from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
+import logging
+
+console_logger = logging.getLogger(BASIC_LOGGER)
+data_logger = logging.getLogger(DATA_LOGGER)
 
 @dataclass
 class Config:
@@ -20,6 +27,7 @@ class Config:
     """
     # technical setup
     config_file: str = ""
+    override: List[str] = field(default_factory=list)
     output_dir: Path = Path("outputs") / "debug"
     input_file: str = "rtv-solver/inputs/wilson_nc_initial.pkl"
     server_url: str = "http://127.0.0.1:5001/"
@@ -49,25 +57,34 @@ class Config:
     
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "Config":
-        """
-        Initialize config class from argparse.Namespace
-        """
         reproduced = False
-        if args.config_file != "":
-            cfg_json = load_json(Path(args.config_file))["config_dict"]
-            base_output_dir = cls.derive_base_output_dir(cfg_json["output_dir"])
-            cfg_json.pop("output_dir", None) # - ignore old rerun
 
+        if args.config_file:
+            # Load config from file
+            cfg_json = load_json(Path(args.config_file))["config_dict"]
+
+            # Extract base output directory
+            base_output_dir = cls.derive_base_output_dir(cfg_json["output_dir"])
+            cfg_json.pop("output_dir", None)  # ignore old run folder
+
+            # Apply CLI overrides
+            override_list = getattr(args, "override", []) or []
+            cfg_json = cls.apply_overrides(cfg_json, override_list)
+
+            # Recreate namespace from updated config
             args = argparse.Namespace(**cfg_json)
             args.output_dir = base_output_dir
+            args.override = override_list  
             reproduced = True
-        
+
+        # Create new run directory
         ROOT_DIR = Path(__file__).resolve().parent.parent.parent
         output_directory = cls.create_output_dir(ROOT_DIR / "outputs", args.output_dir)
 
         # add the change for the input_file
         config =  cls(
             config_file = args.config_file,
+            override = args.override, 
             output_dir = output_directory,
             input_file = args.input_file,
             server_url = args.server_url,
@@ -114,3 +131,29 @@ class Config:
     def derive_base_output_dir(old_output_dir: str | Path) -> Path:
         old = Path(old_output_dir)
         return old.parent   # ← drop the run_* directory if loaded from a config
+    
+    @staticmethod
+    def apply_overrides(cfg: dict, overrides: list[str]):
+        if not overrides:
+            return cfg
+
+        for item in overrides:
+            if "=" not in item:
+                raise ValueError(f"Invalid override '{item}', use key=value")
+
+            key, value = item.split("=", 1)
+
+            if key not in cfg:
+                raise KeyError(f"Unknown config key '{key}'")
+
+            old_value = cfg[key]
+            cfg[key] = Config.cast_value(value, type(old_value))
+            console_logger.info(f"Applied override '{key}': {old_value} -> {cfg[key]}")
+
+        return cfg
+    
+    @staticmethod
+    def cast_value(value, target_type):
+        if target_type is bool:
+            return str(value).lower() in ("true", "1", "yes")
+        return target_type(value)

@@ -6,8 +6,10 @@ import os
 from pathlib import Path
 
 from rtv_solver import OnlineRTVSolver, OfflineRTVSolver
+
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
+
 from rtv_solver.structure.config import Config
 
 from rtv_solver.util.logger import setup_loggers, BASIC_LOGGER, DATA_LOGGER
@@ -28,18 +30,19 @@ if __name__ == "__main__":
     """
     # TODO move config management to YAML config or Hydra
     parser = argparse.ArgumentParser(description='Arguments for the RTV solver main script')
-    # technical setup
+    # reproduction setup
     parser.add_argument('--config_file', type=str,          default="", help='Path to JSON config file instead of defining the other values manually')
+    parser.add_argument('--override', action='append',      default=[], help='Override config values when loading from a config file, e.g. key=value (can be repeated)')
+    # technical parameters
     parser.add_argument('--output_dir', type=str,           default="debug", help='Output directory')
-    parser.add_argument('--input_file', type=str,           default="wilson_nc_initial.pkl", help='Request input file') 
-    # alternative: rtv-solver/inputs/localDB_payload_oct.pkl
+    parser.add_argument('--input_file', type=str,           default="wilson_nc_initial.pkl", help='Request input file') # alternative: rtv-solver/inputs/localDB_payload_oct.pkl
     parser.add_argument('--server_url', type=str,           default="http://127.0.0.1:5001/", help='Backend server URL')
     parser.add_argument('--max_thread_cnt', type=int,       default=16, help='Maximum thread count for parallel processing')
     parser.add_argument('--rtv_timeout', type=int,          default=120, help='RTV construction timeout in seconds')
     parser.add_argument('--ilp_timeout', type=int,          default=120, help='ILP solver timeout in seconds')
     parser.add_argument('--ilp_penalty', type=int,          default=100_000, help='Penalty for not serving a trip')
     # experiment parameters
-    parser.add_argument('--max_cardinality', type=int,      default=3, help='Maximum trips to be shared when creating trips in one batch_interval') # alt: total trips in same vehicle
+    parser.add_argument('--max_cardinality', type=int,      default=4, help='Maximum trips to be shared when creating trips in one batch_interval') # alt: total trips in same vehicle
     parser.add_argument('--largest_tsp', type=int,          default=8, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
     parser.add_argument('--share_cost_factor', type=int,    default=1.2, help='Shareable cost factor in factor of original single cost [???]') # TODO why 10, this is a crazy factor where this is used?
     parser.add_argument('--rebalancing', type=bool,         default=True, help='Vehicles are rebalanced if the need arises based on missed requests and idling vehicles.')
@@ -63,12 +66,12 @@ if __name__ == "__main__":
     # load data from file and update to canonical format for the entire system
     data = load_input_data(Path(__file__).resolve().parent.parent / "inputs" / config.input_file)
 
-    setup_loggers(config)
+    setup_loggers(config.output_dir)
     console_logger = logging.getLogger(BASIC_LOGGER)
     data_logger = logging.getLogger(DATA_LOGGER)
 
     console_logger.info(f"Output directory: {config.output_dir}")
-    console_logger.info(f' --- Start: RTV simulation online {ONLINE_MODE}')
+    console_logger.info(f' --- Start: RTV simulation --- online > {ONLINE_MODE}')
     console_logger.info(f'Arguments: {config}')
     
     if DEBUG_MODE: # check if the basic functionality of the online RTV solver works (foundation for offline RTV solver)
