@@ -4,7 +4,6 @@ import sys
 from multiprocessing import Pool
 import time
 import numpy as np
-import logging
 import copy
 
 from rtv_solver.handlers.request_handler import RequestHandler
@@ -18,6 +17,12 @@ from rtv_solver.structure.node import Node
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.config import Config
 from rtv_solver.structure.driver_run import DriverRun, ManifestEntry
+
+from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
+import logging
+
+console_logger = logging.getLogger(BASIC_LOGGER)
+data_logger = logging.getLogger(DATA_LOGGER)
 
 class ManifestConsistencyError(Exception):
     """Raised when a manifest consistency check fails."""
@@ -184,9 +189,6 @@ class OnlineRTVSolver:
                 stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
                 action = stop[PayloadParser.MANIFEST_ACTION]
                 stop_order = stop[PayloadParser.MANIFEST_ORDER]
-                if stop_id == 59:
-                    # TODO create a test case to reproduce the behavior and add a XFAIL mark and then we remove the entire depot shit to make it cleaner and more readable
-                    print("Test 59", driver_run['state']['run_id'], action, stop_order)
                 if action == VehicleStop.ACT_PICKUP:
                     if stop_order <= serviced_locations: # i.e., already boarded or finished
                         boarded_requests.add(stop_id)
@@ -210,8 +212,6 @@ class OnlineRTVSolver:
             for stop in manifest:
                 stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
                 action = stop[PayloadParser.MANIFEST_ACTION]
-                if stop_id == 59:
-                    print("Test 59", driver_run['state']['run_id'], action)
                 if action == VehicleStop.ACT_PICKUP:
                     boarded_requests.discard(stop_id)
                     if self.config.keep_active: # only additionally remove active requests when keep_active = True
@@ -343,18 +343,18 @@ class OnlineRTVSolver:
                 return updated_driver_runs, unserved_requests
 
         # Use heuristic if any vehicle has too many remaining requests
-        logging.debug("Inserting with heuristic...")
+        console_logger.debug("Inserting with heuristic...")
         # Get the initial solution with insertion heuristic
         updated_driver_runs, unserved_requests = self.solve_pdptw_heuristic(payload)
         if len(unserved_requests) > 0:
-            logging.debug("Unserved requests after heuristic: %d", len(unserved_requests))
+            console_logger.debug("Unserved requests after heuristic: %d", len(unserved_requests))
             # Return without further optimization if there are unserved requests
             return updated_driver_runs, unserved_requests
 
         if skip_swapping:
             return updated_driver_runs, unserved_requests
         # If all requests are served, try to optimize the solution further
-        logging.debug("Optimizing solution with swap heuristic...")
+        console_logger.debug("Optimizing solution with swap heuristic...")
         start_time = time.time()
         swap_handler = SwapHandler(self.SERVER_URL,
                                    updated_driver_runs,

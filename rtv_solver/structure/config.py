@@ -13,7 +13,7 @@ class Config:
     The default values [output_dir, input_file, server_url]should be changed locally  as they also collect the basic information for debug runs. The default values also act as the default for tests. 
     """
     # technical setup
-    output_dir: Path = Path("output_format") / "debug"
+    output_dir: Path = Path("outputs") / "debug"
     input_file: str = "rtv-solver/inputs/wilson_nc_initial.pkl"
     server_url: str = "http://127.0.0.1:5001/"
     max_thread_cnt: int = 16
@@ -45,4 +45,30 @@ class Config:
             args = parser.parse_args()
             cfg = Config.from_args(args)
         """
-        return cls(**vars(args))
+        ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+        output_directory = ROOT_DIR / args.output_dir
+        output_directory.mkdir(parents=True, exist_ok=True)
+
+        # add the change for the input_file
+        return cls(
+            output_dir = output_directory,
+            input_file = args.input_file,
+            server_url = args.server_url,
+            max_thread_cnt = args.max_thread_cnt,
+            rtv_timeout = args.rtv_timeout,
+            ilp_timeout = args.ilp_timeout, 
+            ilp_penalty = args.ilp_penalty,
+            max_cardinality = args.max_cardinality,
+            largest_tsp = args.largest_tsp,
+            share_cost_factor = args.share_cost_factor,
+            rebalancing = args.rebalancing,
+            keep_active = args.keep_active,
+            return_depot = args.return_depot,
+            dwell_pickup = args.dwell_pickup,
+            dwell_alight = args.dwell_alight,
+            walk_distance_cutoff = args.walk_distance_cutoff,
+            step_size = args.step_size,
+            batch_interval = args.batch_interval,
+            travel_time_margin = args.travel_time_margin
+        )
+        # return cls(**vars(args))

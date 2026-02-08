@@ -1,5 +1,4 @@
 import numpy as np
-import logging
 import multiprocessing as mp
 import gurobipy as gp
 import time
@@ -14,6 +13,12 @@ from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.structure.node import Node
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.config import Config
+
+from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
+import logging
+
+console_logger = logging.getLogger(BASIC_LOGGER)
+data_logger = logging.getLogger(DATA_LOGGER)
 
 class SwapHandler:
     """TODO docstring and behavior of this class"""
@@ -72,7 +77,7 @@ class SwapHandler:
         NetworkHandler.initialize_travel_time_matrix()
 
     def run_swap(self, rerunning=False):
-        logging.debug("Started swap round")
+        console_logger.debug("Started swap round")
         if rerunning:
             self.driver_runs = copy.deepcopy(self.new_driver_runs)
         # collect requests per vehicle that have not been served yet
@@ -162,8 +167,8 @@ class SwapHandler:
                     manifests_with_vehicle[run_id].append(i)
 
         selected_options = []
-        logging.debug("Number of manifest options: {0}".format(no_options))
-        logging.debug("Started building optimization problem")
+        console_logger.debug("Number of manifest options: {0}".format(no_options))
+        console_logger.debug("Started building optimization problem")
         with gp.Env(empty=True) as env:
             env.setParam('OutputFlag', 0)
             env.start()
@@ -182,7 +187,7 @@ class SwapHandler:
             m.optimize()
 
             if m.Status == GRB.OPTIMAL or m.Status == GRB.SUBOPTIMAL:
-                logging.info("Time spent on optimization: {0}".format(m.Runtime))
+                console_logger.info("Time spent on optimization: {0}".format(m.Runtime))
 
                 for i in range(no_options):
                     if x_t[i].X == 1:
@@ -212,8 +217,8 @@ class SwapHandler:
             num_uncommon = len(uncommon_items)
             no_of_swaps += num_uncommon
         no_of_swaps //= 2  # Each swap is counted twice (once for each driver run)
-        logging.info('Initial cost: {0}, new cost: {1}, cost reduction'.format(initial_cost, new_cost, initial_cost-new_cost))
-        logging.info('Number of swaps: {0}'.format(no_of_swaps))
+        console_logger.info('Initial cost: {0}, new cost: {1}, cost reduction'.format(initial_cost, new_cost, initial_cost-new_cost))
+        console_logger.info('Number of swaps: {0}'.format(no_of_swaps))
 
         self.new_driver_runs = []
         run_ids = list(selected_driver_runs.keys())

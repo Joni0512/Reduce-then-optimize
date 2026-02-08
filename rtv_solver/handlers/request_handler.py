@@ -1,10 +1,17 @@
-import logging
 import pandas as pd
+
 from rtv_solver.structure.request import Request
 from rtv_solver.structure.node import Node
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
+
 from datetime import timedelta
+
+from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
+import logging
+
+console_logger = logging.getLogger(BASIC_LOGGER)
+data_logger = logging.getLogger(DATA_LOGGER)
 
 class RequestHandler:
     """
@@ -20,7 +27,7 @@ class RequestHandler:
         self.next_index = 0
 
         assert len_requests_initial == self.count, f"{len_requests_initial - self.count} requests dropped as duplicates. Where did they come from?"      
-        logging.info(f'{self.count} new and already assigned request(s) in payload')
+        console_logger.info(f'{self.count} new and already assigned request(s) in payload')
 
     @staticmethod
     def _build_request_dict(req, dwell_pickup, dwell_alight):
@@ -106,7 +113,7 @@ class RequestHandler:
         time_of_next_request = self.requests.iloc[min(self.next_index,self.requests.shape[0]-1)][PayloadParser.REQ_PICKUP_WINDOW_START]
         if time_of_next_request <= end_time and len(batch) > 0:
             end_time = min(end_time, batch[-1].pick_up_time)
-        logging.info(f"T: {end_time}, batch {len(batch)}")
+        console_logger.info(f"T: {end_time}, batch {len(batch)}")
         return batch, end_time
     
     def get_lookahead_trips(self, end_time, rh_factor, batch_interval: timedelta):
@@ -121,12 +128,12 @@ class RequestHandler:
     
     def earliest_start_time(self):
         start_time = self.get_request_by_iloc(0).earliest_pickup_time
-        logging.debug('Start time of first request: {0}'.format(start_time))
+        console_logger.debug('Start time of first request: {0}'.format(start_time))
         return start_time
 
     def latest_start_time(self):
         start_time = self.get_request_by_iloc(self.count-1).earliest_pickup_time
-        logging.debug('Start time of last request: {0}'.format(start_time))
+        console_logger.debug('Start time of last request: {0}'.format(start_time))
         return start_time
 
     # BELOW UNUSED METHODS    

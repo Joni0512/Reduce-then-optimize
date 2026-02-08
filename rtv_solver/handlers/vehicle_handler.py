@@ -1,4 +1,3 @@
-import logging
 import pandas as pd
 import pickle
 
@@ -14,6 +13,12 @@ from rtv_solver.structure.trip import Trip
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
 
+from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
+import logging
+
+console_logger = logging.getLogger(BASIC_LOGGER)
+data_logger = logging.getLogger(DATA_LOGGER)
+
 class VehicleHandler:
     MAX_AM_CAPACITY = 0
     MAX_WC_CAPACITY = 0
@@ -27,7 +32,8 @@ class VehicleHandler:
         self.config = config
         self.output_dir = config.output_dir
         VehicleHandler.LARGEST_TSP = config.largest_tsp
-        logging.info(f'{self.count} vehicle(s) in operations')
+
+        console_logger.info(f'{self.count} vehicle(s) in operations')
 
     def _load_vehicles(self, depot, driver_runs):
         """
@@ -305,8 +311,8 @@ class VehicleHandler:
                 added_cost = cost - VehicleHandler.cost_of_serving_sequence(next_immediate_node, vehicle, tt_matrix, node_indices)
                 next_stop = sequence[0]
                 travel_time = NetworkHandler.travel_time_from_matrix(next_immediate_node, next_stop.node, tt_matrix, node_indices) # travel to the beginning of the sequence from current position that is already planned
-                logging.debug(f"Plan - cost: {added_cost}, final arrival: {time_at_last_node}")
-                logging.debug("Sequence: %s", StopSequence.sequence_to_string(sequence)) 
+                console_logger.debug(f"Plan - cost: {added_cost}, final arrival: {time_at_last_node}")
+                console_logger.debug("Sequence: %s", StopSequence.sequence_to_string(sequence)) 
     
                 return TripInsertionPlan(
                     depot_feasible      = depot_feasible,

@@ -2,7 +2,6 @@ import pickle
 import argparse
 import logging
 import time
-import json
 
 from pathlib import Path
 
@@ -11,22 +10,10 @@ from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
 from rtv_solver.structure.config import Config
 
+from rtv_solver.util.logger import setup_loggers, BASIC_LOGGER, DATA_LOGGER
+
 DEBUG_MODE = False # reduces number of vehicles and requests for easier debugging
 ONLINE_MODE = False # runs all requests in one go without rolling horizon batching
-
-def setup_logging(config: Config):
-    ROOT_DIR = Path(__file__).resolve().parent
-    output_dir = ROOT_DIR.parent / config.output_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
-    log_file = output_dir / 'main.log'
-
-    logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler()]
-        ) 
 
 if __name__ == "__main__":
     """
@@ -75,15 +62,18 @@ if __name__ == "__main__":
     data = pickle.load(file)
     file.close()
     data = PayloadParser.normalize_to_canonical(data)
-    
-    setup_logging(config)
-    logging.info(f' --- Start: RTV simulation online {ONLINE_MODE}')
-    logging.info(f'Arguments: {config}')
 
+    setup_loggers(config)
+    console_logger = logging.getLogger(BASIC_LOGGER)
+    data_logger = logging.getLogger(DATA_LOGGER)
+
+    # setup_logging(config)
+    console_logger.info(f' --- Start: RTV simulation online {ONLINE_MODE}')
+    console_logger.info(f'Arguments: {config}')
+    
     if DEBUG_MODE: # check if the basic functionality of the online RTV solver works (foundation for offline RTV solver)
-        logging.getLogger().setLevel(logging.INFO)
+        console_logger.setLevel(logging.INFO)
         config.rtv_timeout = 600000 # if I am clicking through inputs, it never breaks due to timeout
-        
         
         # reduce the complexity by only considering a single vehicle
         driver_runs_total = data[PayloadParser.DRIVERS]
@@ -139,9 +129,10 @@ if __name__ == "__main__":
     stats_evaluator = StatsParser()
     feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, assignment_development)
     
-    logging.info(stats)
-    logging.info(f'Violations: {violations}')
-    logging.info(f"Total time: {time.time() - start_time}")
+    
+    console_logger.info(stats)
+    console_logger.info(f'Violations: {violations}')
+    console_logger.info(f"Total time: {time.time() - start_time}")
     
     # NOTE export data to test other functionality in tests and other approaches
     # stats_payload[PayloadParser.STATS_ASSIGNMENT_DEVELOPMENT] = assignment_development

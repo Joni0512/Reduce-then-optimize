@@ -1,8 +1,12 @@
-import logging
-
 from rtv_solver.online_rtv_solver import OnlineRTVSolver
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.structure.config import Config
+
+from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
+import logging
+
+console_logger = logging.getLogger(BASIC_LOGGER)
+data_logger = logging.getLogger(DATA_LOGGER)
 
 class OfflineRTVSolver:
     def __init__(self, config: Config):
@@ -23,7 +27,7 @@ class OfflineRTVSolver:
         driver_runs = payload[PayloadParser.DRIVERS]
 
         while current_time < end_time:
-            logging.info(f"=== Iteration {iteration} offline RTV Solver at time {current_time} ===")
+            console_logger.info(f"=== Iteration {iteration} offline RTV Solver at time {current_time} ===")
             
             # select requests that are to be considered in the current interval with pickup_window [current_time, current_time + interval]
             selected_requests = {}

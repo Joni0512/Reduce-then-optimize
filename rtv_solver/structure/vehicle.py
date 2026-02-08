@@ -82,7 +82,6 @@ class Vehicle:
         """boolean for checking whether the vehicle's operational time has run out and the vehicle is empty."""
         if len(self.stop_sequence) == 0 and self.end_time <= current_time:
             assert len(self.picked) == 0
-            logging.info(f"Vehicle {self.id} completed its operation.")
             return True
         return False
 

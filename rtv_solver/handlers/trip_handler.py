@@ -1,5 +1,4 @@
 import numpy as np
-import logging
 import itertools
 import multiprocessing as mp
 import gurobipy as gp
@@ -17,6 +16,12 @@ from rtv_solver.structure.vehicle import Vehicle
 
 from rtv_solver.handlers.vehicle_handler import VehicleHandler
 from rtv_solver.handlers.network_handler import NetworkHandler
+
+from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
+import logging
+
+console_logger = logging.getLogger(BASIC_LOGGER)
+data_logger = logging.getLogger(DATA_LOGGER)
 
 class TripHandler:
     """"
@@ -53,7 +58,7 @@ class TripHandler:
             self.generate_ondemand_only_trips(requests, iteration)
             self.generate_trip_costs(vehicles, config.max_thread_cnt, 0)
             self.generate_shared_trips(vehicles, config.max_cardinality, config.max_thread_cnt, config.share_cost_factor)
-            logging.info(f"Time spent on RTV generation: {time.time() - self.starting_time}")
+            console_logger.info(f"Time spent on RTV generation: {time.time() - self.starting_time}")
             if len(TripHandler.trip_costs) > 0: 
                 self.assign_trips_gurobi(requests, active_requests, config.ilp_penalty, config.keep_active)
                 if config.rebalancing: # NOTE not sure if this should apply with trip_costs == 0; but it normally means that the vehicles are not in operation anymore
@@ -62,7 +67,7 @@ class TripHandler:
     # SINGLE TRIP GENERATION
     def generate_ondemand_only_trips(self, requests: list[Request], iteration: int):
         """generate single trips from individual requests directly"""
-        logging.info(f'{len(requests)} single trips generated from requests.')
+        console_logger.info(f'{len(requests)} single trips generated from requests.')
         for request in requests:
             trip = self.create_trip_from_request(request, iteration, allow_walk=False)
             self.trips.append(trip)
@@ -184,7 +189,7 @@ class TripHandler:
                     self.trip_to_vehicle_cost_map[sub_trip_no].append(trip_cost_index)
             trip_cost_index += 1
 
-        logging.info(f"{len(TripHandler.trip_costs) - last_trip_cost_index} new trip costs generated.")
+        console_logger.info(f"{len(TripHandler.trip_costs) - last_trip_cost_index} new trip costs generated.")
 
     # SHARED TRIP GENERATION
     @staticmethod
@@ -281,7 +286,7 @@ class TripHandler:
                 shared_trips_to_process = []
                 prev_shared_trips = self.shared_trips_map[cardinality-1]
                 block_size = 500
-                logging.debug("Starting to process shared trips of cardinality {0}".format(cardinality))
+                console_logger.debug("Starting to process shared trips of cardinality {0}".format(cardinality))
                 for shared_trip1_index in prev_shared_trips: # iterate only trips that already work for prior cardinality
                     shared_trip1 = self.trips[shared_trip1_index]
                     for request_id in self.ondemand_only_trip_map:
@@ -307,7 +312,7 @@ class TripHandler:
 
                         # if no cost was created prior, we can skip this particular request? NOTE why is that here? it should fail for all of them right?
                         if len(self.trip_to_vehicle_cost_map[shared_trip1_index]) == 0:
-                            logging.debug(f"Trip<>Vehicle check {shared_trip1_index} failed with {request_id}")
+                            console_logger.debug(f"Trip<>Vehicle check {shared_trip1_index} failed with {request_id}")
                             continue
 
                         # Check if this trip can share a ride with all other trips in shared_trip1
@@ -336,7 +341,7 @@ class TripHandler:
                                 
                                 # new_shared_trip = SharedTrip(shared_trip1_index, 0, trip_nos, current_cost, [])
                                 # TripHandler._process_shared_trip_result(new_shared_trip)
-                # logging.info(f"Number of shared trip combinations to process: {0}, time: {1}".format(len(shared_trips_to_process),time.time()-st))
+                # console_logger.info(f"Number of shared trip combinations to process: {0}, time: {1}".format(len(shared_trips_to_process),time.time()-st))
                 for block_start in range(0, len(shared_trips_to_process), block_size):
                     self._check_rtv_timeout()
                     block_end = min(block_start + block_size, len(shared_trips_to_process))
@@ -348,7 +353,7 @@ class TripHandler:
                                          error_callback=TripHandler._on_worker_error)
                     pool.close()
                     pool.join()
-                logging.debug("Time to process shared trips of cardinality {0}: {1}".format(cardinality,time.time()-st))
+                console_logger.debug("Time to process shared trips of cardinality {0}: {1}".format(cardinality,time.time()-st))
             
             self._update_shared_trip_numbers(cardinality)
             
@@ -356,7 +361,7 @@ class TripHandler:
                 self._create_rr_graph()
             if len(self.shared_trips_map[cardinality]) == 0:
                 break # no trip_cost generation if no trips exist
-            logging.info(f"{len(self.shared_trips_map[cardinality])} cardinality {cardinality} trips generated in {time.time()-st} seconds .")
+            console_logger.info(f"{len(self.shared_trips_map[cardinality])} cardinality {cardinality} trips generated in {time.time()-st:.3f} seconds.")
             self.generate_trip_costs(vehicles, max_num_thread, trip_start)           
             cardinality += 1
     
@@ -375,7 +380,7 @@ class TripHandler:
         trip_count = len(TripHandler.trip_costs)
         request_count = len(requests)
 
-        logging.debug("Started building optimization problem")
+        console_logger.debug("Started building optimization problem")
         # setup Integer Linear Program 
         with gp.Env(empty=True) as env:
             env.setParam('OutputFlag', 0)
@@ -434,7 +439,7 @@ class TripHandler:
             self.added_distance = 0
 
             if m.Status == GRB.OPTIMAL or m.Status == GRB.SUBOPTIMAL:
-                logging.info("Total time spent on optimization: {0}".format(m.Runtime))
+                console_logger.info("Total time spent on optimization: {0}".format(m.Runtime))
 
                 for vehicle_id in self.vehicle_to_trips_cost_map:
                     for i in self.vehicle_to_trips_cost_map[vehicle_id]:
@@ -451,7 +456,7 @@ class TripHandler:
                                     trips.append(self.trips[sub_trip_no])
                             self.trip_sizes.append(len(trips))
                             self.vehicle_assignment[vehicle_id] = (trips, trip_cost.sequence)
-                            logging.info(f"Assignment: {trip_cost}")
+                            console_logger.info(f"Assignment: {trip_cost}")
                             # print(f"Assign: veh-{vehicle_id} with trips {[trip.id for trip in trips]} under cost {trip_cost.cost} with sequence {TripCost.sequence_to_str(trip_cost.sequence)}")
 
                 for request in requests:
@@ -485,7 +490,7 @@ class TripHandler:
                         print("IIS:", constraint.ConstrName)
                 raise Exception(f"Gurobi solver ended with code: {m.Status}") # Code 3 INFEASIBLE
                         
-            logging.info(f'Assignment: new requests / unassigned / assigned: {request_count} / {self.unassigned_trip_count} / {self.taxi_only_trip_count}')
+            console_logger.info(f'Assignment: new requests / unassigned / assigned: {request_count} / {self.unassigned_trip_count} / {self.taxi_only_trip_count}')
             # TODO make information better, some requests are re-assigned although they were already assigned
 
     def get_rebalancing_trips(self, vehicles, requests):
