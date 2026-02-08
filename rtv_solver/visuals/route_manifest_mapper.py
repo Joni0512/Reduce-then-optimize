@@ -1,14 +1,18 @@
 import json
 from typing import Any, Dict, List, Optional
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.network_handler import NetworkHandler
+
 from rtv_solver.structure.node import Node
 from rtv_solver.structure.config import Config
 from rtv_solver.structure.vehicle_stop import VehicleStop
 
 from rtv_solver.visuals.map_icons import MakiIcon
+
+from rtv_solver.util.helper import load_json
 
 class RouteManifestMapper():
     """
@@ -21,10 +25,9 @@ class RouteManifestMapper():
     TODO add `to_folium_map()` that consumes FeatureCollection to build an interactive map
     """
     def __init__(self, config: Config | None = None):
-        self.config = config or Config()
+        self.config = config
         self._network_initialized = False
         self._init_network()
-        self.vehicle_colors = self._get_route_colors(2)
 
     def _init_network(self) -> None:
         if self._network_initialized:
@@ -34,17 +37,20 @@ class RouteManifestMapper():
     
     def _get_route_colors(self, veh_count: int) -> dict[int, str]:
         """Choose colormap from <https://matplotlib.org/stable/users/explain/colors/colormaps.html>"""
-        cmap = plt.get_cmap("plasma")  # matplotlib colormap for oranges
+        cmap = plt.get_cmap("plasma")  # matplotlib colormap
         colors = [plt.cm.colors.to_hex(cmap(i / veh_count)) for i in range(0, veh_count)]
     
         return {i: color for i, color in enumerate(colors)}
 
-    def manifest_to_geojson(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def manifest_to_geojson(self, payload: dict[str, Any], vehicle_count: int = 18) -> dict[str, Any]:
         """
         Convert payload["manifest"] into a GeoJSON FeatureCollection.
+
+        :param int veh_count: default 18 as we use that many vehicles normally with the standard file
         """
         driver_runs = payload.get(PayloadParser.DRIVERS, [])
         depot = payload.get(PayloadParser.DEPOT)
+        self.vehicle_colors = self._get_route_colors(vehicle_count)
 
         features: List[Dict[str, Any]] = []
         features.append(self._build_depot_feature(depot))
@@ -69,7 +75,7 @@ class RouteManifestMapper():
             features.append(route_feature)
         return self._feature_collection(features)
 
-    def save_geojson(self, geojson: Dict[str, Any], filepath: str) -> None:
+    def save_geojson(self, geojson: Dict[str, Any], filepath: Path | str) -> None:
         """Save GeoJSON to disk"""
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(geojson, f, ensure_ascii=False, indent=2)
@@ -134,7 +140,7 @@ class RouteManifestMapper():
         lines = [f["geometry"]["coordinates"] for f in route_parts if f["geometry"]["type"] == "LineString"]
         properties = {"feature_type": "merged_route",
                       "run-id": run_id,
-                      "stroke": self.vehicle_colors[run_id], # design props
+                      "stroke": self.vehicle_colors[run_id], # design props, check how many vehicles participate
                       "stroke-width": "2",
                       "stroke-opacity": "0.6"}
         return self._feature(geometry={"type": "MultiLineString", "coordinates": lines},
@@ -158,10 +164,14 @@ if __name__ == '__main__':
     debug test for visualizer
     """
     # load data from file and update to canonical format for the entire system
-    filename = 'rtv-solver/rtv_solver/visuals/debug_output.json'
-    with open(filename, 'r') as json_file:
-        loaded_data = json.load(json_file)
+    folder = Path("../outputs/debug/run_20260208_142128_5706bf") 
+    
+    with open(folder / "result_driver_runs.json", 'r') as driver_runs_file:
+        loaded_data = json.load(driver_runs_file)
 
-    mapper = RouteManifestMapper()
-    geojson = mapper.manifest_to_geojson(loaded_data)
-    mapper.save_geojson(geojson, 'rtv-solver/rtv_solver/visuals/route_manifest.geojson')
+    config_file = load_json(folder / "config.json")
+    config = Config.from_dict(config_file["config_dict"])
+
+    mapper = RouteManifestMapper(config)
+    geojson = mapper.manifest_to_geojson(loaded_data, 18)
+    mapper.save_geojson(geojson, folder / "route_manifest.geojson")

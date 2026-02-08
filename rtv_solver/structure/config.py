@@ -98,6 +98,11 @@ class Config:
         return config
         # return cls(**vars(args))
 
+    @classmethod
+    def from_dict(cls, cfg_dict: dict) -> "Config":
+        """Create a Config instance directly from a dictionary."""
+        return cls(**cfg_dict)
+
     @staticmethod
     def create_output_dir(base_dir: Path, experiment_dir: Path | str) -> Path:
         """Create a unique output directory with timestamp or UUID."""

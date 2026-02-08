@@ -2,13 +2,7 @@ import logging
 import json
 import datetime
 
-from typing import TYPE_CHECKING
 from logging import FileHandler, StreamHandler, Formatter
-
-if TYPE_CHECKING:
-    from rtv_solver.structure.config import Config
-
-
 
 # keys for the loggers
 BASIC_LOGGER = "rtv_solver.basic"
@@ -48,7 +42,7 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(data)
     
 
-def setup_loggers(config: Config):
+def setup_loggers(output_dir: str):
     """
     BASIC_LOGGER: writes stream output to terminal and a .txt log file
     
@@ -62,7 +56,7 @@ def setup_loggers(config: Config):
     basic_logger.propagate = False
     # basic_logger.propagate = False
     # TODO how to import the output file here
-    basic_logger_fileHandler = FileHandler(config.output_dir / "main.log")
+    basic_logger_fileHandler = FileHandler(output_dir / "main.log")
     basic_logger_fileHandler.setFormatter(Formatter(LOG_FORMAT))
     basic_logger.addHandler(basic_logger_fileHandler)
     
@@ -79,7 +73,7 @@ def setup_loggers(config: Config):
     behavior_logger.propagate = False
     
     behavior_logger.handlers.clear()
-    json_file_handler = logging.FileHandler(config.output_dir / "assignment_data.jsonl")
+    json_file_handler = logging.FileHandler(output_dir / "assignment_data.jsonl")
     json_file_handler.setFormatter(JsonFormatter())
     behavior_logger.addHandler(json_file_handler)
 
