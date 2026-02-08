@@ -200,10 +200,10 @@ class SwapHandler:
                 m.write("infeasible.mps")   # optional
 
                 # Print which constraints are in IIS
-                print("\n--- IIS constraints ---")
+                console_logger.error("\n--- IIS constraints ---")
                 for constraint in m.getConstrs():
                     if constraint.IISConstr:
-                        print("IIS:", constraint.ConstrName)
+                        console_logger.error("IIS:", constraint.ConstrName)
                 raise Exception("Gurobi solver ended with code: {0}".format(m.Status))
         
         new_cost = 0
@@ -245,7 +245,7 @@ class SwapHandler:
 
     @staticmethod
     def _on_worker_error(e):
-        print("Worker crashed:", repr(e))
+        console_logger.error("Worker crashed:", repr(e))
         traceback.print_exc()
         raise e
     

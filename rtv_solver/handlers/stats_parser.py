@@ -77,6 +77,9 @@ class Stats:
         lines.append("}")
         return "\n".join(lines)
     
+    def to_dict(self):
+        return asdict(self)
+    
     def __str__(self):
         return f"Stats:\n {self.format_top_level(asdict(self))}"
 

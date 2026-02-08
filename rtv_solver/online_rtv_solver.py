@@ -154,8 +154,8 @@ class OnlineRTVSolver:
                                             unserved_requests, 
                                             payload[PayloadParser.REQUESTS])
         # TODO remove this complex data structure to move data up the stack; integrate JSON logger that records information to a standardized JSON file and can later be rebuilt and analyzed using that JSON file (probably requires something similar to OutputHandler that was used in the simulation)
-        assignment_status = {0: {PayloadParser.STATS_ASSIGNED: trip_handler.request_assignment, 
-                                   PayloadParser.STATS_UNSERVED: list(unserved_requests)}}
+        assignment_status = {PayloadParser.STATS_ASSIGNED: trip_handler.request_assignment, 
+                            PayloadParser.STATS_UNSERVED: list(unserved_requests)}
         return updated_driver_runs, assignment_status # ,trip_handler, vehicle_handler, request_handler, payload_object
 
     def _check_consistency_of_manifests(self, 
@@ -197,9 +197,7 @@ class OnlineRTVSolver:
                     picked_requests.add(stop_id)
                 elif action == VehicleStop.ACT_DROPOFF:
                     dropped_requests.add(stop_id) 
-        # print("active", active_requests)
-        # print("boarded", boarded_requests)
-        
+
         # depending on config.keep_active, active requests also need to be part of the new_driver_runs
         # remove all requests that are picked up/dropped off (ensures that all stops exist twice) and track depot runs
         depot_requests = []
@@ -225,8 +223,6 @@ class OnlineRTVSolver:
         for req_id in unserved_requests:
             picked_requests.remove(req_id)
             dropped_requests.remove(req_id)
-        
-        # print("depot:", depot_requests)
 
         if len(boarded_requests) > 0:
             raise ManifestConsistencyError(f"ManifestError: boarded_requests {boarded_requests} were not picked up.")
@@ -559,16 +555,13 @@ class OnlineRTVSolver:
                     # TODO check if those numbers are right
                     # Location are same, manifest seems to be more correct though
                     last_node = driver_run.state.loc
-                    time_at_last_node = driver_run.state.location_dt_seconds # TODO why is this number different and this looks like an issue in the simulation?
+                    time_at_last_node = driver_run.state.location_dt_seconds # TODO why is this time_at_last_node different and this looks like an issue in the simulation?
                     # get last position and time from manifest
                     last_entry = driver_run.manifest[-1]
                     manifest_time = last_entry.scheduled_time
                     manifest_location = last_entry.loc
                     manifest_action = last_entry.action
                     assert manifest_action == VehicleStop.ACT_DROPOFF, f"Last stop {manifest_action} should have been a dropoff"
-
-                    print("State:", last_node, time_at_last_node)
-                    print("Manifest:", manifest_location, manifest_time)
 
                     # TODO remove dwell time for ACT_DEPOT wherever that is
                     depot_node = Node.from_dict(depot_dict[PayloadParser.DEPOT_PT])
@@ -587,8 +580,8 @@ class OnlineRTVSolver:
                             PayloadParser.MANIFEST_TIME_WINDOW_START: depot_arrival_time-10, 
                             PayloadParser.MANIFEST_TIME_WINDOW_END: depot_arrival_time+10
                             })
-                    driver_run.state.total_locations = 19
-                    driver_run.state.locations_already_serviced = 19
+                    driver_run.state.total_locations += 1
+                    driver_run.state.locations_already_serviced += 1
                     driver_run.manifest.append(depot_stop)
 
                 updated_driver_runs.append(driver_run.to_dict())

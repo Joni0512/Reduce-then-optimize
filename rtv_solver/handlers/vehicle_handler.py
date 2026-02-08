@@ -390,8 +390,6 @@ class VehicleHandler:
                                                 trip.dwell_pickup))
                 # NOTE why do we not add the dropoff-stop here?
                 # TODO why is this function calling itself
-                # print(f"Old Inputs: {inputs}")
-                # print(f"New Inputs: {trip.origin,time_at_pick_up,new_am_capacity, new_wc_capacity,trips,new_trips_to_pick_up,trips_to_drop_off,new_sequence,new_cost,tt_matrix, node_indices}")
                 new_sequence, new_cost, new_feasible, new_last_node, new_time_at_last_node = VehicleHandler.get_exact_stop_sequence(
                     trip.origin,
                     time_at_pick_up,
@@ -745,14 +743,14 @@ class VehicleHandler:
                 picked_trip = vehicle.trips[next_stop.trip_id]
                 picked_trip.picked = True
                 picked_requests.append(picked_trip.request_id)
-                print("pickup: ", next_stop.trip_id ) #, picked_trip.request_id)
+                console_logger.info("pickup: ", next_stop.trip_id ) #, picked_trip.request_id)
             else: # dropoff request
                 vehicle.picked.remove(next_stop.trip_id)
                 completed_requests.append(vehicle.trips[next_stop.trip_id].request_id)
                 vehicle.am_capacity = vehicle.am_capacity + trip.am_capacity
                 vehicle.wc_capacity = vehicle.wc_capacity + trip.wc_capacity
 
-                print("dropoff: ", next_stop.trip_id)
+                console_logger.info("dropoff: ", next_stop.trip_id)
                 del vehicle.trips[next_stop.trip_id]
             if len(vehicle.stop_sequence) > 0:
                 next_stop = vehicle.stop_sequence[0]
@@ -781,11 +779,10 @@ class VehicleHandler:
                 for trip_id in vehicle.trips:
                     if trip_id in vehicle.picked:
                         # TODO why is this step never reached?
-                        print(f"To be dropped off: v{vehicle.id}, t{trip_id}")
+                        console_logger.info(f"To be dropped off: v{vehicle.id}, t{trip_id}")
                         updated_trip_list[trip_id] = vehicle.trips[trip_id]
                         trips_to_drop_off.append(trip_id)
-                # TODO never reaches this point where I would expect this to happen
-                # print(f"Lists updated {updated_trip_list}, dropoffs: {trips_to_drop_off}")
+                
                 vehicle.trips = updated_trip_list
                 existing_sequence = []
                 nodes = [vehicle.next_immediate_node]
@@ -802,10 +799,8 @@ class VehicleHandler:
                     best_sequence, _, feasible, _, _ = VehicleHandler.get_exact_stop_sequence(next_immediate_node,time_at_next_immediate_node,vehicle.am_capacity,vehicle.wc_capacity,updated_trip_list,[],trips_to_drop_off,[],0, tt_matrix, node_indices)
                     
                     if feasible:
-                        print("Vehicle ", vehicle.id, " new sequence: ", [ (stop.trip_id, stop.type) for stop in vehicle.stop_sequence])
+                        console_logger.debug("Vehicle ", vehicle.id, " new sequence: ", [ (stop.trip_id, stop.type) for stop in vehicle.stop_sequence])
                         vehicle.stop_sequence = best_sequence
-                        # print("Vehicle ", vehicle.id, " new sequence: ", [ (stop.trip_id, stop.type) for stop in vehicle.stop_sequence])
-                        # print("Vehicle ", vehicle.id, " sequence: ", [ (stop.trip_id, stop.type) for stop in vehicle.stop_sequence])
                     next_stop = vehicle.stop_sequence[0]
                     vehicle.time_at_next = time_at_next_immediate_node + NetworkHandler.travel_time(next_immediate_node,next_stop.node)
                     next_trip = vehicle.trips[next_stop.trip_id]

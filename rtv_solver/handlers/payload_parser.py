@@ -60,8 +60,8 @@ class PayloadParser:
     MANIFEST_TIME_WINDOW_END = "time_window_end"
 
     STATS_ASSIGNMENT_DEVELOPMENT = "stats_assign_dev"   
-    STATS_ASSIGNED = 'assigned'
-    STATS_UNSERVED = 'unserved'
+    STATS_ASSIGNED = 'assigned_requests'
+    STATS_UNSERVED = 'unserved_requests'
     STATS_BOARDED = 'boarded'
     STATS_DROPPED = 'dropped'
 

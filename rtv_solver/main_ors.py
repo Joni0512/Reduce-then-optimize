@@ -1,7 +1,7 @@
-import pickle
 import argparse
 import logging
 import time
+import os
 
 from pathlib import Path
 
@@ -11,8 +11,9 @@ from rtv_solver.handlers.stats_parser import StatsParser
 from rtv_solver.structure.config import Config
 
 from rtv_solver.util.logger import setup_loggers, BASIC_LOGGER, DATA_LOGGER
+from rtv_solver.util.helper import save_json, load_input_data
 
-DEBUG_MODE = False # reduces number of vehicles and requests for easier debugging
+DEBUG_MODE = True # reduces number of vehicles and requests for easier debugging
 ONLINE_MODE = False # runs all requests in one go without rolling horizon batching
 
 if __name__ == "__main__":
@@ -28,10 +29,10 @@ if __name__ == "__main__":
     # TODO move config management to YAML config or Hydra
     parser = argparse.ArgumentParser(description='Arguments for the RTV solver main script')
     # technical setup
-    parser.add_argument('--output_dir', type=Path,           default=Path("outputs") / "debug", help='output directory')
-    parser.add_argument('--input_file', type=str,           default="wilson_nc_initial.pkl", help='Request file') 
+    parser.add_argument('--output_dir', type=str,          default="debug", help='Output directory')
+    parser.add_argument('--input_file', type=str,           default="wilson_nc_initial.pkl", help='Request input file') 
     # alternative: rtv-solver/inputs/localDB_payload_oct.pkl
-    parser.add_argument('--server_url', type=str,           default="http://127.0.0.1:5001/", help='Server URL')
+    parser.add_argument('--server_url', type=str,           default="http://127.0.0.1:5001/", help='Backend server URL')
     parser.add_argument('--max_thread_cnt', type=int,       default=16, help='Maximum thread count for parallel processing')
     parser.add_argument('--rtv_timeout', type=int,          default=120, help='RTV construction timeout in seconds')
     parser.add_argument('--ilp_timeout', type=int,          default=120, help='ILP solver timeout in seconds')
@@ -41,7 +42,7 @@ if __name__ == "__main__":
     parser.add_argument('--largest_tsp', type=int,          default=8, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
     parser.add_argument('--share_cost_factor', type=int,    default=1.2, help='Shareable cost factor in factor of original single cost [???]') # TODO why 10, this is a crazy factor where this is used?
     parser.add_argument('--rebalancing', type=bool,         default=True, help='Vehicles are rebalanced if the need arises based on missed requests and idling vehicles.')
-    parser.add_argument('--keep_active', type=bool,         default=False, help='Active requests from an ILP solution in a prior iteration must be kept.')
+    parser.add_argument('--keep_active', type=bool,         default=True, help='Active requests from an ILP solution in a prior iteration must be kept.')
     parser.add_argument('--return_depot', type=bool,        default=True, help="Vehicles must return to the originating depot.")
     parser.add_argument('--dwell_pickup', type=int,         default=180, help='Dwell time at pickup in seconds')
     parser.add_argument('--dwell_alight', type=int,         default=60, help='Dwell time at alight (dropoff) in seconds')
@@ -52,22 +53,23 @@ if __name__ == "__main__":
     # stats parameters
     parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
     # TODO COAML parameters 
+    # random_seed, training parameters, NN parameters
+
     arguments = parser.parse_args()
     config = Config.from_args(arguments) 
+    save_json({"config": config.to_dict(),
+               "git_commit": os.popen("git rev-parse HEAD").read().strip(),
+               "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")}, 
+              config.output_dir / "config.json")
 
     # load data from file and update to canonical format for the entire system
-    ROOT_DIR = Path(__file__).resolve().parent
-    path = ROOT_DIR.parent / "inputs" / config.input_file
-    file = open(path, 'rb')
-    data = pickle.load(file)
-    file.close()
-    data = PayloadParser.normalize_to_canonical(data)
+    data = load_input_data(Path(__file__).resolve().parent.parent / "inputs" / config.input_file)
 
     setup_loggers(config)
     console_logger = logging.getLogger(BASIC_LOGGER)
     data_logger = logging.getLogger(DATA_LOGGER)
 
-    # setup_logging(config)
+    console_logger.info(f"Output directory: {config.output_dir}")
     console_logger.info(f' --- Start: RTV simulation online {ONLINE_MODE}')
     console_logger.info(f'Arguments: {config}')
     
@@ -87,8 +89,8 @@ if __name__ == "__main__":
         # BUG combination 2 --> iteration keeps running and still tries to optimize despite no active vehicle being left
         # TODO how to set vehicles to inactive, so they are not part of the optimization anymore but are also completed in their manifest (depot return and complete manifest of prior assigned trips)
         # vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 22000 
-        # config.return_depot = True
-        # config.keep_active = True
+        config.return_depot = True
+        config.keep_active = True
 
         # combination 3 
         # if trip is not considered in recent trips but is the last dropoff (situation: new trip is injected before that last dropoff in a new iteration)
@@ -129,12 +131,11 @@ if __name__ == "__main__":
     stats_evaluator = StatsParser()
     feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, assignment_development)
     
-    
     console_logger.info(stats)
     console_logger.info(f'Violations: {violations}')
     console_logger.info(f"Total time: {time.time() - start_time}")
-    
-    # NOTE export data to test other functionality in tests and other approaches
-    # stats_payload[PayloadParser.STATS_ASSIGNMENT_DEVELOPMENT] = assignment_development
-    # with open("debug_output.json", 'w') as json_file:
-    #     json.dump(stats_payload, json_file, indent = 4)
+
+    save_json(stats_payload, 
+              config.output_dir / "result_driver_runs.json")
+    save_json({"stats": stats, "violations": violations},
+              config.output_dir / "results.json")

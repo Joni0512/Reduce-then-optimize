@@ -108,7 +108,7 @@ class TripHandler:
     
     @staticmethod
     def _on_worker_error(e):
-        print("Worker crashed:", repr(e))
+        console_logger.error("Worker crashed:", repr(e))
         traceback.print_exc()
         raise e
 
@@ -484,10 +484,10 @@ class TripHandler:
                 m.write("infeasible.mps")   # optional
 
                 # Print which constraints are in IIS
-                print("\n--- IIS constraints ---")
+                console_logger.error("\n--- IIS constraints ---")
                 for constraint in m.getConstrs():
                     if constraint.IISConstr:
-                        print("IIS:", constraint.ConstrName)
+                        console_logger.error("IIS:", constraint.ConstrName)
                 raise Exception(f"Gurobi solver ended with code: {m.Status}") # Code 3 INFEASIBLE
                         
             console_logger.info(f'Assignment: new requests / unassigned / assigned: {request_count} / {self.unassigned_trip_count} / {self.taxi_only_trip_count}')

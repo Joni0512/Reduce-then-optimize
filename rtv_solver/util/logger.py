@@ -45,22 +45,14 @@ class JsonFormatter(logging.Formatter):
             data["extra"] = extras
 
         return json.dumps(data)
-def setup_logging(config: Config):
-    ROOT_DIR = Path(__file__).resolve().parent
-    output_dir = ROOT_DIR.parent / config.output_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
-    log_file = output_dir / 'main.log'
-
-    logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler()]
-        ) 
     
-# classic logger that writes to the terminal and a log file 
-def setup_loggers(config: Config, ):
+
+def setup_loggers(config: Config):
+    """
+    BASIC_LOGGER: writes stream output to terminal and a .txt log file
+    
+    DATA_LOGGER: writes structured data into a .JSONL file
+    """
     LOG_FORMAT = ("%(asctime)s [%(levelname)s] %(message)s")
     LOG_LEVEL = logging.INFO
 
@@ -77,6 +69,8 @@ def setup_loggers(config: Config, ):
     basic_logger_streamHandler.setFormatter(Formatter(LOG_FORMAT))
     basic_logger.addHandler(basic_logger_streamHandler)
 
+    # TODO add a third fileHandler for all errors into an .err file
+
     # TODO Create a JSON logger that collects data during the runtime that we can later use to analyse behavior, trip generation, which trips were available, which requests were active in that moment in addition to the manifest, with timestamp of current_time of iteration, so we can rerun the behavior visibly in geoJson and possbily folium.plugins.Timeline and understand it better on a small scale.
 
     behavior_logger = logging.getLogger(DATA_LOGGER)
@@ -84,28 +78,11 @@ def setup_loggers(config: Config, ):
     behavior_logger.propagate = False
     
     behavior_logger.handlers.clear()
-    json_file_handler = logging.FileHandler(config.output_dir / "behavior.jsonl")
+    json_file_handler = logging.FileHandler(config.output_dir / "assignment_data.jsonl")
     json_file_handler.setFormatter(JsonFormatter())
     behavior_logger.addHandler(json_file_handler)
-    # TODO add parts required for JSON
-    # information that should be stored here is the timestamp, assignment history, active requests, trip generation (advanced and a lot of data), reassignments between vehicles
+
+    # information that should be stored here is the timestamp, assignment history, active requests, trip generation (possibly advanced and a lot of data), reassignments between vehicles
 
     # turn off logging by 'requests' package
-    logging.getLogger("requests.packages.urllib3").setLevel(logging.DEBUG) # TODO test
-
-# TODO integrate 
-def setup_directories(config: Config):
-    # Define the directory name
-    ROOT_DIR = Path(__file__).resolve().parent
-    output_dir = ROOT_DIR.parent / config.output_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    log_dir = output_dir / "test"
-    output_dir = Path("simulation_results")
-    
-    # Create it
-    # parents=True: creates any missing folders in the path (like /a/b/c)
-    # exist_ok=True: doesn't raise an error if the folder is already there
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    return output_dir
+    logging.getLogger("requests.packages.urllib3").setLevel(logging.WARNING)

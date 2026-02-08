@@ -150,7 +150,6 @@ class NetworkHandler:
     @staticmethod
     def travel_distance(source: Node, destination: Node) -> float:
         if SERVER_BASED is None:
-            print("sb:", SERVER_BASED)
             raise RuntimeError("NetworkHandler.init() must be called before travel_distance()")
         if SERVER_BASED.value:
             response = NetworkHandler.get_simple_route_reponse(source, destination)

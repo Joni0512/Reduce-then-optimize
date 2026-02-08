@@ -55,15 +55,13 @@ class OfflineRTVSolver:
 
             # solve the RTV problem and update manifests
             if len(selected_requests) == 0:
-                new_driver_runs, assignment_status = driver_runs, {0: {"assigned": {}, "unserved": []}}
-
+                new_driver_runs, assignment_status = driver_runs, {PayloadParser.STATS_ASSIGNED: {}, PayloadParser.STATS_UNSERVED: []}
             else:    
                 new_driver_runs, assignment_status = online_rtv_solver.solve_pdptw_rtv(new_payload, iteration)
             
             # TODO i want the status development of requests (active, boarded, unserved, delivered) 
             # TODO how do I get the status for already delivered requests
-            assignment_development[current_time] = list(assignment_status.values())[0] # bit complex but required for compatibility with OnlineSolver
-                
+            data_logger.info("Status", extra={"timestamp": current_time, "status": assignment_status})                
             # increment time (might not be the size of the batch) and iteration
             current_time += step_size 
             iteration += 1
@@ -73,4 +71,5 @@ class OfflineRTVSolver:
             driver_runs = simulated_driver_runs
 
         final_driver_runs = online_rtv_solver.finalize_driverRuns(driver_runs, payload[PayloadParser.DEPOT])
+        # TODO update assignment_devlopment calculation. based on the data stores to JSONL instead of handing it over here
         return final_driver_runs, assignment_development

@@ -1,4 +1,7 @@
-from dataclasses import dataclass
+import time
+import uuid
+
+from dataclasses import dataclass, asdict
 from argparse import Namespace
 from pathlib import Path
 
@@ -37,6 +40,9 @@ class Config:
     # stats parameters
     travel_time_margin: int = 5
 
+    def to_dict(self) -> dict:
+        return asdict(self)
+    
     @classmethod
     def from_args(cls, args: Namespace) -> "Config":
         """
@@ -46,8 +52,7 @@ class Config:
             cfg = Config.from_args(args)
         """
         ROOT_DIR = Path(__file__).resolve().parent.parent.parent
-        output_directory = ROOT_DIR / args.output_dir
-        output_directory.mkdir(parents=True, exist_ok=True)
+        output_directory = cls.create_output_dir(ROOT_DIR / "outputs", args.output_dir)
 
         # add the change for the input_file
         return cls(
@@ -72,3 +77,10 @@ class Config:
             travel_time_margin = args.travel_time_margin
         )
         # return cls(**vars(args))
+
+    @staticmethod
+    def create_output_dir(base_dir: Path, output_dir: str) -> Path:
+        """Create a unique output directory with timestamp or UUID."""
+        unique_dir = base_dir /output_dir / f"run_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        unique_dir.mkdir(parents=True, exist_ok=True)
+        return unique_dir
