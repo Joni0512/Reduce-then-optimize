@@ -29,7 +29,8 @@ if __name__ == "__main__":
     # TODO move config management to YAML config or Hydra
     parser = argparse.ArgumentParser(description='Arguments for the RTV solver main script')
     # technical setup
-    parser.add_argument('--output_dir', type=str,          default="debug", help='Output directory')
+    parser.add_argument('--config_file', type=str,          default="", help='Path to JSON config file instead of defining the other values manually')
+    parser.add_argument('--output_dir', type=str,           default="debug", help='Output directory')
     parser.add_argument('--input_file', type=str,           default="wilson_nc_initial.pkl", help='Request input file') 
     # alternative: rtv-solver/inputs/localDB_payload_oct.pkl
     parser.add_argument('--server_url', type=str,           default="http://127.0.0.1:5001/", help='Backend server URL')
@@ -54,13 +55,10 @@ if __name__ == "__main__":
     parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
     # TODO COAML parameters 
     # random_seed, training parameters, NN parameters
-
     arguments = parser.parse_args()
-    config = Config.from_args(arguments) 
-    save_json({"config": config.to_dict(),
-               "git_commit": os.popen("git rev-parse HEAD").read().strip(),
-               "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")}, 
-              config.output_dir / "config.json")
+
+    # implement configuration
+    config = Config.from_args(arguments)
 
     # load data from file and update to canonical format for the entire system
     data = load_input_data(Path(__file__).resolve().parent.parent / "inputs" / config.input_file)
@@ -128,7 +126,7 @@ if __name__ == "__main__":
     stats_payload = {PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
                      PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
                      PayloadParser.DRIVERS: updated_driver_runs}
-    stats_evaluator = StatsParser()
+    stats_evaluator = StatsParser(config)
     feasible, stats, violations, unserved = stats_evaluator.evaluate(stats_payload, assignment_development)
     
     console_logger.info(stats)
@@ -139,3 +137,5 @@ if __name__ == "__main__":
               config.output_dir / "result_driver_runs.json")
     save_json({"stats": stats, "violations": violations},
               config.output_dir / "results.json")
+    
+    console_logger.info(f"Run complete. Results can be found @ {Path(config.output_dir)}")

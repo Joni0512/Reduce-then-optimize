@@ -9,7 +9,6 @@ from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.structure.node import Node
 from rtv_solver.structure.vehicle_stop import VehicleStop
-from rtv_solver.structure.config import Config
 
 @dataclass
 class StopPair:
@@ -87,8 +86,8 @@ class StatsParser:
     """
     Evaluate final feasibility + compute KPIs for a complete payload (incl. filled manifests) and unserved requests
     """
-    def __init__(self, config: Config | None = None):
-        self.config = config or Config()
+    def __init__(self, config: 'Config' | None = None):
+        self.config = config
         self.server_url = self.config.server_url
         self._network_initialized = False
         self._init_network()

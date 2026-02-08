@@ -6,6 +6,10 @@ from pathlib import Path
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import Stats
 
+def load_json(path):
+    with open(path, "r") as f:
+        return json.load(f)
+    
 def save_json(data, path: Path):
     with open(path, "w") as f:
         json.dump(data, f, indent=4, default=json_default)

@@ -1,6 +1,6 @@
 #!/bin/sh
-
-RH=0 #rollong horizen
+# shell script to run main.py (possibly does not work atm, but main_ors.py has feature parity)
+RH=0 #rolling horizen
 INTERVAL=600
 echo "Debug Run"
 mkdir -p "../output_format/$RH/$INTERVAL/"

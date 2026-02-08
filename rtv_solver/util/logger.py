@@ -7,8 +7,6 @@ from logging import Formatter
 
 from pathlib import Path
 
-from rtv_solver.structure.config import Config
-
 # keys for the loggers
 BASIC_LOGGER = "rtv_solver.basic"
 DATA_LOGGER = "rtv_solver.data"
@@ -47,7 +45,7 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(data)
     
 
-def setup_loggers(config: Config):
+def setup_loggers(config: 'Config'):
     """
     BASIC_LOGGER: writes stream output to terminal and a .txt log file
     
