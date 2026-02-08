@@ -6,11 +6,10 @@
 pip install rtv-solver
 ```
 
-If one wants to debug the codebase, it needs to be made sure that the user runs the python package not from the lastest version that is online, but rather from the local version. Caution on the difference between rtv-solver as the online package and rtv_solver as the packaging in the repository.
-
+If one wants to debug the codebase or develop new features, one needs to make sure that the user runs the python package not from the lastest version of the online package, but rather from their local version. Caution on the difference between rtv-solver as the online package and rtv_solver as the packaging in the repository. If it has already been installed, update with the following commands for editable runs that incorporate one's changes.
 ```
 pip uninstall rtv-solver
-pip install -e ~/rtv_solver (for editable run)
+pip install -e ~/rtv_solver
 ```
 
 ## Code example
@@ -132,7 +131,6 @@ stats = {
     'date': 'yyyy-mm-dd', 
     'driver_runs': [],
     'requests': []
-    
 }
 ```
 
@@ -140,7 +138,6 @@ stats = {
 
 ```
 {
-    
     'requests': [ {
         'am': int,
         'wc': int,
@@ -182,7 +179,7 @@ stats = {
 
 ### Stop
 
-```
+```js
 {
     
     'Stop': [ {
@@ -201,7 +198,13 @@ stats = {
 }
 ```
 
-# Set up the OSRM Server
+# Set up OSRM backend server
+
+Depending on the input data, you are using and the main operating area, you have to adapt the basis of the OpenStreetMap routing data for the backend server.
+
+`wilson` is located in North Carolina, USA (center: 35°43′53″N 77°55′43″W)
+
+`chattanooga` is located in Tennessee, USA (center: 35.065958°N 85.248386°W)
 
 ```
 wget https://download.geofabrik.de/north-america/us/north-carolina-latest.osm.pbf
@@ -211,10 +214,20 @@ docker run -t -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend osrm-customize
 docker run -t -i -p 5000:5000 -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend osrm-routed --algorithm mld /data/north-carolina-latest.osrm
 ```
 
+# Visualisation
+
+In order to show all routes of the trip, you can run the route_manifest_mapper.py with an updated folder to consider the right tours.
+
+# Testing
+In order to check that the the basic functionality of the different solvers, you must install `pytest` and it can run all available tests from `../tests` automatically with the following command in your folder structure:  
+
+```py
+pytest -q
+```
+
 # Building
 
 ```
 python -m build
 twine upload dist/rtv_solver-[version]*
-
 ```
