@@ -1,0 +1,1087 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.90871990823223,
+          35.723017652422435
+        ]
+      },
+      "properties": {
+        "name": "depot",
+        "marker-color": "#ff0000",
+        "marker-size": "medium",
+        "marker-symbol": "bus"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.900428772,
+          35.707904816
+        ]
+      },
+      "properties": {
+        "run_id": 0,
+        "booking_id": 7.0,
+        "order": 1,
+        "action": "pickup",
+        "loc": {
+          "lat": 35.707904816,
+          "lon": -77.900428772,
+          "node_id": 17.0
+        },
+        "scheduled_time": 20385.0,
+        "am": 1.0,
+        "wc": 0.0,
+        "time_window_start": 20385.0,
+        "time_window_end": 22185.0,
+        "title": "0-1",
+        "marker-color": "#7d8aff",
+        "marker-size": "medium",
+        "marker-symbol": "star"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.893722534,
+          35.720035553
+        ]
+      },
+      "properties": {
+        "run_id": 0,
+        "booking_id": 5.0,
+        "order": 2,
+        "action": "pickup",
+        "loc": {
+          "lat": 35.720035553,
+          "lon": -77.893722534,
+          "node_id": 11.0
+        },
+        "scheduled_time": 20707.8,
+        "am": 1.0,
+        "wc": 0.0,
+        "time_window_start": 20002.0,
+        "time_window_end": 21802.0,
+        "title": "0-2",
+        "marker-color": "#7d8aff",
+        "marker-size": "medium",
+        "marker-symbol": "star"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.900192261,
+          35.721466064
+        ]
+      },
+      "properties": {
+        "run_id": 0,
+        "booking_id": 10.0,
+        "order": 3,
+        "action": "pickup",
+        "loc": {
+          "lat": 35.721466064,
+          "lon": -77.900192261,
+          "node_id": 5.0
+        },
+        "scheduled_time": 20967.3,
+        "am": 1.0,
+        "wc": 0.0,
+        "time_window_start": 20567.0,
+        "time_window_end": 22367.0,
+        "title": "0-3",
+        "marker-color": "#7d8aff",
+        "marker-size": "medium",
+        "marker-symbol": "star"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.909576416,
+          35.728252411
+        ]
+      },
+      "properties": {
+        "run_id": 0,
+        "booking_id": 6.0,
+        "order": 4,
+        "action": "pickup",
+        "loc": {
+          "lat": 35.728252411,
+          "lon": -77.909576416,
+          "node_id": 1.0
+        },
+        "scheduled_time": 21262.8,
+        "am": 1.0,
+        "wc": 0.0,
+        "time_window_start": 20139.0,
+        "time_window_end": 21939.0,
+        "title": "0-4",
+        "marker-color": "#7d8aff",
+        "marker-size": "medium",
+        "marker-symbol": "star"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.914161682,
+          35.733039856
+        ]
+      },
+      "properties": {
+        "run_id": 0,
+        "booking_id": 7.0,
+        "order": 5,
+        "action": "dropoff",
+        "loc": {
+          "lat": 35.733039856,
+          "lon": -77.914161682,
+          "node_id": 8.0
+        },
+        "scheduled_time": 21506.0,
+        "am": 1.0,
+        "wc": 0.0,
+        "time_window_start": 20705.8,
+        "time_window_end": 22505.8,
+        "title": "0-5",
+        "marker-color": "#c8cdff",
+        "marker-size": "medium",
+        "marker-symbol": "triangle"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.930335999,
+          35.753082275
+        ]
+      },
+      "properties": {
+        "run_id": 0,
+        "booking_id": 5.0,
+        "order": 6,
+        "action": "dropoff",
+        "loc": {
+          "lat": 35.753082275,
+          "lon": -77.930335999,
+          "node_id": 2.0
+        },
+        "scheduled_time": 21821.6,
+        "am": 1.0,
+        "wc": 0.0,
+        "time_window_start": 20451.0,
+        "time_window_end": 22251.0,
+        "title": "0-6",
+        "marker-color": "#c8cdff",
+        "marker-size": "medium",
+        "marker-symbol": "triangle"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.930335999,
+          35.753082275
+        ]
+      },
+      "properties": {
+        "run_id": 0,
+        "booking_id": 6.0,
+        "order": 7,
+        "action": "dropoff",
+        "loc": {
+          "lat": 35.753082275,
+          "lon": -77.930335999,
+          "node_id": 6.0
+        },
+        "scheduled_time": 21881.6,
+        "am": 1.0,
+        "wc": 0.0,
+        "time_window_start": 20457.8,
+        "time_window_end": 22257.8,
+        "title": "0-7",
+        "marker-color": "#c8cdff",
+        "marker-size": "medium",
+        "marker-symbol": "triangle"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.944717407,
+          35.737010956
+        ]
+      },
+      "properties": {
+        "run_id": 0,
+        "booking_id": 10.0,
+        "order": 8,
+        "action": "dropoff",
+        "loc": {
+          "lat": 35.737010956,
+          "lon": -77.944717407,
+          "node_id": 4.0
+        },
+        "scheduled_time": 22151.3,
+        "am": 1.0,
+        "wc": 0.0,
+        "time_window_start": 20978.3,
+        "time_window_end": 22778.3,
+        "title": "0-8",
+        "marker-color": "#c8cdff",
+        "marker-size": "medium",
+        "marker-symbol": "triangle"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [
+          [
+            [
+              -77.908668,
+              35.722967
+            ],
+            [
+              -77.90839,
+              35.723153
+            ],
+            [
+              -77.904811,
+              35.719637
+            ],
+            [
+              -77.904173,
+              35.719201
+            ],
+            [
+              -77.904716,
+              35.714662
+            ],
+            [
+              -77.903794,
+              35.712866
+            ],
+            [
+              -77.903837,
+              35.711194
+            ],
+            [
+              -77.902552,
+              35.711188
+            ],
+            [
+              -77.902706,
+              35.708568
+            ],
+            [
+              -77.900137,
+              35.708575
+            ],
+            [
+              -77.900193,
+              35.707905
+            ],
+            [
+              -77.900429,
+              35.707903
+            ]
+          ],
+          [
+            [
+              -77.900429,
+              35.707903
+            ],
+            [
+              -77.900193,
+              35.707905
+            ],
+            [
+              -77.899986,
+              35.710254
+            ],
+            [
+              -77.899321,
+              35.710685
+            ],
+            [
+              -77.8997,
+              35.711274
+            ],
+            [
+              -77.897866,
+              35.712479
+            ],
+            [
+              -77.896689,
+              35.71383
+            ],
+            [
+              -77.893079,
+              35.719819
+            ],
+            [
+              -77.893728,
+              35.719914
+            ],
+            [
+              -77.893721,
+              35.720036
+            ]
+          ],
+          [
+            [
+              -77.893721,
+              35.720036
+            ],
+            [
+              -77.893691,
+              35.720736
+            ],
+            [
+              -77.896849,
+              35.721861
+            ],
+            [
+              -77.897598,
+              35.720516
+            ],
+            [
+              -77.900192,
+              35.721465
+            ]
+          ],
+          [
+            [
+              -77.900192,
+              35.721465
+            ],
+            [
+              -77.907007,
+              35.723962
+            ],
+            [
+              -77.91068,
+              35.727519
+            ],
+            [
+              -77.909575,
+              35.728251
+            ]
+          ],
+          [
+            [
+              -77.909575,
+              35.728251
+            ],
+            [
+              -77.909396,
+              35.728371
+            ],
+            [
+              -77.914161,
+              35.733041
+            ]
+          ],
+          [
+            [
+              -77.914161,
+              35.733041
+            ],
+            [
+              -77.91753,
+              35.736366
+            ],
+            [
+              -77.918825,
+              35.738342
+            ],
+            [
+              -77.919456,
+              35.738835
+            ],
+            [
+              -77.920322,
+              35.740194
+            ],
+            [
+              -77.921395,
+              35.739721
+            ],
+            [
+              -77.930922,
+              35.753192
+            ],
+            [
+              -77.930632,
+              35.753256
+            ],
+            [
+              -77.930515,
+              35.753015
+            ],
+            [
+              -77.930336,
+              35.753082
+            ]
+          ],
+          [
+            [
+              -77.930336,
+              35.753082
+            ],
+            [
+              -77.930336,
+              35.753082
+            ]
+          ],
+          [
+            [
+              -77.930336,
+              35.753082
+            ],
+            [
+              -77.930068,
+              35.753211
+            ],
+            [
+              -77.929863,
+              35.753111
+            ],
+            [
+              -77.93606,
+              35.746182
+            ],
+            [
+              -77.936735,
+              35.744747
+            ],
+            [
+              -77.936908,
+              35.743381
+            ],
+            [
+              -77.938164,
+              35.743095
+            ],
+            [
+              -77.940484,
+              35.743248
+            ],
+            [
+              -77.942445,
+              35.742448
+            ],
+            [
+              -77.943333,
+              35.742372
+            ],
+            [
+              -77.943704,
+              35.741152
+            ],
+            [
+              -77.943743,
+              35.738145
+            ],
+            [
+              -77.944529,
+              35.736934
+            ],
+            [
+              -77.944717,
+              35.737012
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "feature_type": "merged_route",
+        "run-id": 0,
+        "stroke": "#0d0887",
+        "stroke-width": "2",
+        "stroke-opacity": "0.6"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.909339905,
+          35.733566284
+        ]
+      },
+      "properties": {
+        "run_id": 1,
+        "booking_id": 4.0,
+        "order": 1,
+        "action": "pickup",
+        "loc": {
+          "lat": 35.733566284,
+          "lon": -77.909339905,
+          "node_id": 23.0
+        },
+        "scheduled_time": 19851.0,
+        "am": 1.0,
+        "wc": 0.0,
+        "time_window_start": 19851.0,
+        "time_window_end": 21651.0,
+        "title": "1-1",
+        "marker-color": "#7d8aff",
+        "marker-size": "medium",
+        "marker-symbol": "star"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.887863159,
+          35.716983795
+        ]
+      },
+      "properties": {
+        "run_id": 1,
+        "booking_id": 11.0,
+        "order": 2,
+        "action": "pickup",
+        "loc": {
+          "lat": 35.716983795,
+          "lon": -77.887863159,
+          "node_id": 17.0
+        },
+        "scheduled_time": 20625.0,
+        "am": 1.0,
+        "wc": 0.0,
+        "time_window_start": 20625.0,
+        "time_window_end": 22425.0,
+        "title": "1-2",
+        "marker-color": "#7d8aff",
+        "marker-size": "medium",
+        "marker-symbol": "star"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.906143188,
+          35.737335205
+        ]
+      },
+      "properties": {
+        "run_id": 1,
+        "booking_id": 13.0,
+        "order": 3,
+        "action": "pickup",
+        "loc": {
+          "lat": 35.737335205,
+          "lon": -77.906143188,
+          "node_id": 3.0
+        },
+        "scheduled_time": 21038.4,
+        "am": 1.0,
+        "wc": 0.0,
+        "time_window_start": 20884.0,
+        "time_window_end": 22684.0,
+        "title": "1-3",
+        "marker-color": "#7d8aff",
+        "marker-size": "medium",
+        "marker-symbol": "star"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.923782349,
+          35.721488953
+        ]
+      },
+      "properties": {
+        "run_id": 1,
+        "booking_id": 12.0,
+        "order": 4,
+        "action": "pickup",
+        "loc": {
+          "lat": 35.721488953,
+          "lon": -77.923782349,
+          "node_id": 5.0
+        },
+        "scheduled_time": 21466.0,
+        "am": 1.0,
+        "wc": 0.0,
+        "time_window_start": 20708.0,
+        "time_window_end": 22508.0,
+        "title": "1-4",
+        "marker-color": "#7d8aff",
+        "marker-size": "medium",
+        "marker-symbol": "star"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.902770996,
+          35.699867249
+        ]
+      },
+      "properties": {
+        "run_id": 1,
+        "booking_id": 4.0,
+        "order": 5,
+        "action": "dropoff",
+        "loc": {
+          "lat": 35.699867249,
+          "lon": -77.902770996,
+          "node_id": 8.0
+        },
+        "scheduled_time": 21973.7,
+        "am": 1.0,
+        "wc": 0.0,
+        "time_window_start": 20238.9,
+        "time_window_end": 22038.9,
+        "title": "1-5",
+        "marker-color": "#c8cdff",
+        "marker-size": "medium",
+        "marker-symbol": "triangle"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.902770996,
+          35.699867249
+        ]
+      },
+      "properties": {
+        "run_id": 1,
+        "booking_id": 12.0,
+        "order": 6,
+        "action": "dropoff",
+        "loc": {
+          "lat": 35.699867249,
+          "lon": -77.902770996,
+          "node_id": 14.0
+        },
+        "scheduled_time": 22033.7,
+        "am": 1.0,
+        "wc": 0.0,
+        "time_window_start": 21033.7,
+        "time_window_end": 22833.7,
+        "title": "1-6",
+        "marker-color": "#c8cdff",
+        "marker-size": "medium",
+        "marker-symbol": "triangle"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.902740479,
+          35.700027466
+        ]
+      },
+      "properties": {
+        "run_id": 1,
+        "booking_id": 11.0,
+        "order": 7,
+        "action": "dropoff",
+        "loc": {
+          "lat": 35.700027466,
+          "lon": -77.902740479,
+          "node_id": 10.0
+        },
+        "scheduled_time": 22097.4,
+        "am": 1.0,
+        "wc": 0.0,
+        "time_window_start": 20965.7,
+        "time_window_end": 22765.7,
+        "title": "1-7",
+        "marker-color": "#c8cdff",
+        "marker-size": "medium",
+        "marker-symbol": "triangle"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.90247345,
+          35.707904816
+        ]
+      },
+      "properties": {
+        "run_id": 1,
+        "booking_id": 13.0,
+        "order": 8,
+        "action": "dropoff",
+        "loc": {
+          "lat": 35.707904816,
+          "lon": -77.90247345,
+          "node_id": 2.0
+        },
+        "scheduled_time": 22304.800000000003,
+        "am": 1.0,
+        "wc": 0.0,
+        "time_window_start": 21170.3,
+        "time_window_end": 22970.3,
+        "title": "1-8",
+        "marker-color": "#c8cdff",
+        "marker-size": "medium",
+        "marker-symbol": "triangle"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [
+          [
+            [
+              -77.908668,
+              35.722967
+            ],
+            [
+              -77.907385,
+              35.723878
+            ],
+            [
+              -77.905301,
+              35.727696
+            ],
+            [
+              -77.904792,
+              35.727735
+            ],
+            [
+              -77.905219,
+              35.727963
+            ],
+            [
+              -77.910299,
+              35.733052
+            ],
+            [
+              -77.90943,
+              35.733657
+            ],
+            [
+              -77.909342,
+              35.733565
+            ]
+          ],
+          [
+            [
+              -77.909342,
+              35.733565
+            ],
+            [
+              -77.907331,
+              35.731517
+            ],
+            [
+              -77.908195,
+              35.730932
+            ],
+            [
+              -77.905018,
+              35.727823
+            ],
+            [
+              -77.904142,
+              35.727809
+            ],
+            [
+              -77.898798,
+              35.729378
+            ],
+            [
+              -77.89771,
+              35.727607
+            ],
+            [
+              -77.894849,
+              35.72403
+            ],
+            [
+              -77.891001,
+              35.721469
+            ],
+            [
+              -77.886463,
+              35.717391
+            ],
+            [
+              -77.886964,
+              35.717173
+            ],
+            [
+              -77.887602,
+              35.717197
+            ],
+            [
+              -77.887916,
+              35.717093
+            ],
+            [
+              -77.88786,
+              35.716985
+            ]
+          ],
+          [
+            [
+              -77.88786,
+              35.716985
+            ],
+            [
+              -77.887916,
+              35.717093
+            ],
+            [
+              -77.887602,
+              35.717197
+            ],
+            [
+              -77.887016,
+              35.717164
+            ],
+            [
+              -77.886463,
+              35.717391
+            ],
+            [
+              -77.891001,
+              35.721469
+            ],
+            [
+              -77.894608,
+              35.723837
+            ],
+            [
+              -77.895152,
+              35.724355
+            ],
+            [
+              -77.898225,
+              35.728317
+            ],
+            [
+              -77.899971,
+              35.73187
+            ],
+            [
+              -77.902414,
+              35.736015
+            ],
+            [
+              -77.90298,
+              35.736526
+            ],
+            [
+              -77.903732,
+              35.736891
+            ],
+            [
+              -77.906143,
+              35.737333
+            ]
+          ],
+          [
+            [
+              -77.906143,
+              35.737333
+            ],
+            [
+              -77.906288,
+              35.737357
+            ],
+            [
+              -77.906636,
+              35.736659
+            ],
+            [
+              -77.906873,
+              35.73649
+            ],
+            [
+              -77.916081,
+              35.731961
+            ],
+            [
+              -77.915027,
+              35.730517
+            ],
+            [
+              -77.919987,
+              35.728154
+            ],
+            [
+              -77.917038,
+              35.723246
+            ],
+            [
+              -77.923604,
+              35.721411
+            ],
+            [
+              -77.923766,
+              35.721375
+            ],
+            [
+              -77.923785,
+              35.721489
+            ]
+          ],
+          [
+            [
+              -77.923785,
+              35.721489
+            ],
+            [
+              -77.917038,
+              35.723246
+            ],
+            [
+              -77.91623,
+              35.721786
+            ],
+            [
+              -77.911999,
+              35.717846
+            ],
+            [
+              -77.910237,
+              35.717139
+            ],
+            [
+              -77.905715,
+              35.716457
+            ],
+            [
+              -77.905811,
+              35.714265
+            ],
+            [
+              -77.904795,
+              35.712822
+            ],
+            [
+              -77.905001,
+              35.707882
+            ],
+            [
+              -77.905725,
+              35.703275
+            ],
+            [
+              -77.90277,
+              35.699866
+            ]
+          ],
+          [
+            [
+              -77.90277,
+              35.699866
+            ],
+            [
+              -77.90277,
+              35.699866
+            ]
+          ],
+          [
+            [
+              -77.90277,
+              35.699866
+            ],
+            [
+              -77.902654,
+              35.699935
+            ],
+            [
+              -77.902739,
+              35.700027
+            ]
+          ],
+          [
+            [
+              -77.902739,
+              35.700027
+            ],
+            [
+              -77.905725,
+              35.703275
+            ],
+            [
+              -77.905041,
+              35.707582
+            ],
+            [
+              -77.904878,
+              35.709591
+            ],
+            [
+              -77.903942,
+              35.709882
+            ],
+            [
+              -77.903986,
+              35.70913
+            ],
+            [
+              -77.902621,
+              35.707905
+            ],
+            [
+              -77.902473,
+              35.707904
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "feature_type": "merged_route",
+        "run-id": 1,
+        "stroke": "#cc4778",
+        "stroke-width": "2",
+        "stroke-opacity": "0.6"
+      }
+    }
+  ]
+}
