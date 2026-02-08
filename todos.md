@@ -14,13 +14,12 @@ Currently, the optimization is built in order to create all RTV combinations (up
 
 # Improvements
 - fix rebalancing (not as important in current setup)
-- make runs (training) reproducible by re-loading config and rerunning programme
-- use existing 
 - add feature to tag vehicles as "inactive" in contrast to "started" and only calculate trip Generation with active vehicles when they are not used anymore
 - update payload_object.current_time in order to be able to use it properly
-- check TODO, FIXME, NOTE in the code 
 - time which effects cardinality and threads have on the performance of the code (should lead to a note which process we really need to improve with and do we rather want short batch_intervals or just short steps)
 - update README.md and combine information from documentation.md (SSOT) incl. installation and building
 - ensure that one can still build a python package from it without setup.py and use pyproject.toml more usefully
 - export a requirements.txt and integrate to pyproject.toml
-- when breaking RTV generation time, break off new generation but still optimize to keep it running but with a warning in the stats that it did not run to optimality
+- when breaking RTV generation time, break off new generation but still optimize to keep it running but with a warning in the stats that it did not run to optimality (instead of crashing on the spot - it would be interesting to see the same run with all the trips already created)
+
+- check TODO, FIXME, NOTE in the code
