@@ -26,6 +26,3 @@ Currently, the optimization is built in order to create all RTV combinations (up
 - ensure that one can still build a python package from it without setup.py and use pyproject.toml more usefully
 - export a requirements.txt and integrate to pyproject.toml
 - when breaking RTV generation time, break off new generation but still optimize to keep it running but with a warning in the stats that it did not run to optimality
-
-How can one trip be assigned to the same trip twice?
-![why can a trip be assigned to the same vehicle twice?](resources/image.png)
