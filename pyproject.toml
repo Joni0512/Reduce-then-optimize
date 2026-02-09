@@ -7,7 +7,6 @@ name = "rtv_solver"
 version = "0.1.36"
 description = "A solver for real-time vehicle routing problems"
 readme = "README.md"
-readme-content-type = "text/markdown"
 authors = [
     { name = "Danushka Edirimanna", email = "ke233@cornell.edu" },
     { name = "Jasper Wiltfang", email = "jiw42@cornell.edu" }
@@ -30,6 +29,8 @@ include = [
 ]
 
 [tool.pytest.ini_options]
+python_files = ["test_*.py",]
+testpaths = ["rtv_solver/tests",]
 markers = [
     "basic: easy checks to see if pipelines are running",
     "slow: marks tests as slow-running",
@@ -38,3 +39,4 @@ markers = [
     "offline: offline solver with batch_size == step_size",
     "online: online solver that solves entire payload at once"
 ]
+
