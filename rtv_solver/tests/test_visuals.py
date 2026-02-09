@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 from rtv_solver.visuals.route_manifest_mapper import RouteManifestMapper
+from rtv_solver.structure.config import Config
 
 ALLOWED_GEOMETRY_TYPES = {
     "Point", "MultiPoint",
@@ -19,7 +20,9 @@ def test_visual_geoJsonCreation():
     with open(path, 'r') as json_file:
         loaded_data = json.load(json_file)
 
-    mapper = RouteManifestMapper()
+    config = Config()
+
+    mapper = RouteManifestMapper(config)
     result = mapper.manifest_to_geojson(loaded_data)
 
     # --- parse JSON if needed ---
