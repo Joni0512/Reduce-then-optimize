@@ -120,13 +120,14 @@ class OnlineRTVSolver:
             # generate and assign trips to each vehicle using the RTV approach solved by an ILP
             trip_handler = TripHandler(
                 vehicle_handler.vehicles,
-                batch, 
-                active_requests, 
-                iteration, 
+                batch,
+                active_requests,
+                iteration,
                 self.config)
+            trip_handler.run_generation()
         except Exception as e:
             raise e
-        
+
         # assign vehicles and add trips / sequence to each vehicle 
         vehicle_assignment = trip_handler.vehicle_assignment
         unserved_requests = set([req.id for req in batch]) # number of requests that are not already confirmed to be  served

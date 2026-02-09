@@ -38,6 +38,11 @@ class TripHandler:
                  iteration: int,
                  config: Config):
         self.config = config
+        self.vehicles = vehicles
+        self.requests = requests
+        self.active_requests = active_requests
+        self.iteration = iteration
+
         self.trips: list[TripCost] = []
         self.ondemand_only_trip_map = {}    # {request_id: trip_id}
         self.shared_trips_map = {}          # {cardinality: [shared_trip_id]}
@@ -49,21 +54,25 @@ class TripHandler:
         self.vehicle_assignment = {}        # {vehicle_id: ([trips], StopSequence)}
         self.request_assignment = {}        # {request_id: vehicle_id}
 
-        # self.selected_combinations = [] # NOTE why is it not initialized here?
-        
+    def run_generation(self):
+        """
+        Run trip generation and assignment: on-demand trips, trip costs, shared trips,
+        then ILP assignment and optionally rebalancing. Call after __init__ to preserve
+        previous behavior. Logs time spent on RTV generation.
+        """
         self.starting_time = time.time()
-        if len(vehicles) != 0: 
+        if len(self.vehicles) != 0:
             # TODO FIXME this does not count active vehicles # goal: if there is no more active vehicles, one can skip the iteration
             # TODO also does not need to run if we do not have any requests, does it?
-            self.generate_ondemand_only_trips(requests, iteration)
-            self.generate_trip_costs(vehicles, config.max_thread_cnt, 0)
-            self.generate_shared_trips(vehicles, config.max_cardinality, config.max_thread_cnt, config.share_cost_factor)
+            self.generate_ondemand_only_trips(self.requests, self.iteration)
+            self.generate_trip_costs(self.vehicles, self.config.max_thread_cnt, 0)
+            self.generate_shared_trips(self.vehicles, self.config.max_cardinality, self.config.max_thread_cnt, self.config.share_cost_factor)
             console_logger.info(f"Time spent on RTV generation: {time.time() - self.starting_time}")
-            if len(TripHandler.trip_costs) > 0: 
-                self.assign_trips_gurobi(requests, active_requests, config.ilp_penalty, config.keep_active)
-                if config.rebalancing: # NOTE not sure if this should apply with trip_costs == 0; but it normally means that the vehicles are not in operation anymore
-                    self.get_rebalancing_trips(vehicles,requests)
-    
+            if len(TripHandler.trip_costs) > 0:
+                self.assign_trips_gurobi(self.requests, self.active_requests, self.config.ilp_penalty, self.config.keep_active)
+                if self.config.rebalancing:  # NOTE not sure if this should apply with trip_costs == 0; but it normally means that the vehicles are not in operation anymore
+                    self.get_rebalancing_trips(self.vehicles, self.requests)
+
     # SINGLE TRIP GENERATION
     def generate_ondemand_only_trips(self, requests: list[Request], iteration: int):
         """generate single trips from individual requests directly"""
