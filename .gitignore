@@ -2,3 +2,4 @@
 .DS_Store
 /rtv_solver.egg-info
 /outputs
+*.html
