@@ -1,184 +1,148 @@
-from rtv_solver.handlers.request_handler import RequestHandler
-from rtv_solver.handlers.vehicle_handler import VehicleHandler
-from rtv_solver.handlers.trip_handler import TripHandler
-from rtv_solver.handlers.output_handler import OutputHandler
-from rtv_solver.handlers.payload_parser import PayloadParser
 import argparse
-import pickle 
-import os
-import sys
-import multiprocessing
 import logging
-from datetime import datetime, timedelta
 import time
+import os
 
-SOLVER_TIMEOUT = 120
-PENALTY = 1000000 # penalty for not serving a trip
-SHAREABLE_COST_FACTOR = 1
-MAX_THREAD_CNT = 1 # JW: 8 threads as I can have 8 
-MAX_BATCH_SIZE = 400 # JW: reduced for now as it reduces the complexity 
-BUS_CAPACITY = 0 # JW: what is this?
-MAX_WAITING = 7200 # presumably in seconds, tested with longer waiting times to ease matching
-MAX_DETOUR = 7200 # presumably in secondsç
-RH_FACTOR = 0 # factor for additional time step to extend optimization horizon
-REBALANCING = False
-RTV_TIMEOUT = 3000
+from pathlib import Path
 
-DEBUG_BOOL = True
+from rtv_solver import OnlineRTVSolver, OfflineRTVSolver
 
-# TODO
-# shared trips does not seem to work
-# never stops because last boarded request is never dropped off or at least our code does not recognize it
+from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.handlers.stats_parser import StatsParser
 
-if __name__=="__main__":
+from rtv_solver.structure.config import Config
+
+from rtv_solver.util.logger import setup_loggers, BASIC_LOGGER, DATA_LOGGER
+from rtv_solver.util.helper import save_json, load_input_data
+
+DEBUG_MODE = True # reduces number of vehicles and requests for easier debugging
+ONLINE_MODE = False # runs all requests in one go without rolling horizon batching
+
+if __name__ == "__main__":
     """
-    Learnings JW:
-    1. The current code only works with specific datasets as the structure of the underlying payloads has been changed between the most recent branch and the master one. Input dataset "localDB_payload_oct.pkl" does not work and presumably "oct_payload_4_00.pkl" and "oct_payload_7_30.pkl" will not work either as they are older.
+    Main script to run RTV solver in online or offline mode based on input data and configuration parameters with easy options for debugging and testing.
+    
+    Assumptions (wilson - 02.02.2026):
+    - All vehicles start from the same location (depot) and need to return there at the end of their shift.
+    - Accepted waiting times are already defined in the request payload and currently not defined by the program (30 min between earliest and latest pickup - travel_time defines allowed dropoff times) 
+    - The first accepted request of a vehicle is directly considered as boarded (rationale: one vehicle has to commit trip and thus it is already fixed with that vehicle, second request is only considered boarded.)
+    - Rebalancing: Rejected requests are in underserved areas, so we need to send additional vehicles there.
     """
-    # for macOS set start method to fork to avoid issues with multiprocessing and requests
-    if sys.platform == "darwin":
-            multiprocessing.set_start_method("fork")
-    # parse arguments
-    # increase this level
-    parser = argparse.ArgumentParser(description='Simulator arguments')
-    parser.add_argument('--max_cardinality', type=int, default=4,help='maximum trips to be shared')
-    parser.add_argument('--rh_factor', type=int,default=0,help='RH FACTOR')
-    parser.add_argument('--interval', type=int,default=3600,help='Batch interval in seconds') # test with 3600 so it runs faster under the simple setting
-    parser.add_argument('--out_put_dir', type=str,default="output_format/debug/",help='output directory')
-    parser.add_argument('--server_url', type=str,default="http://127.0.0.1:5001/",help='Server URL')
-    parser.add_argument('--input_file', type=str,default="rtv-solver/inputs/wilson_nc_initial.pkl",help='Request file')
-    args = parser.parse_args()
-    print(args)
+    # TODO move config management to YAML config or Hydra
+    parser = argparse.ArgumentParser(description='Arguments for the RTV solver main script')
+    # reproduction setup
+    parser.add_argument('--config_file', type=str,          default="", help='Path to JSON config file instead of defining the other values manually')
+    parser.add_argument('--override', action='append',      default=[], help='Override config values when loading from a config file, e.g. key=value (can be repeated)')
+    # technical parameters
+    parser.add_argument('--output_dir', type=str,           default="debug", help='Output directory')
+    parser.add_argument('--input_file', type=str,           default="wilson_nc_initial.pkl", help='Request input file') # alternative: rtv-solver/inputs/localDB_payload_oct.pkl
+    parser.add_argument('--server_url', type=str,           default="http://127.0.0.1:5001/", help='Backend server URL')
+    parser.add_argument('--max_thread_cnt', type=int,       default=16, help='Maximum thread count for parallel processing')
+    parser.add_argument('--rtv_timeout', type=int,          default=120, help='RTV construction timeout in seconds')
+    parser.add_argument('--ilp_timeout', type=int,          default=120, help='ILP solver timeout in seconds')
+    parser.add_argument('--ilp_penalty', type=int,          default=100_000, help='Penalty for not serving a trip')
+    # experiment parameters
+    parser.add_argument('--max_cardinality', type=int,      default=4, help='Maximum trips to be shared when creating trips in one batch_interval') # alt: total trips in same vehicle
+    parser.add_argument('--largest_tsp', type=int,          default=8, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
+    parser.add_argument('--share_cost_factor', type=int,    default=1.2, help='Shareable cost factor in factor of original single cost [???]') # TODO why 10, this is a crazy factor where this is used?
+    parser.add_argument('--rebalancing', type=bool,         default=True, help='Vehicles are rebalanced if the need arises based on missed requests and idling vehicles.')
+    parser.add_argument('--keep_active', type=bool,         default=True, help='Active requests from an ILP solution in a prior iteration must be kept.')
+    parser.add_argument('--return_depot', type=bool,        default=True, help="Vehicles must return to the originating depot.")
+    parser.add_argument('--dwell_pickup', type=int,         default=180, help='Dwell time at pickup in seconds')
+    parser.add_argument('--dwell_alight', type=int,         default=60, help='Dwell time at alight (dropoff) in seconds')
+    parser.add_argument('--walk_distance_cutoff', type=int, default=0, help="Walking distance between dropoff and final destination.")
+    # parser.add_argument('--rh_factor', type=int,            default=0, help='Rolling horizon factor')  # NOTE alternative to step_size
+    parser.add_argument('--step_size', type=int,            default=1200, help='Step size in seconds for rolling horizon')
+    parser.add_argument('--batch_interval', type=int,       default=3600, help='Batch interval in seconds')
+    # stats parameters
+    parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
+    # TODO COAML parameters 
+    # random_seed, training parameters, NN parameters
+    arguments = parser.parse_args()
 
-    OUTPUT_DIR = args.out_put_dir
-    MAX_CARDINALITY = args.max_cardinality
-    RH_FACTOR = args.rh_factor
-    BATCH_INTERVAL = timedelta(days=0,seconds=args.interval)
-    MAX_THREAD_CNT = min(MAX_THREAD_CNT, os.cpu_count())
+    # implement configuration
+    config = Config.from_args(arguments)
 
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    logging.basicConfig(filename=OUTPUT_DIR+'main.log', level=logging.INFO)
-    logging.info('Starting the simulator with: Batch Interval {0}, RH FACTOR {1}'.format(BATCH_INTERVAL, RH_FACTOR))
-    iteration = 1
+    # load data from file and update to canonical format for the entire system
+    data = load_input_data(Path(__file__).resolve().parent.parent / "inputs" / config.input_file)
 
-    with open(args.input_file, 'rb') as f:
-        payload = pickle.load(f)
-    start_of_the_day = datetime.strptime(payload['date'], '%Y-%m-%d')
-    dwell_pickup = 180
-    dwell_alight = 60
+    setup_loggers(config.output_dir)
+    console_logger = logging.getLogger(BASIC_LOGGER)
+    data_logger = logging.getLogger(DATA_LOGGER)
 
-    # for debugging only consider a single vehicle
-    if DEBUG_BOOL:
-            payload[PayloadParser.DRIVERS] = payload[PayloadParser.DRIVERS][:1]
-
-    payload_object = PayloadParser.get_payload_object(payload,False)
-    request_handler = RequestHandler(payload_object.requests, dwell_pickup, dwell_alight)      
-    vehicle_handler = VehicleHandler(payload_object.depot, payload_object.driver_runs, OUTPUT_DIR)
-    output_handler = OutputHandler(OUTPUT_DIR)
-
-    starting_time = request_handler.earliest_start_time()
-    latest_time = request_handler.latest_start_time()   
-
-    active_requests = {}
-    boarded_requests = {}
-
-    starting_time = vehicle_handler.earliest_start_time - BATCH_INTERVAL.total_seconds()
-    while starting_time <= latest_time or (len(active_requests) + len(boarded_requests) > 0):
-        if starting_time >= 67435.0:
-            print("debug")
-        print("Iteration ", iteration, "starting time:", starting_time, "latest time:", latest_time, "active requests:", len(active_requests), "boarded requests:", len(boarded_requests))
-        iteration_exe_start_time = time.time()
-        end_time = starting_time + BATCH_INTERVAL.total_seconds()
-        batch = []
-        current_batch, end_time = request_handler.get_batch(end_time,MAX_BATCH_SIZE)
-        for requests in current_batch:
-            if requests.id not in active_requests:
-                batch.append(requests)
-        future_trips = request_handler.get_lookahead_trips(end_time,RH_FACTOR,BATCH_INTERVAL)
-        for requests in future_trips:
-            if requests.id not in active_requests:
-                batch.append(requests)
-        completed_stops, picked_requests, completed_requests = vehicle_handler.simulate_vehicles(end_time)
-        for stop in completed_stops:
-            for driver_run in payload["driver_runs"]:
-                if driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_RUN_ID] == stop.vehicle_id:
-                    driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_LOC_SERV] += 1
-                    break
+    console_logger.info(f"Output directory: {config.output_dir}")
+    console_logger.info(f' --- Start: RTV simulation --- online > {ONLINE_MODE}')
+    console_logger.info(f'Arguments: {config}')
+    
+    if DEBUG_MODE: # check if the basic functionality of the online RTV solver works (foundation for offline RTV solver)
+        console_logger.setLevel(logging.INFO)
+        config.rtv_timeout = 600000 # if I am clicking through inputs, it never breaks due to timeout
         
-        # FIXME: why are there some requests double in the list of picked_requests? seems to be a bug in simulate_vehicles?
-        for req_id in picked_requests:
-            boarded_requests[req_id] = active_requests[req_id]
-            active_requests.pop(req_id)
-        for req_id in completed_requests:
-            boarded_requests.pop(req_id)
+        # reduce the complexity by only considering a single vehicle
+        driver_runs_total = data[PayloadParser.DRIVERS]
+        driver_runs_reduced = driver_runs_total[:4] 
+        # test to change the first vehicle to trigger certain situations
+        vehicle_state = driver_runs_reduced[0][PayloadParser.DRIVER_STATE]
+        vehicle_manifest = driver_runs_reduced[0][PayloadParser.DRIVER_MANIFEST]        
+        # vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 25000
+        config.max_cardinality = 3
+
+        # BUG combination 2 --> iteration keeps running and still tries to optimize despite no active vehicle being left
+        # TODO how to set vehicles to inactive, so they are not part of the optimization anymore but are also completed in their manifest (depot return and complete manifest of prior assigned trips)
+        # vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 22000 
+        config.return_depot = True
+        config.keep_active = True
+
+        # combination 3 
+        # if trip is not considered in recent trips but is the last dropoff (situation: new trip is injected before that last dropoff in a new iteration)
+        # BUG find situation where this issue rises and build a test from it, relevant for multiple issues
         
-        # JW: does that need to be here or can we bundle Output processing with below after TripHandler
-        output_handler.record_vehicles(vehicle_handler.get_vehicle_locations(), end_time)
-        output_handler.record_completed_stops(completed_stops)
+        # create a simplified set of requests, consider all requests that start before end_requests
+        current_time = 5*3600 + 30*60
+        step = 90*60
+        selected_requests = []
+        for request in data[PayloadParser.REQUESTS]:
+            if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + step:
+                selected_requests.append(request)
+
+        # combination 3 not yet implemented
+        # TODO create a payload where rebalancing is needed (minimal wait time between pickup window start and end, multiple requests and multiple vehicles)
         
-        # FIXME test, why do the trips not have to be calculated for boarded requests
-        # easier to debug to see lengths in-line
-        batch_len, active_len, boarded_len = len(batch), len(active_requests), len(boarded_requests)
-        if batch_len + active_len + boarded_len > 0 :
-            for req_id in active_requests:
-                batch.append(active_requests[req_id])
-            
-            # FIXME: why is the assignment not deterministic?
-            trip_handler = TripHandler( 
-                vehicle_handler.vehicles,
-                batch, 
-                active_requests, 
-                iteration, 
-                SOLVER_TIMEOUT,
-                PENALTY,
-                MAX_CARDINALITY,
-                MAX_THREAD_CNT,
-                SHAREABLE_COST_FACTOR,
-                REBALANCING,
-                RTV_TIMEOUT)
+        # create a new payload with selected requests
+        payload = {
+            PayloadParser.DEPOT: data[PayloadParser.DEPOT],
+            PayloadParser.REQUESTS: selected_requests,
+            PayloadParser.DRIVERS: driver_runs_reduced}
+    else: 
+        payload = data
 
-            perf_duration = time.time()-iteration_exe_start_time
-            output_handler.record_output(end_time, batch, trip_handler, perf_duration)
-
-            # TODO update to dictionary-based version with indexed batch; change only after entire code runs through and performance improvement is valid
-            # batch_by_id = {request.id: request for request in batch} # Build batch lookup table once
-            # active_requests = {request_id: batch_by_id[request_id] for request_id in trip_handler.request_assignment if request_id in batch_by_id} # Select only active requests
-            # active_requests = {} # this overwrites the real counter and should not be here
-            batch_by_id = {request.id: request for request in batch} # Build batch lookup table once
-            active_requests = {request_id: batch_by_id[request_id] for request_id in trip_handler.request_assignment if request_id in batch_by_id} # 
-            # for request_id in trip_handler.request_assignment:
-              #   for request in batch:
-                #     if request.id == request_id:
-                  #      active_requests[request_id] = request
-                   #     break
-
-            for vehicle_id in trip_handler.vehicle_assignment:
-                vehicle = vehicle_handler.vehicles[vehicle_id]
-                trips, trip_sequence = trip_handler.vehicle_assignment[vehicle_id]
-                VehicleHandler.add_new_trips(vehicle, trips, trip_sequence, add=True)
-
-            rebalancing_trip_info = []
-            for vehicle_id in trip_handler.rebalancing_assignment:
-                vehicle = vehicle_handler.vehicles[vehicle_id]
-                destination = trip_handler.rebalancing_assignment[vehicle_id]
-                VehicleHandler.add_rebalancing_trip(vehicle, destination,end_time)
-                rebalancing_trip_info.append([vehicle_id,vehicle.last_node,destination,vehicle.time_at_last])
-            output_handler.record_rebalancing_trips(rebalancing_trip_info,end_time)
-        starting_time = end_time
-        iteration += 1
-        # print("Iteration", iteration)
-
-        # update driver runs
-        # print("Completed vehicles - main:", completed_vehicles)
-        updated_driver_runs = []
-        for driver_run in payload["driver_runs"]:
-            new_driver_run = vehicle_handler.get_state(driver_run)
-            if new_driver_run is not None:
-                updated_driver_runs.append(new_driver_run)
+    # Initialize RTV solver
+    start_time = time.time()
+    if ONLINE_MODE:
+        on_solver = OnlineRTVSolver(config)
+        updated_driver_runs, _ = on_solver.solve_pdptw_rtv(payload)
+    else:
+        off_solver = OfflineRTVSolver(config)
+        updated_driver_runs = off_solver.solve_rtv(payload, config.batch_interval, config.step_size)
         
-        payload["driver_runs"] = updated_driver_runs
+    # calculate statistics of each iteration; for now only the first vehicle
+    stats_payload = {PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
+                     PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
+                     PayloadParser.DRIVERS: updated_driver_runs}
+    stats_evaluator = StatsParser(config)
+    feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
+    assignment_history = stats_evaluator.evaluate_development(stats_payload)
+    
+    console_logger.info(stats)
+    console_logger.info(f'Violations: {violations}')
+    console_logger.info(f"Total time: {time.time() - start_time}")
 
-        formatted_end_time = int(end_time) # change >> .strftime('%H%M%S'); JW: int() simplify for now
-        with open(OUTPUT_DIR+'manifests/state_{0}.pkl'.format(formatted_end_time), 'wb') as file:
-            pickle.dump(payload, file)
-    request_handler.requests.to_csv(output_handler.output_directory+"requests.csv",index=False)
+    console_logger.info("Request history analysed.")
+    console_logger.info(assignment_history)
+
+    save_json(stats_payload, 
+              config.output_dir / "result_driver_runs.json")
+    save_json({"stats": stats, "violations": violations},
+              config.output_dir / "results.json")
+    
+    console_logger.info(f"Run complete. Results can be found @ {Path(config.output_dir)}")

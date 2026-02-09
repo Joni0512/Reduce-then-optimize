@@ -11,12 +11,12 @@ The codebase is used for research purposes and experimental runs with different 
 The codebase is used to implement a new approach integrating machine learning (ML) or specifically structured reinforcement learning (SRL) to improve the assignment of the RTV approach in long-term horizons.
 
 Execution entry points:
-- Code execution via `rtv_solver/main_ors.py`. 
-- CLI / Batch execution via shell script `rtv_solver/run_main_ors.sh`
+- Code execution via `rtv_solver/main.py`. 
+- CLI / Batch execution via shell script `rtv_solver/run_main.sh`
 
 The implementation covers the full solver pipeline, including payload parsing, trip generation, feasibility checks, optimization via Gurobi, and result output.
 
-The script `rtv_solver/main_ors.py` handles the argument parsing to guarantee reproducible experiments, collects the input data and instantiates logging.
+The script `rtv_solver/main.py` handles the argument parsing to guarantee reproducible experiments, collects the input data and instantiates logging.
 
 The script either calls the online solver in `rtv_solver/online_rtv_solver.py` that solves the entire payload that was given to it. 
 As an alternative, the script calls the offline solver in `rtv_solver/online_rtv_solver.py` that generates a solution by splitting up payload batches and incrementing the simulation time of the vehicles independently. 
@@ -59,7 +59,7 @@ As an alternative, the script calls the offline solver in `rtv_solver/online_rtv
 #!/usr/bin/env bash
 set -e
 INPUT_FILE="wilson_nc_initial.pkl" # stored in rtv_solver/inputs/
-python main_ors.py \
+python main.py \
   --server_url "http://127.0.0.1:5001/" \
   --input_file $INPUT_FILE \
   --max_cardinality 4 \
@@ -68,7 +68,7 @@ python main_ors.py \
 echo "Run complete"
 ```
 
-In order to edit or customize changes, the main script [`rtv_solver/main_ors.py`](rtv_solver/main_ors.py) is the main entry point where the basic changes can be viewed. In order to run the code based on a prior config, you can run [Shell script reproduce_run.sh](rtv_solver/reproduce_run.sh).
+In order to edit or customize changes, the main script [`rtv_solver/main.py`](rtv_solver/main.py) is the main entry point where the basic changes can be viewed. In order to run the code based on a prior config, you can run [Shell script reproduce_run.sh](rtv_solver/reproduce_run.sh).
 
 ## Visualise results
 
@@ -97,7 +97,7 @@ There exist two separate payload format that work with the existing codebase on 
 - `wilson`
 - `chattanooga`
 
-Each format can be used as there is an automatic detection and conversion of the payloads when using the `main_ors.py` script.
+Each format can be used as there is an automatic detection and conversion of the payloads when using the `main.py` script.
 
 ### Wilson
 
