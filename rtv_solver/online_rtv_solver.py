@@ -75,7 +75,7 @@ class OnlineRTVSolver:
 
     def solve_pdptw_rtv(self, payload, iteration = 0): # TODO do we need to add current_time
         """
-        Based on the payload, it solves the entire problem.
+        Solver for the entire payload.
         
         With conifg.return_depot, this method will not add the final trips to the depot. The user has to call finalize_driverRuns(...) to add those final stops. 
         """
@@ -124,16 +124,15 @@ class OnlineRTVSolver:
                 active_requests,
                 iteration,
                 self.config)
-            trip_handler.run_generation()
+            result = trip_handler.run()
         except Exception as e:
             raise e
 
         # assign vehicles and add trips / sequence to each vehicle 
-        vehicle_assignment = trip_handler.vehicle_assignment
         unserved_requests = set([req.id for req in batch]) # number of requests that are not already confirmed to be  served
-        for vehicle_id in vehicle_assignment: # if it is empty the assignment is skipped
+        for vehicle_id in result.vehicle_assignment: # if it is empty the assignment is skipped
             vehicle = vehicle_handler.vehicles[vehicle_id]
-            trips, prev_sequence = vehicle_assignment[vehicle_id]
+            trips, prev_sequence = result.vehicle_assignment[vehicle_id]
             plan = VehicleHandler.plan_trip_insertions(vehicle, trips, prev_sequence=prev_sequence)
             vehicle.apply_trip_insertion(plan)
             for trip in trips: # remove assigned trips from unserved
@@ -155,7 +154,7 @@ class OnlineRTVSolver:
                                             unserved_requests, 
                                             payload[PayloadParser.REQUESTS])
         # TODO remove this complex data structure to move data up the stack; integrate JSON logger that records information to a standardized JSON file and can later be rebuilt and analyzed using that JSON file (probably requires something similar to OutputHandler that was used in the simulation)
-        assignment_status = {PayloadParser.STATS_ASSIGNED: trip_handler.request_assignment, 
+        assignment_status = {PayloadParser.STATS_ASSIGNED: result.request_assignment, 
                             PayloadParser.STATS_UNSERVED: list(unserved_requests)}
         return updated_driver_runs, assignment_status # ,trip_handler, vehicle_handler, request_handler, payload_object
 
@@ -320,6 +319,7 @@ class OnlineRTVSolver:
         return updated_driver_runs, unserved_requests
 
     def solve_pdptw(self, payload, skip_swapping=True):
+        """"""
         # NOTE what is the difference to PDPTW_RTV
         # TODO currently not working due to the changes of the return values of solve-pdptw-rtv
         remaining_requests = []

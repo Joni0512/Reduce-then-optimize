@@ -4,6 +4,7 @@ import multiprocessing as mp
 import gurobipy as gp
 import time
 import traceback
+from dataclasses import dataclass
 
 from gurobipy import GRB
 
@@ -22,6 +23,21 @@ import logging
 
 console_logger = logging.getLogger(BASIC_LOGGER)
 data_logger = logging.getLogger(DATA_LOGGER)
+
+@dataclass
+class AssignmentResult:
+    vehicle_assignment: dict[int, tuple[list[Trip], list[int]]]
+    request_assignment: dict[int, int]
+
+    unassigned_trip_count: int
+    taxi_only_trip_count: int
+
+    added_distance: float
+    trip_sizes: list[int]
+
+    status: int
+    runtime: float | None = None
+
 
 class TripHandler:
     """"
@@ -43,7 +59,7 @@ class TripHandler:
         self.active_requests = active_requests
         self.iteration = iteration
 
-        self.trips: list[TripCost] = []
+        self.trips: list[TripCost] = []     # basically collects all the tripCost objects for the feasible trips that are generated
         self.ondemand_only_trip_map = {}    # {request_id: trip_id}
         self.shared_trips_map = {}          # {cardinality: [shared_trip_id]}
         # vehicle<>trip mapping helper
@@ -54,24 +70,42 @@ class TripHandler:
         self.vehicle_assignment = {}        # {vehicle_id: ([trips], StopSequence)}
         self.request_assignment = {}        # {request_id: vehicle_id}
 
+    def run(self) -> AssignmentResult:
+        """
+        Split up generation and assignment for better modularity.
+        
+        Function can be overwritten later on to add additional steps after the generation to generate features for the COAML pipeline.
+        """
+        self.starting_time = time.time()
+        self.run_generation()
+        console_logger.info(f"Time spent on RTV generation: {time.time() - self.starting_time:.3f} seconds. Number of trips generated: {len(self.trips)}.")
+        result = self.assign_trips_to_vehicles()
+        return result
+
+    def assign_trips_to_vehicles(self):
+        """
+        Assign vehicles to trips using the Gurobi solver.
+        """
+        if len(TripHandler.trip_costs) > 0:
+                result = self.assign_trips_gurobi(self.requests, self.active_requests, self.config.ilp_penalty, self.config.keep_active)
+                if self.config.rebalancing:  # NOTE not sure if this should apply with trip_costs == 0; but it normally means that the vehicles are not in operation anymore
+                    self.get_rebalancing_trips(self.vehicles, self.requests)
+                return result  
+        else:
+            return AssignmentResult({}, {}, 0, 0, 0.0, [], 3, 0.0)
+
     def run_generation(self):
         """
         Run trip generation and assignment: on-demand trips, trip costs, shared trips,
         then ILP assignment and optionally rebalancing. Call after __init__ to preserve
         previous behavior. Logs time spent on RTV generation.
         """
-        self.starting_time = time.time()
         if len(self.vehicles) != 0:
             # TODO FIXME this does not count active vehicles # goal: if there is no more active vehicles, one can skip the iteration
             # TODO also does not need to run if we do not have any requests, does it?
             self.generate_ondemand_only_trips(self.requests, self.iteration)
             self.generate_trip_costs(self.vehicles, self.config.max_thread_cnt, 0)
             self.generate_shared_trips(self.vehicles, self.config.max_cardinality, self.config.max_thread_cnt, self.config.share_cost_factor)
-            console_logger.info(f"Time spent on RTV generation: {time.time() - self.starting_time}")
-            if len(TripHandler.trip_costs) > 0:
-                self.assign_trips_gurobi(self.requests, self.active_requests, self.config.ilp_penalty, self.config.keep_active)
-                if self.config.rebalancing:  # NOTE not sure if this should apply with trip_costs == 0; but it normally means that the vehicles are not in operation anymore
-                    self.get_rebalancing_trips(self.vehicles, self.requests)
 
     # SINGLE TRIP GENERATION
     def generate_ondemand_only_trips(self, requests: list[Request], iteration: int):
@@ -501,6 +535,17 @@ class TripHandler:
                         
             console_logger.info(f'Assignment: new requests / unassigned / assigned: {request_count} / {self.unassigned_trip_count} / {self.taxi_only_trip_count}')
             # TODO make information better, some requests are re-assigned although they were already assigned
+
+        return AssignmentResult(
+            self.vehicle_assignment,
+            self.request_assignment,
+            self.unassigned_trip_count,
+            self.taxi_only_trip_count,
+            self.added_distance,
+            self.trip_sizes,
+            m.Status,
+            m.Runtime
+        )
 
     def get_rebalancing_trips(self, vehicles, requests):
         """ 
