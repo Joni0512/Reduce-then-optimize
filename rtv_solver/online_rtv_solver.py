@@ -18,6 +18,9 @@ from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.config import Config
 from rtv_solver.structure.driver_run import DriverRun, ManifestEntry
 
+from rtv_solver.pipeline.optimizer import CO_TripCostMinimization
+from rtv_solver.pipeline.co_rebalancing import CO_RebalancingCoverage
+
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
 
@@ -87,7 +90,7 @@ class OnlineRTVSolver:
         temp_batch = request_handler.get_all_requests()
         
         # filter active and boarded requests for subsequent action as they need to be integrated when handling new trip generation
-        batch = []
+        request_batch = []
         active_requests = {}
         boarded_requests = {}
         for req in temp_batch:
@@ -97,7 +100,7 @@ class OnlineRTVSolver:
             else:
                 if req_id in payload_object.active_requests_keys:
                     active_requests[req_id] = req
-                batch.append(req)
+                request_batch.append(req)
         
         # initialize all vehicles as they are stored in the payload-object
         vehicle_handler = VehicleHandler(payload_object.depot, 
@@ -106,7 +109,6 @@ class OnlineRTVSolver:
         # create trips of all already boarded requests # TODO these are not always boarded at this point
         boarded_trips = TripHandler.create_trip_for_picked_requests(boarded_requests, iteration)
         # update vehicle position/trips/times along its path according to all data stored in the manifest
-        # NOTE is this not done twice at this point based on what we do in simulate_manifest?
         vehicle_handler.add_manifest_to_vehicles(payload_object.driver_runs,
                                                  boarded_requests,
                                                  boarded_trips, 
@@ -120,16 +122,29 @@ class OnlineRTVSolver:
             # generate and assign trips to each vehicle using the RTV approach solved by an ILP
             trip_handler = TripHandler(
                 vehicle_handler.vehicles,
-                batch,
+                request_batch,
                 active_requests,
                 iteration,
                 self.config)
-            result = trip_handler.run()
         except Exception as e:
             raise e
+        
+        single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
 
+        optimizer = CO_TripCostMinimization(single_trip_map, 
+                                           trip_list, 
+                                           trip_costs, 
+                                           vehicle_to_trips_cost_map, 
+                                           trip_to_vehicle_cost_map, 
+                                           self.config)
+        result = optimizer.run(request_batch, active_requests)
+
+        if self.config.rebalancing:
+            rebalancing_optimizer = CO_RebalancingCoverage(self.config)
+            result = rebalancing_optimizer.run(result, vehicle_handler.vehicles, request_batch)
+   
         # assign vehicles and add trips / sequence to each vehicle 
-        unserved_requests = set([req.id for req in batch]) # number of requests that are not already confirmed to be  served
+        unserved_requests = set([req.id for req in request_batch]) # number of requests that are not already confirmed to be  served
         for vehicle_id in result.vehicle_assignment: # if it is empty the assignment is skipped
             vehicle = vehicle_handler.vehicles[vehicle_id]
             trips, prev_sequence = result.vehicle_assignment[vehicle_id]
@@ -139,7 +154,7 @@ class OnlineRTVSolver:
                 if trip.request_id in unserved_requests:
                     unserved_requests.remove(trip.request_id)
 
-        # TODO add rebalancing handling based on trip_handler.rebalancing_assignment that already checks required permissions
+        # TODO add rebalancing handling based on rebalancing_assignment that already checks required permissions
 
         # update driver runs
         updated_driver_runs = []

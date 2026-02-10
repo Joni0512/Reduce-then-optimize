@@ -18,7 +18,7 @@ from rtv_solver.structure.assignment_result import AssignmentResult
 
 from rtv_solver.handlers.vehicle_handler import VehicleHandler
 from rtv_solver.handlers.network_handler import NetworkHandler
-from rtv_solver.pipeline.optimizer import COTripCostMinimization
+
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
@@ -57,43 +57,23 @@ class TripHandler:
         self.rebalancing_assignment = {}    # {vehicle_id: origin_node}
         self.vehicle_assignment = {}        # {vehicle_id: ([trips], StopSequence)}
         self.request_assignment = {}        # {request_id: vehicle_id}
-
-    def run(self) -> AssignmentResult:
-        """
-        Split up generation and assignment for better modularity.
         
-        Function can be overwritten later on to add additional steps after the generation to generate features for the COAML pipeline.
+    def run(self):
         """
-        self.starting_time = time.time()
-        self.run_generation()
-        console_logger.info(f"Time spent on RTV generation: {time.time() - self.starting_time:.3f} seconds. Number of trips generated: {len(self.trips)}.")
-        result = self.assign_trips_to_vehicles()
-        return result
-
-    def assign_trips_to_vehicles(self):
-        """
-        Assign vehicles to trips using the Gurobi solver.
-        """
-        optimizer = COTripCostMinimization(self.config, self.ondemand_only_trip_map, self.trips, TripHandler.trip_costs, self.vehicle_to_trips_cost_map, self.trip_to_vehicle_cost_map)
-        result = optimizer.run(self.requests, self.active_requests)
-        # result = self.assign_trips_gurobi(self.requests, self.active_requests, self.config.ilp_penalty, self.config.keep_active)
-        # TODO turn rebalancing back on
-        if self.config.rebalancing:  # NOTE not sure if this should apply with trip_costs == 0; but it normally means that the vehicles are not in operation anymore
-            self.get_rebalancing_trips(self.vehicles, self.requests)
-        return result  
-        
-    def run_generation(self):
-        """
-        Run trip generation and assignment: on-demand trips, trip costs, shared trips,
-        then ILP assignment and optionally rebalancing. Call after __init__ to preserve
-        previous behavior. Logs time spent on RTV generation.
+        Run trip generation: on-demand trips, trip costs, shared trips,
+        Logs time spent on RTV generation.
         """
         if len(self.vehicles) != 0:
+            self.starting_time = time.time()
             # TODO FIXME this does not count active vehicles # goal: if there is no more active vehicles, one can skip the iteration
             # TODO also does not need to run if we do not have any requests, does it?
             self.generate_ondemand_only_trips(self.requests, self.iteration)
             self.generate_trip_costs(self.vehicles, self.config.max_thread_cnt, 0)
             self.generate_shared_trips(self.vehicles, self.config.max_cardinality, self.config.max_thread_cnt, self.config.share_cost_factor)
+
+            console_logger.info(f"Time spent on RTV generation: {time.time() - self.starting_time:.3f} seconds. Number of trips generated: {len(self.trips)}.")
+        return self.ondemand_only_trip_map, self.trips, TripHandler.trip_costs, self.vehicle_to_trips_cost_map, self.trip_to_vehicle_cost_map
+
 
     # SINGLE TRIP GENERATION
     def generate_ondemand_only_trips(self, requests: list[Request], iteration: int):

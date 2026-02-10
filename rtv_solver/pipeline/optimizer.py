@@ -28,23 +28,22 @@ class CO(ABC):
     def __init__(self, config: Config):
         self.config = config
 
-    # @abstractmethod 
-    # NOTE not sure whether the interface is fixed and not required for now 
-    # def run(self):
-    #     raise NotImplementedError
+    @abstractmethod 
+    def run():
+        raise NotImplementedError
 
 
-class COTripCostMinimization(CO):
+class CO_TripCostMinimization(CO):
     """
     Combinatorial Optimization Layer that minimizes the TripCosts across all the vehicles.
     """
     def __init__(self, 
-                 config, 
                  single_trip_map: dict[int, int], 
                  trips: list[Trip], 
                  trip_costs: list[TripCost], 
                  vehicle_to_trips_cost_map: dict[int, list[int]], 
-                 trip_to_vehicle_cost_map: dict[int, list[int]]):
+                 trip_to_vehicle_cost_map: dict[int, list[int]],
+                 config: Config):
         super().__init__(config)
         self.single_trip_map = single_trip_map                              # {request_id: trip_id}
         self.trips = trips              
@@ -177,6 +176,7 @@ class COTripCostMinimization(CO):
         return AssignmentResult(
             vehicle_assignment,
             request_assignment,
+            {},
             unassigned_trip_count,
             trip_count,
             added_distance,
@@ -199,10 +199,3 @@ class COTripCostMinimization(CO):
             if constraint.IISConstr:
                 console_logger.error("IIS:", constraint.ConstrName)
         raise Exception(f"Gurobi solver ended with code: {model.Status}") # Code 3 INFEASIBLE
-
-
-class CORebalancingHeuristic(CO):
-    # TODO move rebalancing logic from TripHandler
-    def __init__(self, config):
-        super().__init__(config)
-        raise NotImplementedError
