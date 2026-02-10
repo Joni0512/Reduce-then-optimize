@@ -14,29 +14,17 @@ from rtv_solver.structure.trip_cost import TripCost
 from rtv_solver.structure.request import Request
 from rtv_solver.structure.config import Config
 from rtv_solver.structure.vehicle import Vehicle
+from rtv_solver.structure.assignment_result import AssignmentResult
 
 from rtv_solver.handlers.vehicle_handler import VehicleHandler
 from rtv_solver.handlers.network_handler import NetworkHandler
+from rtv_solver.pipeline.optimizer import COTripCostMinimization
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
 
 console_logger = logging.getLogger(BASIC_LOGGER)
 data_logger = logging.getLogger(DATA_LOGGER)
-
-@dataclass
-class AssignmentResult:
-    vehicle_assignment: dict[int, tuple[list[Trip], list[int]]]
-    request_assignment: dict[int, int]
-
-    unassigned_trip_count: int
-    taxi_only_trip_count: int
-
-    added_distance: float
-    trip_sizes: list[int]
-
-    status: int
-    runtime: float | None = None
 
 
 class TripHandler:
@@ -59,7 +47,7 @@ class TripHandler:
         self.active_requests = active_requests
         self.iteration = iteration
 
-        self.trips: list[TripCost] = []     # basically collects all the tripCost objects for the feasible trips that are generated
+        self.trips: list[Trip] = []     # basically collects all the tripCost objects for the feasible trips that are generated
         self.ondemand_only_trip_map = {}    # {request_id: trip_id}
         self.shared_trips_map = {}          # {cardinality: [shared_trip_id]}
         # vehicle<>trip mapping helper
@@ -86,14 +74,14 @@ class TripHandler:
         """
         Assign vehicles to trips using the Gurobi solver.
         """
-        if len(TripHandler.trip_costs) > 0:
-                result = self.assign_trips_gurobi(self.requests, self.active_requests, self.config.ilp_penalty, self.config.keep_active)
-                if self.config.rebalancing:  # NOTE not sure if this should apply with trip_costs == 0; but it normally means that the vehicles are not in operation anymore
-                    self.get_rebalancing_trips(self.vehicles, self.requests)
-                return result  
-        else:
-            return AssignmentResult({}, {}, 0, 0, 0.0, [], 3, 0.0)
-
+        optimizer = COTripCostMinimization(self.config, self.ondemand_only_trip_map, self.trips, TripHandler.trip_costs, self.vehicle_to_trips_cost_map, self.trip_to_vehicle_cost_map)
+        result = optimizer.run(self.requests, self.active_requests)
+        # result = self.assign_trips_gurobi(self.requests, self.active_requests, self.config.ilp_penalty, self.config.keep_active)
+        # TODO turn rebalancing back on
+        if self.config.rebalancing:  # NOTE not sure if this should apply with trip_costs == 0; but it normally means that the vehicles are not in operation anymore
+            self.get_rebalancing_trips(self.vehicles, self.requests)
+        return result  
+        
     def run_generation(self):
         """
         Run trip generation and assignment: on-demand trips, trip costs, shared trips,
