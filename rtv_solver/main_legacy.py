@@ -26,9 +26,10 @@ RTV_TIMEOUT = 3000
 
 DEBUG_BOOL = True
 
-# TODO
-# shared trips does not seem to work
-# never stops because last boarded request is never dropped off or at least our code does not recognize it
+"""
+Main script of the simulation approach, not maintained anymore. Last working version is unknown, but `rtv_solver/main.py` covers the same functionality with minor utility functions being not yet supported.
+"""
+# TODO delete this file
 
 if __name__=="__main__":
     """
