@@ -19,6 +19,10 @@ this is actual data that can be triggered by a single vehicle and requests until
 def single_trip_map():
     return {1: 0, 2: 1, 3: 2, 4: 3, 5: 4}
 
+@pytest.fixture 
+def trip():
+    return Trip(request_id=1, trip_number=0, am_capacity=1, wc_capacity=0, pick_up_time=19822, latest_pick_up_time=21622, earliest_arrival_time=20112.7, latest_arrival_time=21912.7, origin=Node(lat=35.707904816, lon=-77.90247345), destination=Node(lat=35.737380981, lon=-77.906433105), dwell_pickup=180, dwell_alight=60, iteration=2, )
+
 @pytest.fixture
 def trip_list():
     return [
