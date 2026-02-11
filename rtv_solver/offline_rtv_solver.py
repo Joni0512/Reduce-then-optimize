@@ -72,6 +72,6 @@ class OfflineRTVSolver:
                                                                       intermediate_location=True)
             driver_runs = simulated_driver_runs
 
-        final_driver_runs = OnlineRTVSolver.finalize_driverRuns(driver_runs, payload[PayloadParser.DEPOT])
+        final_driver_runs = OnlineRTVSolver.finalize_driverRuns(self.config, driver_runs, payload[PayloadParser.DEPOT])
         # TODO update assignment_devlopment calculation. based on the data stores to JSONL instead of handing it over here
         return final_driver_runs
