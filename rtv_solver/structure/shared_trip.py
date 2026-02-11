@@ -12,3 +12,13 @@ class SharedTrip:
 
     def __str__(self):
         return f"<SharedTrip {self.number}: cardinality: {self.cardinality}, cost: {self.cost}, trips: {self.trips}, sequence: {self.sequence}>"
+    def __repr__(self):
+        return (
+            f"SharedTrip("
+            f"prev_trip_number={self.prev_trip_number!r}, "
+            f"trip_number={self.number!r}, "
+            f"trips={self.trips!r}, "
+            f"cost={self.cost!r}, "
+            f"sequence={self.sequence!r}"
+            f")"
+        )

@@ -43,6 +43,13 @@ class VehicleStop:
 
     def __str__(self):
         return f"<VehicleStop - Trip {self.trip_id}, node: {self.node}, type: {self.type}, dwell: {self.dwell}>"
-        
-    def get_log(self):
-        return "{0},{1},{2},{3},{4},{5}".format(self.node.lat, self.node.lon, self.type, self.stop_time, self.request_id, self.vehicle_id)
+    
+    def __repr__(self):
+        return (
+            f"VehicleStop("
+            f"trip_id={self.trip_id!r}, "
+            f"node={self.node!r}, "
+            f"type={self.type!r}, "
+            f"dwell={self.dwell!r}"
+            f")"
+        )

@@ -32,3 +32,21 @@ class Request:
 
     def __str__(self):
         return f"<Request {self.id}:, pickup: {self.earliest_pickup_time}, origin: {self.origin}, destination: {self.destination}, priority: {self.priority}>"
+
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}("
+            f"identifier={self.id!r}, "
+            f"earliest_pickup_time={self.earliest_pickup_time!r}, "
+            f"latest_pickup_time={self.latest_pickup_time!r}, "
+            f"earliest_arrival_time={self.earliest_arrival_time!r}, "
+            f"latest_arrival_time={self.latest_arrival_time!r}, "
+            f"origin={self.origin!r}, "
+            f"destination={self.destination!r}, "
+            f"dwell_pickup={self.dwell_pickup!r}, "
+            f"dwell_alight={self.dwell_alight!r}, "
+            f"am_capacity={self.am_capacity!r}, "
+            f"wc_capacity={self.wc_capacity!r}, "
+            f"priority={self.priority!r}"
+            f")"
+        )

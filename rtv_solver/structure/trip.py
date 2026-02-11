@@ -34,6 +34,7 @@ class Trip:
         # identifiers
         self.request_id = request_id
         self.number = trip_number
+        self.iteration = iteration
         if bus_combination == None:
             self.id = "{0}-{1}".format(iteration, request_id)
         else:
@@ -83,6 +84,25 @@ class Trip:
 
     def __str__(self):
         return f"<Trip {self.id}: pickup: {self.pick_up_time}, origin: {self.origin}, destination: {self.destination}>"
+        
+    def __repr__(self):
+        return (
+            f"Trip("
+            f"request_id={self.request_id!r}, "
+            f"trip_number={self.number!r}, "
+            f"am_capacity={self.am_capacity!r}, "
+            f"wc_capacity={self.wc_capacity!r}, "
+            f"pick_up_time={self.pick_up_time!r}, "
+            f"latest_pick_up_time={self.latest_pick_up_time!r}, "
+            f"earliest_arrival_time={self.earliest_arrival_time!r}, "
+            f"latest_arrival_time={self.latest_arrival_time!r}, "
+            f"origin={self.origin!r}, "
+            f"destination={self.destination!r}, "
+            f"dwell_pickup={self.dwell_pickup!r}, "
+            f"dwell_alight={self.dwell_alight!r}, "
+            f"iteration={self.iteration!r}, "
+            f")"
+        )
 
     # NOTE: all methods below never used
     def get_shared_trips(self):

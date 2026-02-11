@@ -182,3 +182,16 @@ class Vehicle:
         picked_str = ', '.join([str(pick) for pick in self.picked])
         served_str = ', '.join([str(served) for served in self.served_trips])
         return f"Vehicle ID {self.id}: time: {self.start_time}>{self.end_time}, trips: {trip_str}, picked: [{picked_str}], served: [{served_str}], last_node: {self.last_node}, stop_sequence: [{self.stop_sequence}]"
+    
+    def __repr__(self):
+        return (
+            f"Vehicle("
+            f"vehicle_id={self.id!r}, "
+            f"start_node={self.next_immediate_node!r}, " # possibly last_node makes more sense
+            f"am_capacity={self.am_capacity!r}, "
+            f"wc_capacity={self.wc_capacity!r}, "
+            f"start_time={self.start_time!r}, "
+            f"end_time={self.end_time!r}, "
+            f"depot={self.depot!r}"
+            f")"
+        )
