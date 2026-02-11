@@ -1,11 +1,11 @@
 import argparse
 import logging
 import time
-import os
+import json
 
 from pathlib import Path
 
-from rtv_solver import OnlineRTVSolver, OfflineRTVSolver
+from rtv_solver import OnlineRTVSolver, OfflineRTVSolver, COAMLPipeline
 
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
@@ -15,8 +15,10 @@ from rtv_solver.structure.config import Config
 from rtv_solver.util.logger import setup_loggers, BASIC_LOGGER, DATA_LOGGER
 from rtv_solver.util.helper import save_json, load_input_data
 
+from rtv_solver.visuals.payload_visuals import plot_requests_operating_area
+from rtv_solver.visuals.route_manifest_mapper import RouteManifestMapper
+
 DEBUG_MODE = True # reduces number of vehicles and requests for easier debugging
-ONLINE_MODE = False # runs all requests in one go without rolling horizon batching
 
 if __name__ == "__main__":
     """
@@ -42,7 +44,7 @@ if __name__ == "__main__":
     parser.add_argument('--ilp_timeout', type=int,          default=120, help='ILP solver timeout in seconds')
     parser.add_argument('--ilp_penalty', type=int,          default=100_000, help='Penalty for not serving a trip')
     # experiment parameters
-    parser.add_argument('--max_cardinality', type=int,      default=4, help='Maximum trips to be shared when creating trips in one batch_interval') # alt: total trips in same vehicle
+    parser.add_argument('--max_cardinality', type=int,      default=2, help='Maximum trips to be shared when creating trips in one batch_interval') # alt: total trips in same vehicle
     parser.add_argument('--largest_tsp', type=int,          default=8, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
     parser.add_argument('--share_cost_factor', type=int,    default=1.2, help='Shareable cost factor in factor of original single cost [???]') # TODO why 10, this is a crazy factor where this is used?
     parser.add_argument('--rebalancing', type=bool,         default=True, help='Vehicles are rebalanced if the need arises based on missed requests and idling vehicles.')
@@ -58,6 +60,7 @@ if __name__ == "__main__":
     parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
     # TODO COAML parameters 
     # random_seed, training parameters, NN parameters
+    parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'rh-ml', 'plot'], default='rh-ml', help='Mode on how the programme should solve the PDPTW')
     arguments = parser.parse_args()
 
     # implement configuration
@@ -71,7 +74,7 @@ if __name__ == "__main__":
     data_logger = logging.getLogger(DATA_LOGGER)
 
     console_logger.info(f"Output directory: {config.OUTPUT_DIR}")
-    console_logger.info(f' --- Start: RTV simulation --- online > {ONLINE_MODE}')
+    console_logger.info(f' --- Start: RTV simulation --- online > {config.MODE}')
     console_logger.info(f'Arguments: {config}')
     
     if DEBUG_MODE: # check if the basic functionality of the online RTV solver works (foundation for offline RTV solver)
@@ -80,7 +83,7 @@ if __name__ == "__main__":
         
         # reduce the complexity by only considering a single vehicle
         driver_runs_total = data[PayloadParser.DRIVERS]
-        driver_runs_reduced = driver_runs_total[:4] 
+        driver_runs_reduced = driver_runs_total[:1] 
         # test to change the first vehicle to trigger certain situations
         vehicle_state = driver_runs_reduced[0][PayloadParser.DRIVER_STATE]
         vehicle_manifest = driver_runs_reduced[0][PayloadParser.DRIVER_MANIFEST]        
@@ -99,7 +102,7 @@ if __name__ == "__main__":
         
         # create a simplified set of requests, consider all requests that start before end_requests
         current_time = 5*3600 + 30*60
-        step = 90*60
+        step = 5*60
         selected_requests = []
         for request in data[PayloadParser.REQUESTS]:
             if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + step:
@@ -116,33 +119,50 @@ if __name__ == "__main__":
     else: 
         payload = data
 
-    # Initialize RTV solver
-    start_time = time.time()
-    if ONLINE_MODE:
-        on_solver = OnlineRTVSolver(config)
-        updated_driver_runs, _ = on_solver.solve_pdptw_rtv(payload)
-    else:
-        off_solver = OfflineRTVSolver(config)
-        updated_driver_runs = off_solver.solve_rtv(payload, config.BATCH_INTERVAL, config.STEP_SIZE)
+    if config.MODE != 'plot':
+        # Initialize RTV solver
+        start_time = time.time()
+        if config.MODE == 'online':
+            on_solver = OnlineRTVSolver(config)
+            updated_driver_runs, _ = on_solver.solve_pdptw_rtv(payload)
+        elif config.MODE == 'offline':
+            off_solver = OfflineRTVSolver(config)
+            updated_driver_runs = off_solver.solve_rtv(payload, config.BATCH_INTERVAL, config.STEP_SIZE)
+        elif config.MODE == 'rh-ml':
+            rh_solver = COAMLPipeline(config)
+            updated_driver_runs = rh_solver.solve_pdptw(payload)
+        else:
+            updated_driver_runs = []
+            console_logger.info('No solution')
+            
+        # calculate statistics of each iteration; for now only the first vehicle
+        stats_payload = {PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
+                        PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
+                        PayloadParser.DRIVERS: updated_driver_runs}
+        stats_evaluator = StatsParser(config)
+        feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
+        assignment_history = stats_evaluator.evaluate_development(stats_payload)
         
-    # calculate statistics of each iteration; for now only the first vehicle
-    stats_payload = {PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
-                     PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
-                     PayloadParser.DRIVERS: updated_driver_runs}
-    stats_evaluator = StatsParser(config)
-    feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
-    assignment_history = stats_evaluator.evaluate_development(stats_payload)
-    
-    console_logger.info(stats)
-    console_logger.info(f'Violations: {violations}')
-    console_logger.info(f"Total time: {time.time() - start_time}")
+        console_logger.info(stats)
+        console_logger.info(f'Violations: {violations}')
+        console_logger.info(f"Total time: {time.time() - start_time}")
 
-    console_logger.info("Request history analysed.")
-    console_logger.info(assignment_history)
+        console_logger.info("Request history analysed.")
+        console_logger.info(assignment_history)
 
-    save_json(stats_payload, 
-              config.OUTPUT_DIR / "result_driver_runs.json")
-    save_json({"stats": stats, "violations": violations},
-              config.OUTPUT_DIR / "results.json")
+        save_json(stats_payload, 
+                config.OUTPUT_DIR / "result_driver_runs.json")
+        save_json({"stats": stats, "violations": violations},
+                config.OUTPUT_DIR / "results.json")
+
+        console_logger.info(f"Run complete. Results can be found @ {Path(config.OUTPUT_DIR)}")
     
-    console_logger.info(f"Run complete. Results can be found @ {Path(config.OUTPUT_DIR)}")
+    # VISUALISE
+        with open(config.OUTPUT_DIR / "result_driver_runs.json", 'r') as driver_runs_file:
+            loaded_data = json.load(driver_runs_file)
+        mapper = RouteManifestMapper(config)
+        geojson = mapper.manifest_to_geojson(loaded_data, 18)
+        mapper.save_geojson(geojson, config.OUTPUT_DIR / "route_manifest.geojson")
+
+    plot_requests_operating_area(payload, show=False, save_path=config.OUTPUT_DIR / "request_distribution.png") 
+    

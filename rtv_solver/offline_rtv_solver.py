@@ -66,9 +66,12 @@ class OfflineRTVSolver:
             iteration += 1
 
             # update vehicles based on decisions in the previous step until current time (might not be the entire interval)
-            simulated_driver_runs = online_rtv_solver.simulate_manifest(current_time , new_driver_runs, intermediate_location=True)
+            simulated_driver_runs = OnlineRTVSolver.simulate_manifest(self.config, 
+                                                                      current_time ,
+                                                                      new_driver_runs, 
+                                                                      intermediate_location=True)
             driver_runs = simulated_driver_runs
 
-        final_driver_runs = online_rtv_solver.finalize_driverRuns(driver_runs, payload[PayloadParser.DEPOT])
+        final_driver_runs = OnlineRTVSolver.finalize_driverRuns(driver_runs, payload[PayloadParser.DEPOT])
         # TODO update assignment_devlopment calculation. based on the data stores to JSONL instead of handing it over here
         return final_driver_runs

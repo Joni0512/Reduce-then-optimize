@@ -390,10 +390,11 @@ class TripHandler:
     
     # BELOW UNUSED METHODS
     def create_trip(self, request, am_capacity, wc_capacity, origin, destination, pick_up_time, latest_pick_up_time, earliest_arrival_time, latest_arrival_time, dwell_pickup, dwell_alight, iteration, bus_combination=None, first_last_mile_type=None, allow_walk=True):
+        """create a trip from all the inputs"""
         if allow_walk and self._can_walk(origin, destination):
             return None
         trip_no = self._get_new_trip_no()
-        cost = self._get_trip_cost(origin,destination)
+        cost = self._get_trip_cost(origin, destination)
         return Trip(
             request.id,
             trip_no,

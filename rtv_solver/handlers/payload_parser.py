@@ -148,6 +148,102 @@ class PayloadParser:
             if request[PayloadParser.REQ_DROPOFF_WINDOW_END] > end_time:
                 end_time = request[PayloadParser.REQ_DROPOFF_WINDOW_END]
         return start_time, end_time
+
+    @staticmethod
+    def get_vehicle_time_intervals(payload) -> list[tuple[int, int]]:
+        """
+        Returns the operating time interval for each vehicle (driver run) in the payload.
+
+        Each tuple in the returned list is `(start_time, end_time)` in seconds and corresponds
+        to one entry in the driver_runs, in the same order.
+        """
+        intervals: list[tuple[int, int]] = []
+
+        for driver_run in payload[PayloadParser.DRIVERS]:
+            state = driver_run[PayloadParser.DRIVER_STATE]
+            start_time = state[PayloadParser.DRIVER_STATE_START_TIME]
+            end_time = state[PayloadParser.DRIVER_STATE_END_TIME]
+            intervals.append((start_time, end_time))
+
+        return intervals
+
+    @staticmethod
+    def get_request_positions(payload):
+        """
+        Compute pickups and dropoffs of all requests.
+
+        The function supports both payloads where coordinates are stored directly on the
+        request (via REQ_*_LAT / REQ_*_LON) and payloads where they are nested inside
+        REQ_*_PT dictionaries with ``lat`` / ``lon`` keys. The depot location is also
+        taken into account, if present.
+        """
+        pickup_lats: list[float] = []
+        pickup_lons: list[float] = []
+        dropoff_lats: list[float] = []
+        dropoff_lons: list[float] = []
+
+        # collect request coordinates
+        for request in payload.get(PayloadParser.REQUESTS, []):
+            # pickup
+            pickup_pt = request.get(PayloadParser.REQ_PICKUP_PT)
+            if pickup_pt is not None:
+                p_lat = pickup_pt.get("lat")
+                p_lon = pickup_pt.get("lon")
+            else:
+                p_lat = request.get(PayloadParser.REQ_PICKUP_LAT)
+                p_lon = request.get(PayloadParser.REQ_PICKUP_LON)
+            if p_lat is not None and p_lon is not None:
+                pickup_lats.append(p_lat)
+                pickup_lons.append(p_lon)
+
+            # dropoff
+            dropoff_pt = request.get(PayloadParser.REQ_DROPOFF_PT)
+            if dropoff_pt is not None:
+                d_lat = dropoff_pt.get("lat")
+                d_lon = dropoff_pt.get("lon")
+            else:
+                d_lat = request.get(PayloadParser.REQ_DROPOFF_LAT)
+                d_lon = request.get(PayloadParser.REQ_DROPOFF_LON)
+            if d_lat is not None and d_lon is not None:
+                dropoff_lats.append(d_lat)
+                dropoff_lons.append(d_lon)
+
+        # depot location (if available)
+        depot_lat = depot_lon = None
+        if PayloadParser.DEPOT in payload:
+            depot_data = payload[PayloadParser.DEPOT]
+            depot_loc = depot_data.get("loc") or depot_data.get(PayloadParser.DEPOT_PT)
+            if depot_loc is not None:
+                depot_lat = depot_loc.get("lat")
+                depot_lon = depot_loc.get("lon")
+
+        return pickup_lats, pickup_lons, dropoff_lats, dropoff_lons, depot_lat, depot_lon
+    
+    @staticmethod
+    def get_request_operating_area_limits(payload):
+        """
+        Computes the main operating area of all requests based on latitude and longitude.
+
+        Returns:
+            ((min_lat, max_lat), (min_lon, max_lon))
+        """
+        pickup_lats, pickup_lons, dropoff_lats, dropoff_lons, depot_lat, depot_lon = PayloadParser.get_request_positions(payload)
+
+        # compute bounds
+        all_lats: list[float] = pickup_lats + dropoff_lats
+        all_lons: list[float] = pickup_lons + dropoff_lons
+        if depot_lat is not None and depot_lon is not None:
+            all_lats.append(depot_lat)
+            all_lons.append(depot_lon)
+
+        if not all_lats or not all_lons:
+            raise ValueError("No coordinate data found in payload to determine operating area.")
+
+        min_lat = min(all_lats)
+        max_lat = max(all_lats)
+        min_lon = min(all_lons)
+        max_lon = max(all_lons)
+        return (min_lat, max_lat), (min_lon, max_lon)
     
     @staticmethod
     def _build_request_from_manifest_index(manifest, pick_up_index):

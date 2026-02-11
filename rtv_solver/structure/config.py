@@ -31,8 +31,8 @@ class Config:
     RTV_TIMEOUT: int = 120
     ILP_TIMEOUT: int = 120
     ILP_PENALTY: int = 1_000_000
-
     # experiment parameters
+    MODE: str = 'offline'
     MAX_CARDINALITY: int = 2
     LARGEST_TSP: int = 8
     SHARE_COST_FACTOR: float = 10
@@ -45,7 +45,6 @@ class Config:
     #backup default values
     DWELL_PICKUP: int = 180
     DWELL_ALIGHT: int = 60
-
     # stats parameters
     TRAVEL_TIME_MARGIN: int = 5
 
@@ -56,7 +55,7 @@ class Config:
     def from_args(cls, args: argparse.Namespace) -> "Config":
         reproduced = False
 
-        print(f"Default arguments: {args}")
+        # print(f"Default arguments: {args}")
 
         if args.config_file:
             # Load config from file
@@ -81,12 +80,14 @@ class Config:
         output_directory = cls.create_output_dir(ROOT_DIR / "outputs", args.output_dir)
         
         # add the change for the input_file
+        # if a config is missing an item due to additional config items, one can override it by adding it there and still use the same config settings
         config = cls(
             CONFIG_FILE = args.config_file,
             OVERRIDE = args.override, 
             OUTPUT_DIR = output_directory,
             INPUT_FILE = args.input_file,
             SERVER_URL = args.server_url,
+            MODE = args.mode,
             MAX_THREAD_CNT = args.max_thread_cnt,
             RTV_TIMEOUT = args.rtv_timeout,
             ILP_TIMEOUT = args.ilp_timeout, 
@@ -104,9 +105,6 @@ class Config:
             BATCH_INTERVAL = args.batch_interval,
             TRAVEL_TIME_MARGIN = args.travel_time_margin
         )
-
-        print("Test CONFIG creation")
-        print(config)
 
         save_json({"config_dict": config.to_dict(),
                 "git_commit": os.popen("git rev-parse HEAD").read().strip(),

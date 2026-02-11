@@ -252,12 +252,13 @@ class OnlineRTVSolver:
                 if len(depot_requests) != 0:
                     raise ManifestConsistencyError(f"ManifestError: {len(depot_requests)} depot return was added despite self.config.return_depot = False.")
         return True
-    
-    def simulate_manifest(self, current_time, driver_runs, intermediate_location=True):
+
+    @staticmethod
+    def simulate_manifest(config: Config, current_time, driver_runs, intermediate_location=True):
         """
         Update the driver_run for the offlineSolver so that the last results fits the time that we have used for it.
         """
-        NetworkHandler.init(True, self.config.SERVER_URL)
+        NetworkHandler.init(True, config.SERVER_URL)
         new_driver_runs = []
         # TODO longterm: turn driver_run into an object that handles all the conditions and changes based on validated calls
         for driver_run in driver_runs:
@@ -279,9 +280,9 @@ class OnlineRTVSolver:
                 action = next_stop[PayloadParser.MANIFEST_ACTION]
                 # apply dwell time if applicable, why do we have this 
                 if action == VehicleStop.ACT_PICKUP:
-                    next_immediate_time += self.config.DWELL_PICKUP
+                    next_immediate_time += config.DWELL_PICKUP
                 elif action == VehicleStop.ACT_DROPOFF:
-                    next_immediate_time += self.config.DWELL_ALIGHT
+                    next_immediate_time += config.DWELL_ALIGHT
                 else: # no extra time for depot or rebalance
                     next_immediate_time += 0
                 current_order += 1
@@ -304,7 +305,7 @@ class OnlineRTVSolver:
                 PayloadParser.DRIVER_STATE: state,
                 PayloadParser.DRIVER_MANIFEST: manifest})
         
-        self._check_consistency_of_manifests(driver_runs, new_driver_runs, [], [], keep_active=self.config.KEEP_ACTIVE, return_depot=self.config.RETURN_DEPOT)
+        OnlineRTVSolver._check_consistency_of_manifests(driver_runs, new_driver_runs, [], [], keep_active=config.KEEP_ACTIVE, return_depot=config.RETURN_DEPOT)
         return new_driver_runs
 
     def solve_pdptw_heuristic(self, payload, return_added_vmt=False):
@@ -553,14 +554,14 @@ class OnlineRTVSolver:
                 updated_driver_runs[earliest_vehicle_index] = earliest_vehicle
         return updated_driver_runs, unserved_requests
     
-    def finalize_driverRuns(self, driver_runs: dict, depot_dict: dict) -> dict:
+    def finalize_driverRuns(config: Config, driver_runs: dict, depot_dict: dict) -> dict:
         """
         if config.return_depot finalize the vehicles by adding a depot stop to each ride, otherwise return input
 
         Behaviour: Depot_returns will be added straight from the last position of the vehicle where it finalized a previous trip, i.e., some vehicles might return already early during the day back to the depot despite more requests coming in. Our offline approach however has assigned all requests and thus, it is already fixed that no further requests have been accepted. 
         Alternative behaviour: Get back to the depot right before the final_end_time of each driver-run (condition depot_feasible confirms the options), but then depot_arrival_time would just be driver_run.state.end_time
         """
-        if not self.config.RETURN_DEPOT:
+        if not config.RETURN_DEPOT:
             return driver_runs
         else: 
             driver_runs_c = copy.deepcopy(driver_runs) # keep oly one as is to not change information in place
@@ -601,5 +602,5 @@ class OnlineRTVSolver:
                     driver_run.manifest.append(depot_stop)
 
                 updated_driver_runs.append(driver_run.to_dict())
-            self._check_consistency_of_manifests(driver_runs_c, updated_driver_runs, [], [], keep_active=self.config.KEEP_ACTIVE, return_depot=self.config.RETURN_DEPOT, check_depot=True)
+            OnlineRTVSolver._check_consistency_of_manifests(driver_runs_c, updated_driver_runs, [], [], keep_active=config.KEEP_ACTIVE, return_depot=config.RETURN_DEPOT, check_depot=True)
             return updated_driver_runs  
