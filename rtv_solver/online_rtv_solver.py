@@ -18,7 +18,7 @@ from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.config import Config
 from rtv_solver.structure.driver_run import DriverRun, ManifestEntry
 
-from rtv_solver.pipeline.optimizer import CO_TripCostMinimization
+from rtv_solver.pipeline.co_tripCostMinimization import CO_TripCostMinimization
 from rtv_solver.pipeline.co_rebalancing import CO_RebalancingCoverage
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
