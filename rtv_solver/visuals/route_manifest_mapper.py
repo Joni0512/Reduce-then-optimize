@@ -32,7 +32,7 @@ class RouteManifestMapper():
     def _init_network(self) -> None:
         if self._network_initialized:
             return
-        NetworkHandler.init(True, self.config.server_url)
+        NetworkHandler.init(True, self.config.SERVER_URL)
         self._network_initialized = True
     
     def _get_route_colors(self, veh_count: int) -> dict[int, str]:

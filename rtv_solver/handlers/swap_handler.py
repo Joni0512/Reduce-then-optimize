@@ -24,9 +24,9 @@ class SwapHandler:
     """TODO docstring and behavior of this class"""
     def __init__(self, server_url, driver_runs, depot, config: Config):
         self.config = config
-        self.MAX_NUM_THREAD = config.max_thread_cnt
-        self.DWELL_PICKUP = config.dwell_pickup
-        self.DWELL_ALIGHT = config.dwell_alight
+        self.MAX_NUM_THREAD = config.MAX_THREAD_CNT
+        self.DWELL_PICKUP = config.DWELL_PICKUP
+        self.DWELL_ALIGHT = config.DWELL_ALIGHT
         NetworkHandler.init(True, server_url)
         payload_object = PayloadParser.get_payload_object({
             PayloadParser.DRIVERS: driver_runs,

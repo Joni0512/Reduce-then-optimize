@@ -17,3 +17,18 @@ class AssignmentResult:
 
     status: int
     runtime: float | None = None
+
+    def __repr__(self) -> str:
+        return (
+            "AssignmentResult("
+            f"status={self.status!r}, "
+            f"runtime={self.runtime!r}, "
+            f"vehicle_assignment={self.vehicle_assignment!r}, "
+            f"request_assignment={self.request_assignment!r}, "
+            f"rebalancing_assignment={self.rebalancing_assignment!r}, "
+            f"unassigned_trip_count={self.unassigned_trip_count}, "
+            f"taxi_only_trip_count={self.taxi_only_trip_count}, "
+            f"added_distance={self.added_distance}, "
+            f"trip_sizes={self.trip_sizes}"
+            ")"
+        )

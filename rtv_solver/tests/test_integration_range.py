@@ -97,11 +97,11 @@ def test_integration_solver_parametrized(
     """
     payload = _init_payload(vehicle_count, first_vehicle_reduced_time, request_time_span_minutes)
     config = Config()
-    config.max_cardinality = max_cardinality
-    config.step_size = step_size
-    config.batch_interval = batch_interval
-    config.keep_active = keep_active
-    config.return_depot = return_depot
+    config.MAX_CARDINALITY = max_cardinality
+    config.STEP_SIZE = step_size
+    config.BATCH_INTERVAL = batch_interval
+    config.KEEP_ACTIVE = keep_active
+    config.RETURN_DEPOT = return_depot
 
     expected_depot_movements = 0
     if return_depot:
@@ -111,8 +111,8 @@ def test_integration_solver_parametrized(
     off_solver = OfflineRTVSolver(config)
     updated_driver_runs = off_solver.solve_rtv(
         payload,
-        config.batch_interval,
-        config.step_size,
+        config.BATCH_INTERVAL,
+        config.STEP_SIZE,
     )
     # compute stats
     stats_payload = {

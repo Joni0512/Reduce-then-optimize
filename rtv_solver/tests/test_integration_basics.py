@@ -60,15 +60,15 @@ def test_integration_offlineRTVsolver_vehicle1_maxCard3():
     # initialize data and config
     payload = _init_payload(vehicle_count=1, first_vehicle_reduced_time=72000, request_time_span_minutes=20)
     config = Config()
-    config.max_cardinality = 3
-    config.step_size = 600
-    config.batch_interval = 600
+    config.MAX_CARDINALITY = 3
+    config.STEP_SIZE = 600
+    config.BATCH_INTERVAL = 600
     # run solver
     off_solver = OfflineRTVSolver(config)
     updated_driver_runs = off_solver.solve_rtv(
         payload,
-        config.batch_interval,
-        config.step_size,
+        config.BATCH_INTERVAL,
+        config.STEP_SIZE,
     )
     # compute stats
     stats_payload = {
@@ -102,15 +102,15 @@ def test_integration_offlineRTVsolver_vehicle2_maxCard2():
     # initialize data and config
     payload = _init_payload(vehicle_count=2, first_vehicle_reduced_time=72000, request_time_span_minutes=20)
     config = Config()
-    config.max_cardinality = 2
-    config.step_size = 600
-    config.batch_interval = 600
+    config.MAX_CARDINALITY = 2
+    config.STEP_SIZE = 600
+    config.BATCH_INTERVAL = 600
     # run solver
     off_solver = OfflineRTVSolver(config)
     updated_driver_runs = off_solver.solve_rtv(
         payload,
-        config.batch_interval,
-        config.step_size,
+        config.BATCH_INTERVAL,
+        config.STEP_SIZE,
     )
     # compute stats
     stats_payload = {
@@ -146,9 +146,9 @@ def test_integration_onlineRTVsolver_vehicle3_maxCard3():
     # initialize data and config
     payload = _init_payload(vehicle_count=3, first_vehicle_reduced_time=72000, request_time_span_minutes=20)
     config = Config()
-    config.max_cardinality = 3
-    config.step_size = 600
-    config.batch_interval = 600
+    config.MAX_CARDINALITY = 3
+    config.STEP_SIZE = 600
+    config.BATCH_INTERVAL = 600
     # run solver
     on_solver = OnlineRTVSolver(config)
     updated_driver_runs, _ = on_solver.solve_pdptw_rtv(payload)
@@ -189,17 +189,17 @@ def test_config_RHsolver_vehicleDeactivation_keepActiveTrue():
     """
     payload = _init_payload(vehicle_count=1, first_vehicle_reduced_time=22000, request_time_span_minutes=90)
     config = Config()
-    config.max_cardinality = 3
-    config.step_size = 1200
-    config.batch_interval = 3600
-    config.keep_active = True
-    config.return_depot = True
+    config.MAX_CARDINALITY = 3
+    config.STEP_SIZE = 1200
+    config.BATCH_INTERVAL = 3600
+    config.KEEP_ACTIVE = True
+    config.RETURN_DEPOT = True
     # run solver
     off_solver = OfflineRTVSolver(config)
     updated_driver_runs = off_solver.solve_rtv(
         payload,
-        config.batch_interval,
-        config.step_size,
+        config.BATCH_INTERVAL,
+        config.STEP_SIZE,
     )
     # compute stats
     stats_payload = {

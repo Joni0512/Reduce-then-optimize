@@ -30,8 +30,7 @@ class VehicleHandler:
         self.earliest_start_time = None
         self._load_vehicles(depot, driver_runs)
         self.config = config
-        self.output_dir = config.output_dir
-        VehicleHandler.LARGEST_TSP = config.largest_tsp
+        VehicleHandler.LARGEST_TSP = config.LARGEST_TSP
 
         console_logger.info(f'{self.count} vehicle(s) in operations')
 
@@ -860,7 +859,7 @@ class VehicleHandler:
 
     # BELOW UNUSED METHODS
     def save_snapshot(self):
-        with open(self.output_dir+"vehicle_snapshot.p", 'wb') as snapshot_file:
+        with open(self.config.OUTPUT_DIR + "vehicle_snapshot.p", 'wb') as snapshot_file:
             pickle.dump(self, snapshot_file)
 
     def load_snapshot(snapshot_directory):

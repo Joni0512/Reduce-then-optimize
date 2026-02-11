@@ -3,7 +3,7 @@ set -e
 # update config file to rerun the same experiment as stored in the config file
 echo "Reproduced experiment"
 python main.py \
-  --config_file ../outputs/debug/run_20260208_145501_c093fa/config.json \
+  --config_file ../outputs/storage/run_20260208_142128_5706bf/config.json \
   --override max_cardinality=3 \
   --override return_depot=False
 

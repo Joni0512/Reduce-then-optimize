@@ -63,8 +63,8 @@ class TripHandler:
         # TODO FIXME this does not count active vehicles # goal: if there is no more active vehicles, one can skip the iteration
         # TODO also does not need to run if we do not have any requests, does it?
         self.generate_ondemand_only_trips(self.requests, self.iteration)
-        self.generate_trip_costs(self.vehicles, self.config.max_thread_cnt, 0)
-        self.generate_shared_trips(self.vehicles, self.config.max_cardinality, self.config.max_thread_cnt, self.config.share_cost_factor)
+        self.generate_trip_costs(self.vehicles, self.config.MAX_THREAD_CNT, 0)
+        self.generate_shared_trips(self.vehicles, self.config.MAX_CARDINALITY, self.config.MAX_THREAD_CNT, self.config.SHARE_COST_FACTOR)
 
         console_logger.info(f"Time spent on RTV generation: {time.time() - self.starting_time:.3f} seconds. Number of trips generated: {len(self.trips)}.")
         return self.ondemand_only_trip_map, self.trips, TripHandler.trip_costs, self.vehicle_to_trips_cost_map, self.trip_to_vehicle_cost_map
@@ -101,7 +101,7 @@ class TripHandler:
     def create_trip_cost(vehicle: Vehicle, trip_no, trips, prev_sequence, config: Config):
         plan = VehicleHandler.plan_trip_insertions(vehicle, trips, prev_sequence=prev_sequence)
         feasible = plan.sequence_feasible
-        if config.return_depot:
+        if config.RETURN_DEPOT:
             feasible = plan.sequence_feasible and plan.depot_feasible
         if feasible:
             return TripCost(trip_no, vehicle.id, plan.added_cost, plan.sequence)
@@ -377,12 +377,12 @@ class TripHandler:
 
     def _check_rtv_timeout(self):
         time_spent = time.time() - self.starting_time
-        if time_spent > self.config.rtv_timeout:
-            raise Exception("RTV generation timedout: {0} > {1}".format(time_spent, self.config.rtv_timeout))
+        if time_spent > self.config.RTV_TIMEOUT:
+            raise Exception("RTV generation timedout: {0} > {1}".format(time_spent, self.config.RTV_TIMEOUT))
 
     def _can_walk(self, origin, destination):
         distance = NetworkHandler.travel_distance(origin, destination)
-        return distance <= self.config.walk_distance_cutoff
+        return distance <= self.config.WALK_DISTANCE_CUTOFF
     
     @staticmethod
     def _get_trip_cost(origin, destination):

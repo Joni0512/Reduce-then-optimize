@@ -9,12 +9,6 @@ from pathlib import Path
 
 from rtv_solver.util.helper import save_json, load_json
 
-from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
-import logging
-
-console_logger = logging.getLogger(BASIC_LOGGER)
-data_logger = logging.getLogger(DATA_LOGGER)
-
 @dataclass
 class Config:
     """
@@ -24,33 +18,36 @@ class Config:
     no differentiation of separate configs but one object that carries all information
     
     The default values [output_dir, input_file, server_url]should be changed locally  as they also collect the basic information for debug runs. The default values also act as the default for tests. 
+    
+    Loggers cannot be used here as they are defined based on the output_dir. For debugging, please use print().
     """
     # technical setup
-    config_file: str = ""
-    override: List[str] = field(default_factory=list)
-    output_dir: Path = Path("outputs") / "debug"
-    input_file: str = "rtv-solver/inputs/wilson_nc_initial.pkl"
-    server_url: str = "http://127.0.0.1:5001/"
-    max_thread_cnt: int = 16
-    rtv_timeout: int = 120
-    ilp_timeout: int = 120
-    ilp_penalty: int = 1_000_000
+    CONFIG_FILE: str = ""
+    OVERRIDE: List[str] = field(default_factory=list)
+    OUTPUT_DIR: Path = Path("outputs") / "debug"
+    INPUT_FILE: str = "rtv-solver/inputs/wilson_nc_initial.pkl"
+    SERVER_URL: str = "http://127.0.0.1:5001/"
+    MAX_THREAD_CNT: int = 16
+    RTV_TIMEOUT: int = 120
+    ILP_TIMEOUT: int = 120
+    ILP_PENALTY: int = 1_000_000
 
     # experiment parameters
-    max_cardinality: int = 2
-    largest_tsp: int = 8
-    share_cost_factor: float = 10
-    rebalancing: bool = False
-    keep_active: bool = True
-    return_depot: bool = False
-    dwell_pickup: int = 180
-    dwell_alight: int = 60
-    walk_distance_cutoff: int = 0
-    step_size: int = 300
-    batch_interval: int = 1200
+    MAX_CARDINALITY: int = 2
+    LARGEST_TSP: int = 8
+    SHARE_COST_FACTOR: float = 10
+    REBALANCING: bool = False
+    KEEP_ACTIVE: bool = True
+    RETURN_DEPOT: bool = False
+    WALK_DISTANCE_CUTOFF: int = 0
+    STEP_SIZE: int = 300
+    BATCH_INTERVAL: int = 1200
+    #backup default values
+    DWELL_PICKUP: int = 180
+    DWELL_ALIGHT: int = 60
 
     # stats parameters
-    travel_time_margin: int = 5
+    TRAVEL_TIME_MARGIN: int = 5
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -58,6 +55,8 @@ class Config:
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "Config":
         reproduced = False
+
+        print(f"Default arguments: {args}")
 
         if args.config_file:
             # Load config from file
@@ -80,37 +79,40 @@ class Config:
         # Create new run directory
         ROOT_DIR = Path(__file__).resolve().parent.parent.parent
         output_directory = cls.create_output_dir(ROOT_DIR / "outputs", args.output_dir)
-
+        
         # add the change for the input_file
-        config =  cls(
-            config_file = args.config_file,
-            override = args.override, 
-            output_dir = output_directory,
-            input_file = args.input_file,
-            server_url = args.server_url,
-            max_thread_cnt = args.max_thread_cnt,
-            rtv_timeout = args.rtv_timeout,
-            ilp_timeout = args.ilp_timeout, 
-            ilp_penalty = args.ilp_penalty,
-            max_cardinality = args.max_cardinality,
-            largest_tsp = args.largest_tsp,
-            share_cost_factor = args.share_cost_factor,
-            rebalancing = args.rebalancing,
-            keep_active = args.keep_active,
-            return_depot = args.return_depot,
-            dwell_pickup = args.dwell_pickup,
-            dwell_alight = args.dwell_alight,
-            walk_distance_cutoff = args.walk_distance_cutoff,
-            step_size = args.step_size,
-            batch_interval = args.batch_interval,
-            travel_time_margin = args.travel_time_margin
+        config = cls(
+            CONFIG_FILE = args.config_file,
+            OVERRIDE = args.override, 
+            OUTPUT_DIR = output_directory,
+            INPUT_FILE = args.input_file,
+            SERVER_URL = args.server_url,
+            MAX_THREAD_CNT = args.max_thread_cnt,
+            RTV_TIMEOUT = args.rtv_timeout,
+            ILP_TIMEOUT = args.ilp_timeout, 
+            ILP_PENALTY = args.ilp_penalty,
+            MAX_CARDINALITY = args.max_cardinality,
+            LARGEST_TSP = args.largest_tsp,
+            SHARE_COST_FACTOR = args.share_cost_factor,
+            REBALANCING = args.rebalancing,
+            KEEP_ACTIVE = args.keep_active,
+            RETURN_DEPOT = args.return_depot,
+            DWELL_PICKUP = args.dwell_pickup,
+            DWELL_ALIGHT = args.dwell_alight,
+            WALK_DISTANCE_CUTOFF = args.walk_distance_cutoff,
+            STEP_SIZE = args.step_size,
+            BATCH_INTERVAL = args.batch_interval,
+            TRAVEL_TIME_MARGIN = args.travel_time_margin
         )
+
+        print("Test CONFIG creation")
+        print(config)
 
         save_json({"config_dict": config.to_dict(),
                 "git_commit": os.popen("git rev-parse HEAD").read().strip(),
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "reproduced": reproduced}, 
-                config.output_dir / "config.json")
+                config.OUTPUT_DIR / "config.json")
 
         return config
         # return cls(**vars(args))
@@ -148,7 +150,7 @@ class Config:
 
             old_value = cfg[key]
             cfg[key] = Config.cast_value(value, type(old_value))
-            console_logger.info(f"Applied override '{key}': {old_value} -> {cfg[key]}")
+            print(f"Applied override '{key}': {old_value} -> {cfg[key]}")
 
         return cfg
     

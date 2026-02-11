@@ -64,19 +64,19 @@ if __name__ == "__main__":
     config = Config.from_args(arguments)
 
     # load data from file and update to canonical format for the entire system
-    data = load_input_data(Path(__file__).resolve().parent.parent / "inputs" / config.input_file)
+    data = load_input_data(Path(__file__).resolve().parent.parent / "inputs" / config.INPUT_FILE)
 
-    setup_loggers(config.output_dir)
+    setup_loggers(config.OUTPUT_DIR)
     console_logger = logging.getLogger(BASIC_LOGGER)
     data_logger = logging.getLogger(DATA_LOGGER)
 
-    console_logger.info(f"Output directory: {config.output_dir}")
+    console_logger.info(f"Output directory: {config.OUTPUT_DIR}")
     console_logger.info(f' --- Start: RTV simulation --- online > {ONLINE_MODE}')
     console_logger.info(f'Arguments: {config}')
     
     if DEBUG_MODE: # check if the basic functionality of the online RTV solver works (foundation for offline RTV solver)
         console_logger.setLevel(logging.INFO)
-        config.rtv_timeout = 600000 # if I am clicking through inputs, it never breaks due to timeout
+        config.RTV_TIMEOUT = 600000 # if I am clicking through inputs, it never breaks due to timeout
         
         # reduce the complexity by only considering a single vehicle
         driver_runs_total = data[PayloadParser.DRIVERS]
@@ -85,13 +85,13 @@ if __name__ == "__main__":
         vehicle_state = driver_runs_reduced[0][PayloadParser.DRIVER_STATE]
         vehicle_manifest = driver_runs_reduced[0][PayloadParser.DRIVER_MANIFEST]        
         # vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 25000
-        config.max_cardinality = 3
+        config.MAX_CARDINALITY = 3
 
         # BUG combination 2 --> iteration keeps running and still tries to optimize despite no active vehicle being left
         # TODO how to set vehicles to inactive, so they are not part of the optimization anymore but are also completed in their manifest (depot return and complete manifest of prior assigned trips)
         # vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 22000 
-        config.return_depot = True
-        config.keep_active = True
+        config.RETURN_DEPOT = True
+        config.KEEP_ACTIVE = True
 
         # combination 3 
         # if trip is not considered in recent trips but is the last dropoff (situation: new trip is injected before that last dropoff in a new iteration)
@@ -123,7 +123,7 @@ if __name__ == "__main__":
         updated_driver_runs, _ = on_solver.solve_pdptw_rtv(payload)
     else:
         off_solver = OfflineRTVSolver(config)
-        updated_driver_runs = off_solver.solve_rtv(payload, config.batch_interval, config.step_size)
+        updated_driver_runs = off_solver.solve_rtv(payload, config.BATCH_INTERVAL, config.STEP_SIZE)
         
     # calculate statistics of each iteration; for now only the first vehicle
     stats_payload = {PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
@@ -141,8 +141,8 @@ if __name__ == "__main__":
     console_logger.info(assignment_history)
 
     save_json(stats_payload, 
-              config.output_dir / "result_driver_runs.json")
+              config.OUTPUT_DIR / "result_driver_runs.json")
     save_json({"stats": stats, "violations": violations},
-              config.output_dir / "results.json")
+              config.OUTPUT_DIR / "results.json")
     
-    console_logger.info(f"Run complete. Results can be found @ {Path(config.output_dir)}")
+    console_logger.info(f"Run complete. Results can be found @ {Path(config.OUTPUT_DIR)}")

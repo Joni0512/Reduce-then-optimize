@@ -98,7 +98,7 @@ class StatsParser:
     """
     def __init__(self, config: Config | None = None):
         self.config = config
-        self.server_url = self.config.server_url
+        self.server_url = self.config.SERVER_URL
         self._network_initialized = False
         self._init_network()
 
@@ -189,12 +189,12 @@ class StatsParser:
             arrival_time = current_time + travel_time
 
             # check "schedule impossible" (arrival after scheduled_time + margin)
-            if arrival_time > scheduled_time + self.config.travel_time_margin:
+            if arrival_time > scheduled_time + self.config.TRAVEL_TIME_MARGIN:
                 self._add_violation(
                     "Scheduled time is impossible given travel time", booking_id, run_id, stop, details={
                         "arrival_time": arrival_time,
                         "scheduled_time": scheduled_time,
-                        "margin": self.config.travel_time_margin,
+                        "margin": self.config.TRAVEL_TIME_MARGIN,
                         "lateness": arrival_time - scheduled_time,
                     })
 
@@ -219,7 +219,7 @@ class StatsParser:
                 # update load
                 current_load_am += am_delta
                 current_load_wc += wc_delta
-                service_end = service_start + self.config.dwell_pickup
+                service_end = service_start + self.config.DWELL_PICKUP
 
                 # store pickup stop
                 if self.request_stops[booking_id].pickup is not None:
@@ -229,7 +229,7 @@ class StatsParser:
             elif action == VehicleStop.ACT_DROPOFF: 
                 current_load_am -= am_delta
                 current_load_wc -= wc_delta
-                service_end = service_start + self.config.dwell_alight
+                service_end = service_start + self.config.DWELL_ALIGHT
 
                 # dropoff ordering constraints
                 if self.request_stops[booking_id].dropoff is not None:
@@ -312,7 +312,7 @@ class StatsParser:
         """
         assignment_history = {}
         
-        with open(self.config.output_dir / "assignment_data.jsonl", "r") as f:
+        with open(self.config.OUTPUT_DIR / "assignment_data.jsonl", "r") as f:
             for line in f:
                 entry = json.loads(line)
 

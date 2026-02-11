@@ -34,14 +34,6 @@ class OnlineRTVSolver:
     """solves entire RTV problem for a given payload """
     def __init__(self, config: Config = None):
         self.config = config
-        self.SERVER_URL = self.config.server_url
-        self.MAX_CARDINALITY = self.config.max_cardinality
-        self.MAX_THREAD_CNT = self.config.max_thread_cnt
-        self.DWELL_PICKUP = self.config.dwell_pickup
-        self.DWELL_ALIGHT = self.config.dwell_alight
-
-        # NOTE this still seems like a code smell, but makes it a bit easier to read below     
-
         if sys.platform == "darwin": # required to run online_solver correctly on MacOS
             try:
                 multiprocessing.set_start_method("fork")
@@ -50,7 +42,7 @@ class OnlineRTVSolver:
 
     def check_feasibility(self, payload):
         # NOTE for what do we need this method?
-        NetworkHandler.init(True, self.SERVER_URL)
+        NetworkHandler.init(True, self.config.SERVER_URL)
         feasible_time_slots = []
 
         request = payload[PayloadParser.REQUESTS][0]
@@ -83,10 +75,10 @@ class OnlineRTVSolver:
         With conifg.return_depot, this method will not add the final trips to the depot. The user has to call finalize_driverRuns(...) to add those final stops. 
         """
         # initalize network and payload
-        NetworkHandler.init(True, self.SERVER_URL)
+        NetworkHandler.init(True, self.config.SERVER_URL)
         payload_object = PayloadParser.get_payload_object(payload)
         # get all requests of payload, add 
-        request_handler = RequestHandler(payload_object.requests, self.DWELL_PICKUP, self.DWELL_ALIGHT)
+        request_handler = RequestHandler(payload_object.requests, self.config.DWELL_PICKUP, self.config.DWELL_ALIGHT)
         temp_batch = request_handler.get_all_requests()
         
         # filter active and boarded requests for subsequent action as they need to be integrated when handling new trip generation
@@ -112,8 +104,8 @@ class OnlineRTVSolver:
         vehicle_handler.add_manifest_to_vehicles(payload_object.driver_runs,
                                                  boarded_requests,
                                                  boarded_trips, 
-                                                 self.DWELL_ALIGHT, 
-                                                 self.DWELL_PICKUP)
+                                                 self.config.DWELL_ALIGHT, 
+                                                 self.config.DWELL_PICKUP)
         
         NetworkHandler.initialize_travel_time_matrix()
         iteration += 1  # increase iteration as the prior step was just rebuilding from the last iteration (if there was a prior step)
@@ -140,7 +132,7 @@ class OnlineRTVSolver:
                                             self.config)
             result = optimizer.run(request_batch, active_requests)
 
-            if self.config.rebalancing:
+            if self.config.REBALANCING:
                 rebalancing_optimizer = CO_RebalancingCoverage(self.config)
                 result = rebalancing_optimizer.run(result, vehicle_handler.vehicles, request_batch)
    
@@ -168,18 +160,22 @@ class OnlineRTVSolver:
         self._check_consistency_of_manifests(payload[PayloadParser.DRIVERS], 
                                             updated_driver_runs,
                                             unserved_requests, 
-                                            payload[PayloadParser.REQUESTS])
+                                            payload[PayloadParser.REQUESTS],
+                                            keep_active=self.config.KEEP_ACTIVE,
+                                            return_depot=self.config.RETURN_DEPOT)
         # TODO remove this complex data structure to move data up the stack; integrate JSON logger that records information to a standardized JSON file and can later be rebuilt and analyzed using that JSON file (probably requires something similar to OutputHandler that was used in the simulation)
         assignment_status = {PayloadParser.STATS_ASSIGNED: result.request_assignment, 
                             PayloadParser.STATS_UNSERVED: list(unserved_requests)}
         return updated_driver_runs, assignment_status # ,trip_handler, vehicle_handler, request_handler, payload_object
 
-    def _check_consistency_of_manifests(self, 
-                                        prev_driver_runs: list[dict], 
+    @staticmethod
+    def _check_consistency_of_manifests(prev_driver_runs: list[dict], 
                                         new_driver_runs: list[dict], 
                                         unserved_requests: set[int], 
                                         new_requests: list[dict],
-                                        check_depot: bool = False):
+                                        keep_active: bool = False,
+                                        check_depot: bool = False,
+                                        return_depot: bool = False):
         """ 
         Checks whether the previously written manifest still aligns with the new manifest after new requests have been assigned. This concerns previously boarded or selected active requests. Each requests must be picked up AND dropped off exactly once and unserved_requests should not appear in the manifests at all.
 
@@ -228,7 +224,7 @@ class OnlineRTVSolver:
                 action = stop[PayloadParser.MANIFEST_ACTION]
                 if action == VehicleStop.ACT_PICKUP:
                     boarded_requests.discard(stop_id)
-                    if self.config.keep_active: # only additionally remove active requests when keep_active = True
+                    if keep_active: # only additionally remove active requests when keep_active = True
                         active_requests.discard(stop_id)
                     picked_requests.remove(stop_id)
                 elif action == VehicleStop.ACT_DROPOFF:
@@ -242,14 +238,14 @@ class OnlineRTVSolver:
 
         if len(boarded_requests) > 0:
             raise ManifestConsistencyError(f"ManifestError: boarded_requests {boarded_requests} were not picked up.")
-        if self.config.keep_active and len(active_requests) > 0:
+        if keep_active and len(active_requests) > 0:
             raise ManifestConsistencyError(f"ManifestError: active_requests {active_requests} were not kept in the manifest despite config.keep_active = True.")
         if len(picked_requests) > 0 or len(dropped_requests) > 0:
             # TODO: fails with wilson_data, cardinality = 3, thread_cnt = 16, batch_interval = 1800, step_size = 1800 (should be reproducible with this)
             raise ManifestConsistencyError(f"ManifestError: Some requests could not be removed. Missing requests: {picked_requests}, {dropped_requests}")
         active_manifests = sum(1 for lst in manifests if lst) # compare against already active manifests
         if check_depot: 
-            if self.config.return_depot:
+            if return_depot:
                 if len(depot_requests) != active_manifests: # as many depot returns as vehicles are running
                     raise ManifestConsistencyError(f"ManifestError: Depot return was not added, instead depot_returns {depot_requests} exist.") # debug: more or less than expected?
             else:
@@ -261,7 +257,7 @@ class OnlineRTVSolver:
         """
         Update the driver_run for the offlineSolver so that the last results fits the time that we have used for it.
         """
-        NetworkHandler.init(True, self.SERVER_URL)
+        NetworkHandler.init(True, self.config.SERVER_URL)
         new_driver_runs = []
         # TODO longterm: turn driver_run into an object that handles all the conditions and changes based on validated calls
         for driver_run in driver_runs:
@@ -280,11 +276,14 @@ class OnlineRTVSolver:
                 next_stop = manifest[current_order]
                 next_immediate_time = next_stop[PayloadParser.MANIFEST_SCHED_TIME]
                 next_immediate_loc = next_stop[PayloadParser.MANIFEST_LOC]
-                # apply dwell time if applicable
-                if next_stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
-                    next_immediate_time += self.DWELL_PICKUP
-                else:
-                    next_immediate_time += self.DWELL_ALIGHT
+                action = next_stop[PayloadParser.MANIFEST_ACTION]
+                # apply dwell time if applicable, why do we have this 
+                if action == VehicleStop.ACT_PICKUP:
+                    next_immediate_time += self.config.DWELL_PICKUP
+                elif action == VehicleStop.ACT_DROPOFF:
+                    next_immediate_time += self.config.DWELL_ALIGHT
+                else: # no extra time for depot or rebalance
+                    next_immediate_time += 0
                 current_order += 1
                 if next_immediate_time > current_time:
                     break
@@ -305,7 +304,7 @@ class OnlineRTVSolver:
                 PayloadParser.DRIVER_STATE: state,
                 PayloadParser.DRIVER_MANIFEST: manifest})
         
-        self._check_consistency_of_manifests(driver_runs, new_driver_runs, [], [])
+        self._check_consistency_of_manifests(driver_runs, new_driver_runs, [], [], keep_active=self.config.KEEP_ACTIVE, return_depot=self.config.RETURN_DEPOT)
         return new_driver_runs
 
     def solve_pdptw_heuristic(self, payload, return_added_vmt=False):
@@ -329,7 +328,7 @@ class OnlineRTVSolver:
             else:
                 unserved_requests.append(request[PayloadParser.REQ_BOOKING_ID])
         
-        self._check_consistency_of_manifests(payload[PayloadParser.DRIVERS], updated_driver_runs, unserved_requests, payload[PayloadParser.REQUESTS])
+        self._check_consistency_of_manifests(payload[PayloadParser.DRIVERS], updated_driver_runs, unserved_requests, payload[PayloadParser.REQUESTS], keep_active=self.config.KEEP_ACTIVE, return_depot=self.config.RETURN_DEPOT)
         if return_added_vmt:
             return updated_driver_runs, unserved_requests, total_cost
         return updated_driver_runs, unserved_requests
@@ -350,7 +349,7 @@ class OnlineRTVSolver:
             remaining_requests.append(len(unique_requests))
         
         remaining_requests = np.array(remaining_requests)
-        if remaining_requests.max() <= self.MAX_CARDINALITY:
+        if remaining_requests.max() <= self.config.MAX_CARDINALITY:
             updated_driver_runs, unserved_requests = self.solve_pdptw_rtv(payload)
             if len(unserved_requests) == 0:
                 return updated_driver_runs, unserved_requests
@@ -369,7 +368,7 @@ class OnlineRTVSolver:
         # If all requests are served, try to optimize the solution further
         console_logger.debug("Optimizing solution with swap heuristic...")
         start_time = time.time()
-        swap_handler = SwapHandler(self.SERVER_URL,
+        swap_handler = SwapHandler(self.config.SERVER_URL,
                                    updated_driver_runs,
                                    payload[PayloadParser.DEPOT],
                                    config=self.config)
@@ -426,7 +425,7 @@ class OnlineRTVSolver:
         return cost, new_manifest
 
     def _insert_request_to_driver_run(self, depot, driver_run, request, objective="vmt"):
-        NetworkHandler.init(True, self.SERVER_URL)
+        NetworkHandler.init(True, self.config.SERVER_URL)
         driver_run_c = copy.deepcopy(driver_run)
         depot_pt = depot[PayloadParser.DEPOT_PT]
         depot_node_id = NetworkHandler.get_next_node_id(depot_pt["lat"], depot_pt["lon"])
@@ -507,8 +506,8 @@ class OnlineRTVSolver:
         st_th = time.time()
 
         pool = Pool(processes=max(1,min(len(remaining_stops), 8)))
-        args_list = [(i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective, depot_node, end_time, self.DWELL_PICKUP,
-                    self.DWELL_ALIGHT) 
+        args_list = [(i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective, depot_node, end_time, self.config.DWELL_PICKUP,
+                    self.config.DWELL_ALIGHT) 
                     for i in range(len(remaining_stops) + 1) 
                     for j in range(i + 1, len(remaining_stops) + 2)]
         results = pool.map(OnlineRTVSolver._evaluate_insertion, args_list)
@@ -561,7 +560,7 @@ class OnlineRTVSolver:
         Behaviour: Depot_returns will be added straight from the last position of the vehicle where it finalized a previous trip, i.e., some vehicles might return already early during the day back to the depot despite more requests coming in. Our offline approach however has assigned all requests and thus, it is already fixed that no further requests have been accepted. 
         Alternative behaviour: Get back to the depot right before the final_end_time of each driver-run (condition depot_feasible confirms the options), but then depot_arrival_time would just be driver_run.state.end_time
         """
-        if not self.config.return_depot:
+        if not self.config.RETURN_DEPOT:
             return driver_runs
         else: 
             driver_runs_c = copy.deepcopy(driver_runs) # keep oly one as is to not change information in place
@@ -602,5 +601,5 @@ class OnlineRTVSolver:
                     driver_run.manifest.append(depot_stop)
 
                 updated_driver_runs.append(driver_run.to_dict())
-            self._check_consistency_of_manifests(driver_runs_c, updated_driver_runs, [], [], check_depot=True)
+            self._check_consistency_of_manifests(driver_runs_c, updated_driver_runs, [], [], keep_active=self.config.KEEP_ACTIVE, return_depot=self.config.RETURN_DEPOT, check_depot=True)
             return updated_driver_runs  

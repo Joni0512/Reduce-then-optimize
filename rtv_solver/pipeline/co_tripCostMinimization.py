@@ -51,7 +51,7 @@ class CO_TripCostMinimization(CO):
         self.trip_to_vehicle_cost_map = trip_to_vehicle_cost_map    # {trip_id: [trip_cost_index]}
 
     def run(self, requests: list[Request], active_requests: dict[int, Request]):
-        model, x_t, x_r = self.solve_ilp(requests, active_requests, penalty=self.config.ilp_penalty, keep_active=self.config.keep_active)
+        model, x_t, x_r = self.solve_ilp(requests, active_requests, penalty=self.config.ILP_PENALTY, keep_active=self.config.KEEP_ACTIVE)
         assignment_result = self.transform_solution_to_assignment(model, x_t, x_r, requests)
         return assignment_result
 
@@ -114,14 +114,18 @@ class CO_TripCostMinimization(CO):
                     model.addConstr(x_r[request_no] == 0, "active_req_{0}".format(request.id))
                 request_no+=1
 
-            model.setParam('TimeLimit', self.config.ilp_timeout)
+            model.setParam('TimeLimit', self.config.ILP_TIMEOUT)
             model.optimize()
 
             return model, x_t, x_r
 
     def transform_solution_to_assignment(self, model, x_t, x_r, requests: list[Request]) -> 'AssignmentResult':
-
-        # extract solution from Gurobi assignment
+        """
+        Decode and extract assignment solution from Gurobi solution
+        
+        If we keep the constraints and the basic structure the same, this function should always be able to work even when we use a different objective.
+        TODO move to a separate decoder, but no priority.
+        """
         vehicle_assignment = {}
         request_assignment = {}
         trip_sizes = []
@@ -188,9 +192,9 @@ class CO_TripCostMinimization(CO):
         # Compute IIS (conflicting constraints)
         model.Params.OutputFlag = 1
         model.computeIIS()
-        model.write(self.config.output_dir / "infeasible.ilp")   # human-readable
-        model.write(self.config.output_dir / "infeasible.lp")    # full model
-        model.write(self.config.output_dir / "infeasible.mps")   # optional
+        model.write(self.config.OUTPUT_DIR / "infeasible.ilp")   # human-readable
+        model.write(self.config.OUTPUT_DIR / "infeasible.lp")    # full model
+        model.write(self.config.OUTPUT_DIR / "infeasible.mps")   # optional
 
         # Print which constraints are in IIS
         console_logger.error("\n--- IIS constraints ---")
