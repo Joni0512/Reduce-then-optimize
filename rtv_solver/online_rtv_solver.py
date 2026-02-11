@@ -129,19 +129,20 @@ class OnlineRTVSolver:
         except Exception as e:
             raise e
         
-        single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
+        if len(vehicle_handler.vehicles) != 0:
+            single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
+            
+            optimizer = CO_TripCostMinimization(single_trip_map, 
+                                            trip_list, 
+                                            trip_costs, 
+                                            vehicle_to_trips_cost_map, 
+                                            trip_to_vehicle_cost_map, 
+                                            self.config)
+            result = optimizer.run(request_batch, active_requests)
 
-        optimizer = CO_TripCostMinimization(single_trip_map, 
-                                           trip_list, 
-                                           trip_costs, 
-                                           vehicle_to_trips_cost_map, 
-                                           trip_to_vehicle_cost_map, 
-                                           self.config)
-        result = optimizer.run(request_batch, active_requests)
-
-        if self.config.rebalancing:
-            rebalancing_optimizer = CO_RebalancingCoverage(self.config)
-            result = rebalancing_optimizer.run(result, vehicle_handler.vehicles, request_batch)
+            if self.config.rebalancing:
+                rebalancing_optimizer = CO_RebalancingCoverage(self.config)
+                result = rebalancing_optimizer.run(result, vehicle_handler.vehicles, request_batch)
    
         # assign vehicles and add trips / sequence to each vehicle 
         unserved_requests = set([req.id for req in request_batch]) # number of requests that are not already confirmed to be  served
