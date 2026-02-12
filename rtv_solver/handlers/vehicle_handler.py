@@ -595,8 +595,8 @@ class VehicleHandler:
     def simulate_vehicle(self, vehicle, current_time):
         """
         TODO check if this doc comment is correct or whether it needs an update
-        TODO move entire simulation of a single vehicle to the Vehicle class
         TODO certain steps are never reached
+        TODO logging never shows a pickup and uncertain why it never gets there
 
         Simulate vehicle state forward to a given current_time and apply any stop, pickup/dropoff,
         dwelling, rebalancing and routing decisions that become active at or before that time.

@@ -71,7 +71,7 @@ if __name__=="__main__":
     MAX_THREAD_CNT = min(MAX_THREAD_CNT, os.cpu_count())
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    logging.basicConfig(filename=OUTPUT_DIR+'main.log', level=logging.INFO)
+    logging.basicConfig(filename=OUTPUT_DIR+'/main.log', level=logging.INFO)
     logging.info('Starting the simulator with: Batch Interval {0}, RH FACTOR {1}'.format(BATCH_INTERVAL, RH_FACTOR))
     iteration = 1
 
@@ -85,7 +85,7 @@ if __name__=="__main__":
     if DEBUG_BOOL:
             payload[PayloadParser.DRIVERS] = payload[PayloadParser.DRIVERS][:1]
 
-    NetworkHandler.init(True, config.SERVER_URL)
+    NetworkHandler.init(True, config.SERVER_URL) # initialize it once so everything else can access it
 
     payload_object = PayloadParser.get_payload_object(payload,False)
     request_handler = RequestHandler(payload_object.requests, dwell_pickup, dwell_alight)      
@@ -132,14 +132,13 @@ if __name__=="__main__":
         # output_handler.record_vehicles(vehicle_handler.get_vehicle_locations(), end_time)
         # output_handler.record_completed_stops(completed_stops)
         
-        # FIXME test, why do the trips not have to be calculated for boarded requests
+        # TODO why do the trips not have to be calculated for boarded requests; this is one main difference to the approach in OnlineRTVSolver as it specifically works with boarded requests
         # easier to debug to see lengths in-line
         batch_len, active_len, boarded_len = len(batch), len(active_requests), len(boarded_requests)
         if batch_len + active_len + boarded_len > 0 :
             for req_id in active_requests:
                 batch.append(active_requests[req_id])
             
-            # FIXME: why is the assignment not deterministic?
             trip_handler = TripHandler( 
                 vehicle_handler.vehicles,
                 batch, 
@@ -157,13 +156,9 @@ if __name__=="__main__":
                                             config)
             result = optimizer.run(batch, active_requests)
 
-            perf_duration = time.time()-iteration_exe_start_time
+            perf_duration = time.time() - iteration_exe_start_time
             # output_handler.record_output(end_time, batch, trip_handler, perf_duration)
 
-            # TODO update to dictionary-based version with indexed batch; change only after entire code runs through and performance improvement is valid
-            # batch_by_id = {request.id: request for request in batch} # Build batch lookup table once
-            # active_requests = {request_id: batch_by_id[request_id] for request_id in trip_handler.request_assignment if request_id in batch_by_id} # Select only active requests
-            # active_requests = {} # this overwrites the real counter and should not be here
             batch_by_id = {request.id: request for request in batch} # Build batch lookup table once
             active_requests = {request_id: batch_by_id[request_id] for request_id in result.request_assignment if request_id in batch_by_id} # 
             # for request_id in trip_handler.request_assignment:
@@ -172,18 +167,13 @@ if __name__=="__main__":
                   #      active_requests[request_id] = request
                    #     break
 
-            # TODO below is correct version, should be fixed now
-            # for vehicle_id in result.vehicle_assignment:
-            #     vehicle = vehicle_handler.vehicles[vehicle_id]
-            #     trips, trip_sequence = result.vehicle_assignment[vehicle_id]
-            #     VehicleHandler.add_new_trips(vehicle, trips, trip_sequence, add=True)
-
             for vehicle_id in result.vehicle_assignment: # if it is empty the assignment is skipped
                 vehicle = vehicle_handler.vehicles[vehicle_id]
                 trips, prev_sequence = result.vehicle_assignment[vehicle_id]
                 plan = VehicleHandler.plan_trip_insertions(vehicle, trips, prev_sequence=prev_sequence)
                 vehicle.apply_trip_insertion(plan)
 
+            # TODO turn rebalancing back on and test its behavior
             # rebalancing_trip_info = []
             # for vehicle_id in trip_handler.rebalancing_assignment:
             #     vehicle = vehicle_handler.vehicles[vehicle_id]
@@ -197,7 +187,7 @@ if __name__=="__main__":
         console_logger.info(f"Iteration {iteration}")
 
         # update driver runs
-        # print("Completed vehicles - main:", completed_vehicles)
+        # TODO check whether this really updates the driver_run correctly
         updated_driver_runs = []
         for driver_run in payload["driver_runs"]:
             new_driver_run = vehicle_handler.get_state(driver_run)
@@ -207,6 +197,6 @@ if __name__=="__main__":
         payload["driver_runs"] = updated_driver_runs
 
         formatted_end_time = int(end_time) # change >> .strftime('%H%M%S'); JW: int() simplify for now
-        # with open(OUTPUT_DIR+'manifests/state_{0}.pkl'.format(formatted_end_time), 'wb') as file:
+        # with open(OUTPUT_DIR+'/manifests/state_{0}.pkl'.format(formatted_end_time), 'wb') as file:
         #    pickle.dump(payload, file)
-    request_handler.requests.to_csv(output_handler.output_directory+"requests.csv",index=False)
+    request_handler.requests.to_csv(output_handler.output_directory + "/requests.csv",index=False)

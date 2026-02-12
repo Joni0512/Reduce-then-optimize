@@ -132,9 +132,10 @@ class OnlineRTVSolver:
                                             self.config)
             result = optimizer.run(request_batch, active_requests)
 
-            if self.config.REBALANCING:
-                rebalancing_optimizer = CO_RebalancingCoverage(self.config)
-                result = rebalancing_optimizer.run(result, vehicle_handler.vehicles, request_batch)
+            # TODO add rebalancing handling including the assignment itself and validate its correct behavior
+            # if self.config.REBALANCING:
+            #     rebalancing_optimizer = CO_RebalancingCoverage(self.config)
+            #     result = rebalancing_optimizer.run(result, vehicle_handler.vehicles, request_batch)
    
         # assign vehicles and add trips / sequence to each vehicle 
         unserved_requests = set([req.id for req in request_batch]) # number of requests that are not already confirmed to be  served
@@ -146,8 +147,6 @@ class OnlineRTVSolver:
             for trip in trips: # remove assigned trips from unserved
                 if trip.request_id in unserved_requests:
                     unserved_requests.remove(trip.request_id)
-
-        # TODO add rebalancing handling based on rebalancing_assignment that already checks required permissions
 
         # update driver runs
         updated_driver_runs = []
