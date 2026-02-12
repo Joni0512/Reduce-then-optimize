@@ -67,13 +67,15 @@ class VehicleHandler:
             self._update_max_capacities(am_capacity, wc_capacity)
             self._update_earliest_start_time(start_time)
 
-    def _extract_vehicle_state(self, driver_run):
+    @staticmethod
+    def _extract_vehicle_state(driver_run):
         # depending on the definition of the payload (with or without 'state' key), this handles both cases
         if PayloadParser.DRIVER_STATE in driver_run:
             return driver_run[PayloadParser.DRIVER_STATE]
         return driver_run
     
-    def _update_max_capacities(self, am_capacity, wc_capacity):
+    @staticmethod
+    def _update_max_capacities(am_capacity, wc_capacity):
         VehicleHandler.MAX_AM_CAPACITY = max(VehicleHandler.MAX_AM_CAPACITY, am_capacity)
         VehicleHandler.MAX_WC_CAPACITY = max(VehicleHandler.MAX_WC_CAPACITY, wc_capacity)
 
@@ -82,6 +84,7 @@ class VehicleHandler:
             or start_time < self.earliest_start_time):
             self.earliest_start_time = start_time
 
+    @staticmethod
     def get_current_location_time(vehicle):
         next_immediate_node = vehicle.last_node 
         time_at_next_immediate_node = vehicle.time_at_last
@@ -115,7 +118,8 @@ class VehicleHandler:
                           PayloadParser.DRIVER_MANIFEST: new_manifest}
         return new_driver_run
 
-    def get_manifest(self, vehicle: Vehicle, current_order: int):
+    @staticmethod
+    def get_manifest(vehicle: Vehicle, current_order: int):
         """
         from current_order, build new manifest
         """
@@ -742,14 +746,14 @@ class VehicleHandler:
                 picked_trip = vehicle.trips[next_stop.trip_id]
                 picked_trip.picked = True
                 picked_requests.append(picked_trip.request_id)
-                console_logger.info("pickup: ", next_stop.trip_id ) #, picked_trip.request_id)
+                console_logger.info(f"pickup: {next_stop.trip_id}") #, picked_trip.request_id)
             else: # dropoff request
                 vehicle.picked.remove(next_stop.trip_id)
                 completed_requests.append(vehicle.trips[next_stop.trip_id].request_id)
                 vehicle.am_capacity = vehicle.am_capacity + trip.am_capacity
                 vehicle.wc_capacity = vehicle.wc_capacity + trip.wc_capacity
 
-                console_logger.info("dropoff: ", next_stop.trip_id)
+                console_logger.info(f"dropoff: {next_stop.trip_id}")
                 del vehicle.trips[next_stop.trip_id]
             if len(vehicle.stop_sequence) > 0:
                 next_stop = vehicle.stop_sequence[0]
@@ -798,7 +802,7 @@ class VehicleHandler:
                     best_sequence, _, feasible, _, _ = VehicleHandler.get_exact_stop_sequence(next_immediate_node,time_at_next_immediate_node,vehicle.am_capacity,vehicle.wc_capacity,updated_trip_list,[],trips_to_drop_off,[],0, tt_matrix, node_indices)
                     
                     if feasible:
-                        console_logger.debug("Vehicle ", vehicle.id, " new sequence: ", [ (stop.trip_id, stop.type) for stop in vehicle.stop_sequence])
+                        console_logger.debug(f"Vehicle {vehicle.id}, new sequence: {[ (stop.trip_id, stop.type) for stop in vehicle.stop_sequence]}")
                         vehicle.stop_sequence = best_sequence
                     next_stop = vehicle.stop_sequence[0]
                     vehicle.time_at_next = time_at_next_immediate_node + NetworkHandler.travel_time(next_immediate_node,next_stop.node)
