@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict, Iterable, List, Tuple, Union
 
 import numpy as np
+from geopy.distance import geodesic
 
 from rtv_solver.structure.trip import Trip
 from rtv_solver.structure.shared_trip import SharedTrip
@@ -11,6 +12,7 @@ from rtv_solver.structure.request import Request
 from rtv_solver.structure.vehicle import Vehicle
 from rtv_solver.handlers.trip_handler import TripHandler
 
+from rtv_solver.handlers.payload_parser import PayloadParser
 
 FeatureVector = Dict[str, Union[int, float]]
 
@@ -28,11 +30,21 @@ class FeatureBuilder:
 
     Implementation shall be deterministic and should use only existing in-memory structures or payload information (minimizing additional network calls).
     """
-    def __init__(self) -> None:
-        pass
+    def __init__(self, complete_payload) -> None:
+        # initialize the values to normalize (should be usable for most features)
+        self.min_lat, self.max_lat, self.min_lon, self.max_lon = PayloadParser.get_request_operating_area_limits(complete_payload)
+        self.lat_distance = self._calc_geo_distance_meter((self.min_lat, self.max_lon), (self.min_lat, self.max_lon)) # max 'vertical' distance
+        self.lon_distance = self._calc_geo_distance_meter((self.max_lat, self.min_lon), (self.max_lat, self.max_lon)) # max 'horizontal' distance
+        self.max_distance = self._calc_geo_distance_meter((self.min_lat, self.max_lat), (self.min_lon, self.max_lon)) # calculate the maximum distance in meters based on the overall operating area
+        
+        self.vehicle_operating_intervals = PayloadParser.get_vehicle_time_intervals(complete_payload)
+        self.start_time, self.end_time = PayloadParser.get_requests_time_interval(complete_payload)
+        self.total_operating_time = self.end_time - self.start_time
 
-    # add fixed normalization values and sort features
-
+        # TODO add fixed normalization values and sort features
+    def build_state_features(self):
+        pass 
+     
     def build_from_trip_handler(self, trip_handler: TripHandler) -> List[FeatureVector]:
         """
         Build feature dictionaries from a populated TripHandler instance.
@@ -140,6 +152,13 @@ class FeatureBuilder:
             if isinstance(sub_trip, Trip):
                 request_ids.append(sub_trip.request_id)
         return request_ids
+    
+    def _state_features(self, current_time: float, vehicles: list[Vehicle]):
+        norm_time = ( current_time - self.start_time ) / self.total_operating_time
+        # TODO find a good way to calculate boarded trips at the current_time
+        return {
+            "norm_time": norm_time
+        }
 
     def _trip_features(self, trip: Union[Trip, SharedTrip]) -> FeatureVector:
         """Basic trip-level features independent of vehicle or request details."""
@@ -162,6 +181,8 @@ class FeatureBuilder:
                 "veh_am_capacity": 0,
                 "veh_wc_capacity": 0,
             }
+        # what is the actual location in-between
+        lat_pos = vehicle.next_immediate_node
 
         return {
             "veh_am_capacity": vehicle.am_capacity,
@@ -210,6 +231,11 @@ class FeatureBuilder:
             "req_total_wc_demand": total_wc,
             "req_avg_priority": avg_priority,
         }
+    
+    @staticmethod       
+    def _calc_geo_distance_meter(loc1, loc2):
+        """each location must be defined as a tuple with (lat, lon)"""
+        return geodesic(loc1, loc2).meters
 
 if __name__ == '__main__':
     from rtv_solver.tests.conftest import trip
