@@ -3,6 +3,11 @@ from rtv_solver.handlers.vehicle_handler import VehicleHandler
 from rtv_solver.handlers.trip_handler import TripHandler
 from rtv_solver.handlers.output_handler import OutputHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.handlers.network_handler import NetworkHandler
+
+from rtv_solver.structure.config import Config
+from rtv_solver.pipeline import CO_TripCostMinimization
+
 import argparse
 import pickle 
 import os
@@ -11,6 +16,12 @@ import multiprocessing
 import logging
 from datetime import datetime, timedelta
 import time
+
+from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
+import logging
+
+console_logger = logging.getLogger(BASIC_LOGGER)
+data_logger = logging.getLogger(DATA_LOGGER)
 
 SOLVER_TIMEOUT = 120
 PENALTY = 1000000 # penalty for not serving a trip
@@ -45,11 +56,13 @@ if __name__=="__main__":
     parser.add_argument('--max_cardinality', type=int, default=4,help='maximum trips to be shared')
     parser.add_argument('--rh_factor', type=int,default=0,help='RH FACTOR')
     parser.add_argument('--interval', type=int,default=3600,help='Batch interval in seconds') # test with 3600 so it runs faster under the simple setting
-    parser.add_argument('--out_put_dir', type=str,default="output_format/debug/",help='output directory')
+    parser.add_argument('--out_put_dir', type=str,default="outputs/debug/legacy",help='output directory')
     parser.add_argument('--server_url', type=str,default="http://127.0.0.1:5001/",help='Server URL')
-    parser.add_argument('--input_file', type=str,default="rtv-solver/inputs/wilson_nc_initial.pkl",help='Request file')
+    parser.add_argument('--input_file', type=str,default="inputs/wilson_nc_initial.pkl",help='Request file')
     args = parser.parse_args()
     print(args)
+    # clean up
+    config = Config() # TODO turn default into real parsing
 
     OUTPUT_DIR = args.out_put_dir
     MAX_CARDINALITY = args.max_cardinality
@@ -72,9 +85,11 @@ if __name__=="__main__":
     if DEBUG_BOOL:
             payload[PayloadParser.DRIVERS] = payload[PayloadParser.DRIVERS][:1]
 
+    NetworkHandler.init(True, config.SERVER_URL)
+
     payload_object = PayloadParser.get_payload_object(payload,False)
     request_handler = RequestHandler(payload_object.requests, dwell_pickup, dwell_alight)      
-    vehicle_handler = VehicleHandler(payload_object.depot, payload_object.driver_runs, OUTPUT_DIR)
+    vehicle_handler = VehicleHandler(payload_object.depot, payload_object.driver_runs, config)
     output_handler = OutputHandler(OUTPUT_DIR)
 
     starting_time = request_handler.earliest_start_time()
@@ -114,8 +129,8 @@ if __name__=="__main__":
             boarded_requests.pop(req_id)
         
         # JW: does that need to be here or can we bundle Output processing with below after TripHandler
-        output_handler.record_vehicles(vehicle_handler.get_vehicle_locations(), end_time)
-        output_handler.record_completed_stops(completed_stops)
+        # output_handler.record_vehicles(vehicle_handler.get_vehicle_locations(), end_time)
+        # output_handler.record_completed_stops(completed_stops)
         
         # FIXME test, why do the trips not have to be calculated for boarded requests
         # easier to debug to see lengths in-line
@@ -130,44 +145,56 @@ if __name__=="__main__":
                 batch, 
                 active_requests, 
                 iteration, 
-                SOLVER_TIMEOUT,
-                PENALTY,
-                MAX_CARDINALITY,
-                MAX_THREAD_CNT,
-                SHAREABLE_COST_FACTOR,
-                REBALANCING,
-                RTV_TIMEOUT)
+                config)
+            
+            single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
+            
+            optimizer = CO_TripCostMinimization(single_trip_map, 
+                                            trip_list, 
+                                            trip_costs, 
+                                            vehicle_to_trips_cost_map, 
+                                            trip_to_vehicle_cost_map, 
+                                            config)
+            result = optimizer.run(batch, active_requests)
 
             perf_duration = time.time()-iteration_exe_start_time
-            output_handler.record_output(end_time, batch, trip_handler, perf_duration)
+            # output_handler.record_output(end_time, batch, trip_handler, perf_duration)
 
             # TODO update to dictionary-based version with indexed batch; change only after entire code runs through and performance improvement is valid
             # batch_by_id = {request.id: request for request in batch} # Build batch lookup table once
             # active_requests = {request_id: batch_by_id[request_id] for request_id in trip_handler.request_assignment if request_id in batch_by_id} # Select only active requests
             # active_requests = {} # this overwrites the real counter and should not be here
             batch_by_id = {request.id: request for request in batch} # Build batch lookup table once
-            active_requests = {request_id: batch_by_id[request_id] for request_id in trip_handler.request_assignment if request_id in batch_by_id} # 
+            active_requests = {request_id: batch_by_id[request_id] for request_id in result.request_assignment if request_id in batch_by_id} # 
             # for request_id in trip_handler.request_assignment:
               #   for request in batch:
                 #     if request.id == request_id:
                   #      active_requests[request_id] = request
                    #     break
 
-            for vehicle_id in trip_handler.vehicle_assignment:
-                vehicle = vehicle_handler.vehicles[vehicle_id]
-                trips, trip_sequence = trip_handler.vehicle_assignment[vehicle_id]
-                VehicleHandler.add_new_trips(vehicle, trips, trip_sequence, add=True)
+            # TODO below is correct version, should be fixed now
+            # for vehicle_id in result.vehicle_assignment:
+            #     vehicle = vehicle_handler.vehicles[vehicle_id]
+            #     trips, trip_sequence = result.vehicle_assignment[vehicle_id]
+            #     VehicleHandler.add_new_trips(vehicle, trips, trip_sequence, add=True)
 
-            rebalancing_trip_info = []
-            for vehicle_id in trip_handler.rebalancing_assignment:
+            for vehicle_id in result.vehicle_assignment: # if it is empty the assignment is skipped
                 vehicle = vehicle_handler.vehicles[vehicle_id]
-                destination = trip_handler.rebalancing_assignment[vehicle_id]
-                VehicleHandler.add_rebalancing_trip(vehicle, destination,end_time)
-                rebalancing_trip_info.append([vehicle_id,vehicle.last_node,destination,vehicle.time_at_last])
-            output_handler.record_rebalancing_trips(rebalancing_trip_info,end_time)
+                trips, prev_sequence = result.vehicle_assignment[vehicle_id]
+                plan = VehicleHandler.plan_trip_insertions(vehicle, trips, prev_sequence=prev_sequence)
+                vehicle.apply_trip_insertion(plan)
+
+            # rebalancing_trip_info = []
+            # for vehicle_id in trip_handler.rebalancing_assignment:
+            #     vehicle = vehicle_handler.vehicles[vehicle_id]
+            #     destination = trip_handler.rebalancing_assignment[vehicle_id]
+            #     VehicleHandler.add_rebalancing_trip(vehicle, destination,end_time)
+            #     rebalancing_trip_info.append([vehicle_id,vehicle.last_node,destination,vehicle.time_at_last])
+            # output_handler.record_rebalancing_trips(rebalancing_trip_info,end_time)
+
         starting_time = end_time
         iteration += 1
-        # print("Iteration", iteration)
+        console_logger.info(f"Iteration {iteration}")
 
         # update driver runs
         # print("Completed vehicles - main:", completed_vehicles)
@@ -180,6 +207,6 @@ if __name__=="__main__":
         payload["driver_runs"] = updated_driver_runs
 
         formatted_end_time = int(end_time) # change >> .strftime('%H%M%S'); JW: int() simplify for now
-        with open(OUTPUT_DIR+'manifests/state_{0}.pkl'.format(formatted_end_time), 'wb') as file:
-            pickle.dump(payload, file)
+        # with open(OUTPUT_DIR+'manifests/state_{0}.pkl'.format(formatted_end_time), 'wb') as file:
+        #    pickle.dump(payload, file)
     request_handler.requests.to_csv(output_handler.output_directory+"requests.csv",index=False)
