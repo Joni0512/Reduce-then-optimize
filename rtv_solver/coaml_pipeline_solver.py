@@ -32,10 +32,10 @@ class COAMLPipeline():
     Some functions in the OnlineRTVSolver can be reused to check feasibility."""
     def __init__(self, config: Config = None):
         self.config = config
-        self.feature_builder = FeatureBuilder()
 
     def solve_pdptw(self, payload: dict):
         online_rtv_solver = OnlineRTVSolver(self.config)
+        self.feature_builder = FeatureBuilder(payload, self.config)
         # determine time interval of entire requests set
         start_time, end_time = PayloadParser.get_requests_time_interval(payload)
         # start before the initial start_time to catch all requests in the first interval
@@ -71,7 +71,8 @@ class COAMLPipeline():
             new_payload = {
                 PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
                 PayloadParser.REQUESTS: selected_requests,
-                PayloadParser.DRIVERS: driver_runs}
+                PayloadParser.DRIVERS: driver_runs,
+                PayloadParser.CURRENT_TIME: current_time}
 
             # solve the RTV problem and update manifests
             if len(selected_requests) == 0:
@@ -121,13 +122,13 @@ class COAMLPipeline():
                 if req_id in payload_object.active_requests_keys:
                     active_requests[req_id] = req
                 request_batch.append(req)
+        # create trips of all already boarded requests # TODO these are not always boarded at this point
+        boarded_trips = TripHandler.create_trip_for_picked_requests(boarded_requests, iteration)
         
         # initialize all vehicles as they are stored in the payload-object
         vehicle_handler = VehicleHandler(payload_object.depot, 
                                          payload_object.driver_runs,
                                          self.config)
-        # create trips of all already boarded requests # TODO these are not always boarded at this point
-        boarded_trips = TripHandler.create_trip_for_picked_requests(boarded_requests, iteration)
         # update vehicle position/trips/times along its path according to all data stored in the manifest
         vehicle_handler.add_manifest_to_vehicles(payload_object.driver_runs,
                                                  boarded_requests,
@@ -151,12 +152,12 @@ class COAMLPipeline():
         
         if len(vehicle_handler.vehicles) != 0:
             single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
-            
-            feature_builder = FeatureBuilder()
-            features = feature_builder.build_from_trip_handler(trip_handler)
+            features = self.feature_builder.build_from_trip_handler(trip_handler, payload_object.current_time)
 
-            feature_matrix, feature_names = feature_builder.build_matrix_from_trip_handler(trip_handler)
-            print(json.dumps(features, indent=2))           
+            feature_matrix, feature_names = self.feature_builder.build_matrix_from_trip_handler(trip_handler, payload_object.current_time)     
+            
+            print(feature_matrix)
+            print(feature_names)
 
             optimizer = CO_TripCostMinimization(single_trip_map, 
                                             trip_list, 

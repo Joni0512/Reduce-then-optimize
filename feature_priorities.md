@@ -13,12 +13,13 @@ For the basic GLM architecture, we need specific features that we can develop.
     - active vehicles (really pay attention to 'active')
 
 - vehicle features
-    - current capacity load (boarded trips)
-    - distance of boarded requests (still active, normalized to distance one could do in 30000 - most distance those could have)
-    - current position encoding in lat-lon min-max, normalized to [0,1]
-    - number of vehicles in vicinity (radius = ???)
-    - total operating time
-    - relative part of operating time fulfilled
+    - DONE current capacity load (boarded trips)
+    - DONE time to boarded requests (still active, normalized to times of steps and intervals)
+    - DONE current position encoding in lat-lon min-max, normalized to [0,1], what is 
+    - DONE number of vehicles in vicinity (radius = 1000, defined in the function)
+    - DONE avg. distance to all other vehicles
+    - DONE total operating time
+    - DONE relative part of operating time fulfilled (relative to max operating time of that vehicle)
 
 - trip features
     - vehicles in vicinity for pickup areas (how can we calculate this based on future trips that still might be in-time?)
@@ -27,6 +28,8 @@ For the basic GLM architecture, we need specific features that we can develop.
     - encoding of all locations (how can we do that with a variable number of participating requests)
     - remaining wait time of a trip (nudge towards sercing earlier requests earlier)
 
+- shared trip features
+    - which ones?
 - vehicle-trip features
     - cost
     - distance to initial pickup, normalized by maximum distance

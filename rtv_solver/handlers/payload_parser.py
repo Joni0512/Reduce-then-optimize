@@ -72,12 +72,13 @@ class PayloadParser:
         Specific attention to requests as these are combined from new requests and still active or boarded requests stored in the vehicleManifests."""
         # initialize time-matrix if available
         travel_time_matrix = payload.get(PayloadParser.TIME_MATRIX)
-        
-        # get current time from all vehicles (prefer already progressed vehicles, fallback to earliest start time vehicles)
-        # TODO fix current_time as it should be aligned with the offline Solver iterator, currently it just takes the most recent time of the vehicle? in addition the current_time is also never used
-        SECONDS_IN_DAY = 24 * 3600
         driver_runs = payload[PayloadParser.DRIVERS]
-        current_time = SECONDS_IN_DAY
+        
+        # for OfflineSolver, get current_time from simulation
+        # for OnlineSolver, get current_time from all vehicles (prefer already progressed vehicles, fallback to earliest start time vehicles)
+        # NOTE payload.current_time has so far never been really used, we need it for the feature creation
+        SECONDS_IN_DAY = 24 * 3600
+        online_current_time = SECONDS_IN_DAY
         if online:
             start_times = []
             progressed_times = []
@@ -90,9 +91,10 @@ class PayloadParser:
                     progressed_times.append(last_time)
             # FIXME current time in here is the time for the next action of the vehicle but not the current_time of the simulation state
             if progressed_times:
-                current_time = min(progressed_times)
+                online_current_time = min(progressed_times)
             else:
-                current_time = min(start_times)
+                online_current_time = min(start_times)
+        current_time = payload.get(PayloadParser.CURRENT_TIME, online_current_time)
         
         # build list of active and boarded requests from vehicle manifests
         active_requests_data = {}
@@ -137,6 +139,10 @@ class PayloadParser:
         return Payload(travel_time_matrix, current_time, requests, boarded_requests_keys, active_requests_keys, driver_runs, depot)
 
     @staticmethod
+    def get_request_count(payload) -> int:
+        return (len(payload[PayloadParser.REQUESTS]))
+    
+    @staticmethod
     def get_requests_time_interval(payload) -> tuple[int, int]:
         """ iterate over all requests to get the earliest start time and latest end time """
         start_time = 24*3600
@@ -148,24 +154,6 @@ class PayloadParser:
             if request[PayloadParser.REQ_DROPOFF_WINDOW_END] > end_time:
                 end_time = request[PayloadParser.REQ_DROPOFF_WINDOW_END]
         return start_time, end_time
-
-    @staticmethod
-    def get_vehicle_time_intervals(payload) -> list[tuple[int, int]]:
-        """
-        Returns the operating time interval for each vehicle (driver run) in the payload.
-
-        Each tuple in the returned list is `(start_time, end_time)` in seconds and corresponds
-        to one entry in the driver_runs, in the same order.
-        """
-        intervals: list[tuple[int, int]] = []
-
-        for driver_run in payload[PayloadParser.DRIVERS]:
-            state = driver_run[PayloadParser.DRIVER_STATE]
-            start_time = state[PayloadParser.DRIVER_STATE_START_TIME]
-            end_time = state[PayloadParser.DRIVER_STATE_END_TIME]
-            intervals.append((start_time, end_time))
-
-        return intervals
 
     @staticmethod
     def get_request_positions(payload):
@@ -245,6 +233,28 @@ class PayloadParser:
         max_lon = max(all_lons)
         return (min_lat, max_lat), (min_lon, max_lon)
     
+    @staticmethod
+    def get_vehicle_time_intervals(payload) -> list[tuple[int, int]]:
+        """
+        Returns the operating time interval for each vehicle (driver run) in the payload.
+
+        Each tuple in the returned list is `(start_time, end_time)` in seconds and corresponds
+        to one entry in the driver_runs, in the same order.
+        """
+        intervals: list[tuple[int, int]] = []
+
+        for driver_run in payload[PayloadParser.DRIVERS]:
+            state = driver_run[PayloadParser.DRIVER_STATE]
+            start_time = state[PayloadParser.DRIVER_STATE_START_TIME]
+            end_time = state[PayloadParser.DRIVER_STATE_END_TIME]
+            intervals.append((start_time, end_time))
+
+        return intervals
+    
+    @staticmethod
+    def get_vehicle_count(payload) -> int:
+        return (len(payload[PayloadParser.DRIVERS]))
+
     @staticmethod
     def _build_request_from_manifest_index(manifest, pick_up_index):
         stop = manifest[pick_up_index]
