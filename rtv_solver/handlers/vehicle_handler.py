@@ -9,6 +9,9 @@ from rtv_solver.structure.node import Node
 from rtv_solver.structure.sequence import StopSequence
 from rtv_solver.structure.config import Config
 from rtv_solver.structure.trip import Trip
+from rtv_solver.structure.request import Request
+
+from rtv_solver.structure.driver_run import ManifestEntry
 
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
@@ -51,6 +54,8 @@ class VehicleHandler:
             start_time = vehicle_data[PayloadParser.DRIVER_STATE_START_TIME]
             end_time = vehicle_data[PayloadParser.DRIVER_STATE_END_TIME]
 
+            manifest = self._extract_vehicle_manifest(driver_run)
+
             vehicle = Vehicle(
                 vehicle_id,
                 start_location, # FIXME? this resets the location of the vehicles for each iteration; this does not seem to be intended behaviour or we must update it in a next step
@@ -59,6 +64,7 @@ class VehicleHandler:
                 start_time,
                 end_time,
                 start_location,
+                manifest
             )
 
             self.vehicles[vehicle_id] = vehicle
@@ -74,6 +80,13 @@ class VehicleHandler:
             return driver_run[PayloadParser.DRIVER_STATE]
         return driver_run
     
+    @staticmethod
+    def _extract_vehicle_manifest(driver_run):
+        if PayloadParser.DRIVER_MANIFEST in driver_run:
+            manifest = [ManifestEntry.from_dict(entry) for entry in driver_run[PayloadParser.DRIVER_MANIFEST]]
+            return manifest
+        return []
+
     @staticmethod
     def _update_max_capacities(am_capacity, wc_capacity):
         VehicleHandler.MAX_AM_CAPACITY = max(VehicleHandler.MAX_AM_CAPACITY, am_capacity)
@@ -176,14 +189,16 @@ class VehicleHandler:
             driver_run = None
             for run in driver_runs:
                 if int(run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_RUN_ID]) == vehicle_id:
-                    driver_run = run
-                    break
+                    driver_run = run 
+                    break # select the right driver_run
             self.add_manifest_to_vehicle(vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup)
     
     @staticmethod
-    def add_manifest_to_vehicle(vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup):
+    def add_manifest_to_vehicle(vehicle: Vehicle, driver_run: dict, boarded_requests: dict[int, Request], boarded_trips: list[Trip], dwell_alight, dwell_pickup):
         """
         translate the manifest of a vehicle into its current position and update the vehicle accordingly
+        
+        TODO move this to the vehicle object in order to collect everything there
         """
         # retrieve information from dictionary
         state = driver_run[PayloadParser.DRIVER_STATE]
@@ -226,7 +241,7 @@ class VehicleHandler:
                     if trip.request_id == stop[PayloadParser.MANIFEST_BOOKING_ID]:
                         trip_of_stop = trip
                         break
-                # add trip to vehicle (defined by its own manifest)
+                # add trip to vehicle
                 vehicle.trips[trip_of_stop.id] = trip_of_stop
                 vehicle.picked.append(trip_of_stop.id)
                 vehicle_stop = VehicleStop(
@@ -371,7 +386,8 @@ class VehicleHandler:
         # if len(trips_to_drop_off) - len(trips_to_pick_up) < max_capacity:
         for trip_id in trips_to_pick_up:
             trip = trips[trip_id]
-            new_am_capacity, new_wc_capacity = max_am_capacity-trip.am_capacity,max_wc_capacity-trip.wc_capacity
+            new_am_capacity = max_am_capacity - trip.am_capacity
+            new_wc_capacity = max_wc_capacity - trip.wc_capacity
             if new_am_capacity < 0 or new_wc_capacity < 0:
                 continue
             travel_time = NetworkHandler.travel_time_from_matrix(last_node,trip.origin,tt_matrix, node_indices)
@@ -416,7 +432,8 @@ class VehicleHandler:
         for trip_id in trips_to_drop_off:
             if trip_id not in trips_to_pick_up:
                 trip = trips[trip_id]
-                new_am_capacity, new_wc_capacity = max_am_capacity+trip.am_capacity,max_wc_capacity+trip.wc_capacity
+                new_am_capacity = max_am_capacity + trip.am_capacity
+                new_wc_capacity = max_wc_capacity + trip.wc_capacity
                 travel_time = NetworkHandler.travel_time_from_matrix(last_node,trip.destination,tt_matrix, node_indices)
                 time_at_drop_off = time_at_last_node + travel_time
                 if time_at_drop_off <= trip.latest_arrival_time:
@@ -863,16 +880,19 @@ class VehicleHandler:
 
     # BELOW UNUSED METHODS
     def save_snapshot(self):
+        """deprecated"""
         with open(self.config.OUTPUT_DIR + "vehicle_snapshot.p", 'wb') as snapshot_file:
             pickle.dump(self, snapshot_file)
 
     def load_snapshot(snapshot_directory):
+        """deprecated"""
         snapshot = None
         with open(snapshot_directory+"vehicle_snapshot.p", 'rb') as snapshot_file:
             snapshot = pickle.load(snapshot_file)
         return snapshot
     
     def read_vehicles(self, filename, starting_date, max_number_of_vehicles):
+        """deprecated"""
         # strings only relevant for one specific function
         START_TIME = 'start_time'
         CAPACITY = 'capacity'

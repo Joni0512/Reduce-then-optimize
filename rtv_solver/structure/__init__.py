@@ -1,7 +1,7 @@
 # TODO update all structure imports and remove line comments to clean up imports
 # from .config import Config
 # from .assignment_result import AssignmentResult
-# from .driver_run import DriverRun
+# from .driver_run import DriverRun, State, ManifestEntry
 # from .node import Node
 # from .payload import Payload
 # from .request import Request
@@ -16,6 +16,8 @@
 #     "Config", 
 #     "AssignmentResult",
 #     "DriverRun",
+#       "State",
+#       "ManifestEntry",
 #     "Node",
 #     "Payload",
 #     "Request",

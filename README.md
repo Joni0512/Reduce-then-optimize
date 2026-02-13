@@ -280,9 +280,9 @@ Offline solver: Currently, the optimization is built in order to create all poss
 
 No major problems with the RTV solver. 
 
-
 ## Todos & Improvements
 
+- [ ] repetitions in structures and data objects, DriverRun, Vehicle and driver_run-dicts very similar - major effort but probably very valuable to align the two and only switch to dictionaries at specific place (could later improve conditionals and when data can be changed to notice problems earlier and could remove certain issues)
 - [ ] test (& fix) rebalancing (not as important in current setup)
 - [ ] Dropoff window in `wilson / rh-ml` is fixed in payload, add a method to define this in main_script and update the payload data during the call based on our own definition of waiting times that we want to consider. (alternative: create new payloads with these changes)
 - [ ] add feature to tag vehicles as "inactive" in contrast to "started" and only calculate trip Generation with active vehicles when they are not used anymore
