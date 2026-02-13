@@ -133,8 +133,24 @@ def assignment_result():
         runtime=0.0037648677825927734)
 
 @pytest.fixture
-def vehicle():
+def vehicle_init():
     return Vehicle(vehicle_id=0, start_node=Node(lat=35.723017652422435, lon=-77.90871990823223), am_capacity=8, wc_capacity=3, start_time=18000, end_time=72000, depot=Node(lat=35.723017652422435, lon=-77.90871990823223), manifest=[])
+
+@pytest.fixture
+def vehicle_0(vehicles_interim):
+    return vehicles_interim[0]
+
+@pytest.fixture
+def vehicle_1(vehicles_interim):
+    return vehicles_interim[1]
+
+@pytest.fixture
+def vehicle_2(vehicles_interim):
+    return vehicles_interim[2]
+    
+@pytest.fixture
+def vehicle_3(vehicles_interim):
+    return vehicles_interim[3]
 
 @pytest.fixture
 def vehicles_start() -> dict[int, Vehicle]:

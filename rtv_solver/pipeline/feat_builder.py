@@ -200,6 +200,7 @@ class FeatureBuilder:
 
     def _vehicle_features(self, vehicle: Union[Vehicle, None], vehicles: list[Vehicle], current_time: float) -> FeatureVector:
         """Vehicle-related features; returns defaults if vehicle is missing."""
+        # TODO clean this up to add new items more easily and add descriptions that are also required for the thesis
         f = VehicleFeatures()
         BINARY_DISTANCE_CONDITION = 1000 # distance considered close for the spreading of vehicles
 
@@ -213,7 +214,6 @@ class FeatureBuilder:
             vehicle_pos = (vehicle.next_immediate_node.lat, vehicle.next_immediate_node.lon)
             norm_lat_position = self._calc_geo_distance_meter(default_vertical, vehicle_pos) / self.max_lat_distance
             norm_lon_position = self._calc_geo_distance_meter(default_horizontal, vehicle_pos) / self.max_lon_distance
-
 
             veh_operating_end = min(vehicle.end_time, self.r_end_time)
             if current_time > vehicle.start_time and vehicle.started:
@@ -235,26 +235,25 @@ class FeatureBuilder:
 
             norm_vehicle_count_in_proximity = vehicle_count_in_proximity / (self.total_vehicle_count - 1)
 
-            am_used, wc_used, am_cap, wc_cap = vehicle.get_capacities()
-            remaining_am_cap = (am_cap - am_used) / am_cap
-            remaining_wc_cap = (wc_cap - wc_used) / wc_cap
-            
+            am_cap, wc_cap, norm_remaining_am_cap, norm_remaining_wc_cap = vehicle.get_remaining_capacities()
+
             remaining_boarded_time = vehicle.get_remaining_boarded_time(current_time)
             norm_interval_remaining_boarded_time = max(0.0, (remaining_boarded_time - current_time) / self.interval_time)
             norm_step_remaining_boarded_time = max(0.0, (remaining_boarded_time - current_time) / self.step_time)
 
             # f.operating_time = veh_operating_end - vehicle.start_time
-            f.norm_remaining_operating_period = relative_remaining_operating_period
-            f.norm_lat_next_position = norm_lat_position
-            f.norm_lon_next_position = norm_lon_position
-            f.avg_vehicle_distance = avg_vehicle_distance
-            f.norm_vehicle_count_in_proximity = norm_vehicle_count_in_proximity
-            f.norm_remaining_am_cap = remaining_am_cap
-            f.norm_remaining_wc_cap = remaining_wc_cap
-            f.norm_interval_remaining_boarded_time = norm_interval_remaining_boarded_time
-            f.norm_step_remaining_boarded_time = norm_step_remaining_boarded_time
+            f.v_norm_remaining_operating_period = relative_remaining_operating_period
+            f.v_norm_lat_next_position = norm_lat_position
+            f.v_norm_lon_next_position = norm_lon_position
+            f.v_avg_vehicle_distance = avg_vehicle_distance
+            f.v_norm_vehicle_count_in_proximity = norm_vehicle_count_in_proximity
+            f.v_norm_remaining_am_cap = norm_remaining_am_cap
+            f.v_norm_remaining_wc_cap = norm_remaining_wc_cap
+            f.v_am_cap = am_cap
+            f.v_wc_cap = wc_cap
+            f.v_norm_interval_remaining_boarded_time = norm_interval_remaining_boarded_time
+            f.v_norm_step_remaining_boarded_time = norm_step_remaining_boarded_time
 
-            print(vehicle.id, asdict(f))
             return asdict(f)
 
     def _trip_cost_features(self, trip_cost: TripCost) -> FeatureVector:

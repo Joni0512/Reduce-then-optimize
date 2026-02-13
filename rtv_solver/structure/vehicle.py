@@ -182,7 +182,7 @@ class Vehicle:
 
         return obj
 
-# HELPER METHODS TO CREATE ML FEATURES
+    # HELPER METHODS TO CREATE ML FEATURES
     def get_capacities(self) -> tuple[int, int, int, int]:
         """
         Get used and full capacities for both am and wc 
@@ -191,26 +191,34 @@ class Vehicle:
         :rtype: tuple[int, int, int, int]
         """
         if self.picked:
-            am = 0
-            wc = 0
+            am_used = 0
+            wc_used = 0
             am_capacity = self.am_capacity
             wc_capacity = self.wc_capacity
+            matching_entries = []
             for trip_id in self.picked:
                 iteration, booking_id = self._tripId_split_to_bookingID(trip_id)
-                matching_entries = [entry for entry in self.manifest if entry.booking_id == booking_id]
+                matching_entries.extend([entry for entry in self.manifest if entry.booking_id == booking_id])
                 assert matching_entries, "Why are matching_entries empty?"
 
             for entry in matching_entries:
-                if entry.action == VehicleStop.ACT_PICKUP:
-                    am += entry.am
-                    wc += entry.wc
+                if entry.action == VehicleStop.ACT_DROPOFF:
+                    am_used += entry.am
+                    wc_used += entry.wc
                     am_capacity += entry.am
                     wc_capacity += entry.wc
-                    assert am < 8 and am >= 0, f"Used am-capacity {am} at cap {self.am_capacity}do not make sense." # 8 seems default
-                    assert wc < 3 and wc >= 0, f"Used wc-capacity {wc} at cap {self.wc_capacity}do not make sense." # 3 seems default
+                    assert am_used < 8 and am_used >= 0, f"Used am-capacity {am_used} at cap {self.am_capacity}do not make sense." # 8 seems default
+                    assert wc_used < 3 and wc_used >= 0, f"Used wc-capacity {wc_used} at cap {self.wc_capacity}do not make sense." # 3 seems default
 
-            return am, wc, am_capacity, wc_capacity
+            return am_used, wc_used, am_capacity, wc_capacity
         return 0, 0, self.am_capacity, self.wc_capacity
+    
+    def get_remaining_capacities(self):
+        """return remaining caps normalized"""
+        am_used, wc_used, am_cap, wc_cap = self.get_capacities()
+        remaining_am_cap = (am_cap - am_used) / am_cap
+        remaining_wc_cap = (wc_cap - wc_used) / wc_cap
+        return am_cap, wc_cap, remaining_am_cap, remaining_wc_cap
     
     def get_remaining_boarded_time(self, current_time: float) -> float:
         """
