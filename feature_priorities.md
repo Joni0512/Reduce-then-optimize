@@ -7,10 +7,12 @@ For the basic GLM architecture, we need specific features that we can develop.
 
 - state features (miscellaneous)
     - DONE normalized time over entire request horizon in [0,1]
-    - avg. vehicle load (boarded capacities) normalized to [0,1] - calculate that first for a single vehicle
-    - avg. vehicle promised (active requests) IF KEEP_ACTIVE
-    - avg. time until active vehicles have finished current route
-    - active vehicles (really pay attention to 'active')
+    - DONE avg. vehicle load (boarded capacities) normalized to [0,1] (for am and wc)
+    - (less prio) avg. vehicle promised (active requests) IF KEEP_ACTIVE
+    - DONE avg. time until active vehicles have finished current route with all boarded requests
+    - active vehicles (really pay attention to 'active') >> P2 as all vehicles have the same active time for now
+    - DONE total_vehicle_count
+    - number of decisions required in interval / step
 
 - vehicle features
     - DONE current capacity load (boarded trips)
@@ -20,16 +22,18 @@ For the basic GLM architecture, we need specific features that we can develop.
     - DONE avg. distance to all other vehicles
     - DONE total operating time
     - DONE relative part of operating time fulfilled (relative to max operating time of that vehicle)
+    - DONE relative remaining capacities (for am and wc)
+    - DONE total capacities (for am and wc) (to enable different vehicles)
 
 - trip features
     - vehicles in vicinity for pickup areas (how can we calculate this based on future trips that still might be in-time?)
-    - number of requests, normalized to [0, max_capacity]
+    - number of requests, normalized to [0, max_cardinality], what is the highest possible value
     - sum of distances of each separate trip
-    - encoding of all locations (how can we do that with a variable number of participating requests)
-    - remaining wait time of a trip (nudge towards sercing earlier requests earlier)
+    - remaining wait time of a trip, how many intervals can we postpone? (nudge towards servicing earlier requests as more important)
 
-- shared trip features
+- shared trip features / requests aggregated?
     - which ones?
+    - encoding of all locations (how can we do that with a variable number of participating requests)
 - vehicle-trip features
     - cost
     - distance to initial pickup, normalized by maximum distance
@@ -48,6 +52,7 @@ Assumption: vicinity defined by direct radial distance to a position depsite a r
 - CNN abstraction where all requests have a certain area that they cover around it and a route between stops is also beneficial for that area as cars would move around it
 - how can we represent a multi-request trip with many stops in arbitrary order?
 - vehicles soon-to-be-finishing
+
 Features that Shah et al. 2020 has used:
 - vehicle location
 - remaining delay of a trip (for boarded requests - 30 min = 1, no minutes left = 0?)

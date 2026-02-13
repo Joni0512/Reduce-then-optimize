@@ -1,5 +1,7 @@
 import pytest
 import numpy as np
+from pathlib import Path
+
 from rtv_solver.structure.trip import Trip
 from rtv_solver.structure.shared_trip import SharedTrip
 from rtv_solver.structure.trip_cost import TripCost
@@ -76,7 +78,31 @@ def active_requests():
 
 @pytest.fixture
 def config():
-    return Config()
+    """define a config that is always stable and can be used in all tests"""
+    return Config(
+    CONFIG_FILE="config.yaml",
+    OVERRIDE=[],
+    OUTPUT_DIR=Path("outputs") / "debug",
+    INPUT_FILE="rtv-solver/inputs/wilson_nc_initial.pkl",
+    SERVER_URL="http://127.0.0.1:5001/",
+    MAX_THREAD_CNT=16,
+    RTV_TIMEOUT=120,
+    ILP_TIMEOUT=120,
+    ILP_PENALTY=1_000_000,
+    MODE="offline",
+    MAX_CARDINALITY=2,
+    LARGEST_TSP=8,
+    SHARE_COST_FACTOR=10.0,
+    REBALANCING=False,
+    KEEP_ACTIVE=True,
+    RETURN_DEPOT=False,
+    WALK_DISTANCE_CUTOFF=0,
+    STEP_SIZE=300,
+    BATCH_INTERVAL=1200,
+    DWELL_PICKUP=180,
+    DWELL_ALIGHT=60,
+    TRAVEL_TIME_MARGIN=5,
+    )
 
 @pytest.fixture
 def assignment_result():

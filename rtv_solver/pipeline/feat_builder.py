@@ -18,21 +18,37 @@ from rtv_solver.handlers.payload_parser import PayloadParser
 
 FeatureVector = Dict[str, Union[int, float]]
 
+@dataclass
+class StateFeatures:
+    """
+    basic 1D features for the state and average values across
+    
+    main value could probably be created through overall vehicle locations encoding or request distributions
+    """
+    s_norm_time: float = 0.0
+    s_avg_remaining_am_cap: float = 1.0
+    s_avg_remaining_wc_cap: float = 1.0
+    s_total_vehicles: int = 0  # TODO adjust for active vehicles ()
+    s_avg_remaining_interval_boarded_time: float = 0.0
+    s_avg_remaining_step_boarded_time: float = 0.0
+
 
 @dataclass
 class VehicleFeatures:
     """start with simple 1D scores for a GLM"""
     # TODO alternative for position is a positional embedding of all positions on current trip
-    norm_lat_next_position: float = 0.5 # middle of the map, should never be valid
-    norm_lon_next_position: float = 0.5 # middle of the map, should never be valid
+    v_norm_lat_next_position: float = 0.5 # middle of the map, should never be valid
+    v_norm_lon_next_position: float = 0.5 # middle of the map, should never be valid
     # operating_time: float = 0.0 # total operating time
-    norm_remaining_operating_period: float = 1.0
-    norm_vehicle_count_in_proximity: float = 0.0 # other vehicles in the proximity
-    avg_vehicle_distance: float = 0.0 # to all other vehicles
-    norm_step_remaining_boarded_time: float = 0.0 # normalized to time per step
-    norm_interval_remaining_boarded_time: float = 0.0 # normalized to time per interval
-    norm_remaining_am_cap: float = 1.0 # 1 means everything is free
-    norm_remaining_wc_cap: float = 1.0 
+    v_norm_remaining_operating_period: float = 1.0
+    v_norm_vehicle_count_in_proximity: float = 0.0 # other vehicles in the proximity
+    v_avg_vehicle_distance: float = 0.0 # to all other vehicles
+    v_norm_step_remaining_boarded_time: float = 0.0 # normalized to time per step
+    v_norm_interval_remaining_boarded_time: float = 0.0 # normalized to time per interval
+    v_norm_remaining_am_cap: float = 1.0 # 1 means everything is free
+    v_norm_remaining_wc_cap: float = 1.0
+    v_am_cap: int = 0
+    v_wc_cap: int = 0 
 
 
 class FeatureBuilder:
@@ -177,19 +193,46 @@ class FeatureBuilder:
                 request_ids.append(sub_trip.request_id)
         return request_ids
     
-    def _state_features(self, current_time: float, vehicles: list[Vehicle]):
+    def _state_features(self, current_time: float, vehicles: dict[int, Vehicle]):
         norm_time = max(0.0, min(1.0, ( current_time - self.r_start_time ) / self.total_operating_time))
-        # TODO find a good way to calculate boarded trips at the current_time
-        return {
-            "norm_time": norm_time
-        }
+        
+        total_remaining_am_caps = 0.0
+        total_remaining_wc_caps = 0.0
+        total_norm_interval_remaining_boarded_time = 0.0
+        total_norm_step_remaining_boarded_time = 0.0
+        for vid, vehicle in vehicles.items():
+            _, _, remaining_am_cap, remaining_wc_cap = vehicle.get_remaining_capacities()
+            total_remaining_am_caps += remaining_am_cap
+            total_remaining_wc_caps += remaining_wc_cap
+
+            remaining_boarded_time = vehicle.get_remaining_boarded_time(current_time)
+            norm_interval_remaining_boarded_time = max(0.0, (remaining_boarded_time - current_time) / self.interval_time)
+            norm_step_remaining_boarded_time = max(0.0, (remaining_boarded_time - current_time) / self.step_time)
+            total_norm_interval_remaining_boarded_time += norm_interval_remaining_boarded_time
+            total_norm_step_remaining_boarded_time += norm_step_remaining_boarded_time
+        
+        avg_am_cap = total_remaining_am_caps / self.total_vehicle_count
+        avg_wc_cap = total_remaining_wc_caps / self.total_vehicle_count
+
+        avg_interval_boarded_time = total_norm_interval_remaining_boarded_time / self.total_vehicle_count
+        avg_step_boarded_time = total_norm_step_remaining_boarded_time / self.total_vehicle_count    
+
+        sf = StateFeatures()
+        sf.s_norm_time = norm_time
+        sf.s_avg_remaining_am_cap = avg_am_cap
+        sf.s_avg_remaining_wc_cap = avg_wc_cap
+        sf.s_total_vehicles = self.total_vehicle_count
+        sf.s_avg_remaining_interval_boarded_time = avg_interval_boarded_time
+        sf.s_avg_remaining_step_boarded_time =  avg_step_boarded_time
+
+        return asdict(sf)
 
     def _trip_features(self, trip: Union[Trip, SharedTrip]) -> FeatureVector:
         """Basic trip-level features independent of vehicle or request details."""
         if isinstance(trip, Trip):
             cardinality = 1
             base_cost = float(trip.cost) if trip.cost is not None else 0.0
-        else:
+        else: # SharedTrip
             cardinality = trip.cardinality
             base_cost = float(trip.cost)
 
@@ -256,8 +299,9 @@ class FeatureBuilder:
 
             return asdict(f)
 
-    def _trip_cost_features(self, trip_cost: TripCost) -> FeatureVector:
+    def _trip_cost_features(self, trip_cost: TripCost, trips: list[Union[Trip, SharedTrip]]) -> FeatureVector:
         """Features directly derived from TripCost."""
+        
         return {
             "tc_cost": float(trip_cost.cost),
             "tc_sequence_len": len(trip_cost.sequence),

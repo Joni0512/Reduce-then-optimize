@@ -2,7 +2,7 @@ import pytest
 
 from rtv_solver.structure.vehicle import Vehicle
 
-
+@pytest.mark.basic
 def test_vehicle0_capacity_calculation(vehicle_0: Vehicle):
     am_cap, wc_cap, remain_am_cap, remain_wc_cap = vehicle_0.get_remaining_capacities()
 
@@ -11,6 +11,7 @@ def test_vehicle0_capacity_calculation(vehicle_0: Vehicle):
     assert remain_am_cap == 1.0
     assert remain_wc_cap == 1.0
 
+@pytest.mark.basic
 def test_vehicle1_capacity_calculation(vehicle_1: Vehicle):
     am_cap, wc_cap, remain_am_cap, remain_wc_cap = vehicle_1.get_remaining_capacities()
 
@@ -19,6 +20,7 @@ def test_vehicle1_capacity_calculation(vehicle_1: Vehicle):
     assert remain_am_cap == 0.875
     assert remain_wc_cap == 1.0
 
+@pytest.mark.basic
 def test_vehicle_1_capacities(vehicle_1: Vehicle):
     am_used, wc_used, am_capacity, wc_capacity = vehicle_1.get_capacities()
 
@@ -26,7 +28,8 @@ def test_vehicle_1_capacities(vehicle_1: Vehicle):
     assert wc_used == 0
     assert am_capacity == 8
     assert wc_capacity == 3
-    
+
+@pytest.mark.basic 
 def test_vehicle2_capacity_calculation(vehicle_2: Vehicle):
     am_cap, wc_cap, remain_am_cap, remain_wc_cap = vehicle_2.get_remaining_capacities()
 
@@ -35,6 +38,7 @@ def test_vehicle2_capacity_calculation(vehicle_2: Vehicle):
     assert remain_am_cap == 0.75
     assert remain_wc_cap == 1.0
 
+@pytest.mark.basic
 def test_vehicle_2_capacities(vehicle_2: Vehicle):
     am_used, wc_used, am_capacity, wc_capacity = vehicle_2.get_capacities()
 
@@ -43,6 +47,7 @@ def test_vehicle_2_capacities(vehicle_2: Vehicle):
     assert am_capacity == 8
     assert wc_capacity == 3
 
+@pytest.mark.basic
 def test_vehicle3_capacity_calculation(vehicle_3):
     am_cap, wc_cap, remain_am_cap, remain_wc_cap = vehicle_3.get_remaining_capacities()
 
@@ -51,6 +56,7 @@ def test_vehicle3_capacity_calculation(vehicle_3):
     assert remain_am_cap == 0.625
     assert remain_wc_cap == 1.0
 
+@pytest.mark.basic
 def test_vehicle_3_capacities(vehicle_3: Vehicle):
     am_used, wc_used, am_capacity, wc_capacity = vehicle_3.get_capacities()
 
@@ -58,3 +64,17 @@ def test_vehicle_3_capacities(vehicle_3: Vehicle):
     assert wc_used == 0
     assert am_capacity == 8
     assert wc_capacity == 3
+
+@pytest.mark.basic
+def test_vehicle_0_boarding_time(vehicle_0: Vehicle):
+    current_time = 18000
+    last_boarded_dropoff_time = vehicle_0.get_remaining_boarded_time(current_time)
+
+    assert last_boarded_dropoff_time == 0.0
+
+@pytest.mark.basic
+def test_vehicle_2_boarding_time(vehicle_2: Vehicle):
+    current_time = 18000
+    last_boarded_dropoff_time = vehicle_2.get_remaining_boarded_time(current_time)
+
+    assert last_boarded_dropoff_time == pytest.approx(21996.399999999998)

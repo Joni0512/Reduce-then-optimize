@@ -110,31 +110,31 @@ def test_combinatorial_optimization_run(single_trip_map,
 # possibly monkeypatch and specific objects required
 
 @pytest.mark.basic
-def test_apply_trip_insertion(vehicle, trip_insertion_plan):
-    vehicle.trips = {}
-    vehicle.stop_sequence = []
-    vehicle.time_at_last = 0
-    vehicle.time_at_next = 0
-    vehicle.last_node = None
-    vehicle.rebalancing = True
+def test_apply_trip_insertion(vehicle_init, trip_insertion_plan):
+    vehicle_init.trips = {}
+    vehicle_init.stop_sequence = []
+    vehicle_init.time_at_last = 0
+    vehicle_init.time_at_next = 0
+    vehicle_init.last_node = None
+    vehicle_init.rebalancing = True
     
     plan = trip_insertion_plan
-    vehicle.apply_trip_insertion(plan)
+    vehicle_init.apply_trip_insertion(plan)
 
-    assert vehicle.rebalancing is False
-    assert vehicle.last_node == plan.next_immediate_node
-    assert vehicle.time_at_last == plan.time_at_next_immediate_node
-    assert vehicle.time_at_next >= plan.time_at_next_immediate_node + plan.veh_travel_time
+    assert vehicle_init.rebalancing is False
+    assert vehicle_init.last_node == plan.next_immediate_node
+    assert vehicle_init.time_at_last == plan.time_at_next_immediate_node
+    assert vehicle_init.time_at_next >= plan.time_at_next_immediate_node + plan.veh_travel_time
 
-    assert set(vehicle.trips.keys()) == {trip.id for trip in plan.trips}
-    assert vehicle.stop_sequence == plan.sequence
+    assert set(vehicle_init.trips.keys()) == {trip.id for trip in plan.trips}
+    assert vehicle_init.stop_sequence == plan.sequence
 
-    first_stop = vehicle.stop_sequence[0]
-    first_trip = vehicle.trips[first_stop.trip_id]
+    first_stop = vehicle_init.stop_sequence[0]
+    first_trip = vehicle_init.trips[first_stop.trip_id]
     if first_stop.type == first_stop.ACT_PICKUP:
-        assert vehicle.time_at_next >= first_trip.pick_up_time
+        assert vehicle_init.time_at_next >= first_trip.pick_up_time
     elif first_stop.type == first_stop.ACT_DROPOFF:
-        assert vehicle.time_at_next >= first_trip.earliest_arrival_time
+        assert vehicle_init.time_at_next >= first_trip.earliest_arrival_time
 
 
 

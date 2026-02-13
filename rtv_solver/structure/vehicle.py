@@ -237,9 +237,9 @@ class Vehicle:
             scheduled_times = []
             for entry in matching_entries:
                 scheduled_times.append(entry.scheduled_time) # as each pickup has a dropoff, the later time must be a dropoff
-            last_boarding_time = max(scheduled_times)
-            assert last_boarding_time > current_time, f"Last dropoff is not bigger than current_time: {last_boarding_time} >X {current_time}"
-            return last_boarding_time
+            last_boarded_dropoff_time = max(scheduled_times)
+            assert last_boarded_dropoff_time > current_time, f"Last dropoff is not bigger than current_time: {last_boarded_dropoff_time} >X {current_time}"
+            return last_boarded_dropoff_time
         return 0
     
     @staticmethod
