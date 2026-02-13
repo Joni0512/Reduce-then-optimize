@@ -240,8 +240,8 @@ class FeatureBuilder:
             remaining_wc_cap = (wc_cap - wc_used) / wc_cap
             
             remaining_boarded_time = vehicle.get_remaining_boarded_time(current_time)
-            norm_interval_remaining_boarded_time = (remaining_boarded_time - current_time) / self.interval_time
-            norm_step_remaining_boarded_time = (remaining_boarded_time-current_time) / self.step_time
+            norm_interval_remaining_boarded_time = max(0.0, (remaining_boarded_time - current_time) / self.interval_time)
+            norm_step_remaining_boarded_time = max(0.0, (remaining_boarded_time - current_time) / self.step_time)
 
             # f.operating_time = veh_operating_end - vehicle.start_time
             f.norm_remaining_operating_period = relative_remaining_operating_period
