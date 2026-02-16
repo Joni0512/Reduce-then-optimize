@@ -152,12 +152,14 @@ class COAMLPipeline():
         
         if len(vehicle_handler.vehicles) != 0:
             single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
-            features = self.feature_builder.build_from_trip_handler(trip_handler, payload_object.current_time)
+            feat_start_time = time.time()
 
             feature_matrix, feature_names = self.feature_builder.build_matrix_from_trip_handler(trip_handler, payload_object.current_time)     
             
             print(feature_matrix)
             print(feature_names)
+            feat_end_time = time.time()
+            console_logger.info(f"{len(feature_names)} features for {len(trip_costs)} items created in {feat_end_time - feat_start_time} seconds.")
 
             optimizer = CO_TripCostMinimization(single_trip_map, 
                                             trip_list, 
