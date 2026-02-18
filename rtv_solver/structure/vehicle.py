@@ -23,6 +23,15 @@ class TripInsertionPlan:
     # add information on veh_travel from last vehicle location to next_immediate_node, and depot_return
     veh_travel_time: float = None
     depot_travel_time: float = None
+
+    # preprocessed trip metrics in order to build features for each trip-vehicle combinations
+    direct_trip_times: list[float] = None
+    total_direct_travel_time: float = None
+    actual_travel_time: float = None
+    total_dwell_time: float = None
+    actual_route_travel_time: float = None
+    detour_time: float = None
+    idling_time: float = None
     
 class Vehicle:
     """Vehicle-related information covering basic vehicle information and simulation state during runtime"""

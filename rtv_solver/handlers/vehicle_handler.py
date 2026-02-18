@@ -331,6 +331,9 @@ class VehicleHandler:
                 travel_time = NetworkHandler.travel_time_from_matrix(next_immediate_node, next_stop.node, tt_matrix, node_indices) # travel to the beginning of the sequence from current position that is already planned
                 console_logger.debug(f"Plan - cost: {added_cost}, final arrival: {time_at_last_node}")
                 console_logger.debug("Sequence: %s", StopSequence.sequence_to_string(sequence)) 
+
+                # TODO clean up data handover
+                direct_trip_times, total_direct_travel_time, actual_travel_time, total_dwell_time, actual_route_travel_time, detour_time, idling_time = VehicleHandler._compute_trip_metrics(new_trips, sequence, next_immediate_node, time_at_next_immediate_node, tt_matrix, node_indices)
     
                 return TripInsertionPlan(
                     depot_feasible      = depot_feasible,
@@ -341,13 +344,97 @@ class VehicleHandler:
                     next_immediate_node         = next_immediate_node,
                     time_at_next_immediate_node = time_at_next_immediate_node,
                     veh_travel_time             = travel_time,
-                    depot_travel_time           = depot_travel_time)
+                    depot_travel_time           = depot_travel_time,
+                    direct_trip_times           = direct_trip_times,
+                    total_direct_travel_time    = total_direct_travel_time,
+                    actual_travel_time          = actual_travel_time,
+                    total_dwell_time            = total_dwell_time,
+                    actual_route_travel_time    = actual_route_travel_time,
+                    detour_time                 = detour_time,
+                    idling_time                 = idling_time)
             
             return TripInsertionPlan(
                     sequence_feasible= False,
                     depot_feasible = False, 
                     added_cost  = -1,
                     sequence    = None)
+
+    @staticmethod
+    def _compute_trip_metrics(
+        new_trips: list[Trip],
+        sequence: list[VehicleStop],
+        next_immediate_node: Node,
+        time_at_next_immediate_node: float,
+        tt_matrix,
+        node_indices
+    ) -> tuple[list[float], float, float, float, float]:
+        """
+        Calculate key trip metrics. This avoids redundant NetworkHandler calls in the feature builder by computing everything during parallel calls
+        
+        Args:
+            new_trips: Trip(s) being inserted
+            sequence: Feasible stop sequence after insertion
+            next_immediate_node: Vehicle's current/next position
+            time_at_next_immediate_node: Time at vehicle's next position
+            tt_matrix: Travel time matrix
+            node_indices: Node index mapping
+        
+        Returns:
+            tuple: (direct_trip_times, total_direct_travel_time, actual_travel_time, total_dwell_time, actual_route_travel_time, detour_time, idling_time)
+        """
+        # Calculate sum of direct trip travel times (origin -> destination)
+        # Use trip.cost which already contains the direct travel time
+        direct_trip_times = []
+        total_direct_travel_time = 0.0
+        for trip in new_trips:
+            if trip.cost is not None:
+                direct_time = trip.cost
+            else: # Fallback to network calculation if cost not set
+                direct_time = NetworkHandler.travel_time_from_matrix(
+                    trip.origin, trip.destination, tt_matrix, node_indices)
+            direct_trip_times.append(direct_time)
+            total_direct_travel_time += direct_time
+        
+        # Calculate actual route travel time by summing consecutive stops
+        # Split into travel time and dwell time
+        # TODO if the first stop is only the vehicle getting to a stop while being empty, add that information separately or add it to VehicleStop, basically how much empty trip do we have?
+        actual_travel_time = 0.0
+        total_dwell_time = 0.0
+        if sequence:
+            prev_node = next_immediate_node
+            for stop in sequence:
+                travel_time = NetworkHandler.travel_time_from_matrix(prev_node, stop.node, tt_matrix, node_indices)
+                # TODO small performance improv: add travel_time (float) as the final value to the vehicleStop object as it is not being updated anywhere and only used here, the stops are generated in the sequence generator
+                # if stop.travel_time is not None:
+                #     travel_time = stop.travel_time
+                # else: # Fallback to network calculation if travel time not set
+                #     travel_time = NetworkHandler.travel_time_from_matrix(prev_node, stop.node, tt_matrix, node_indices)
+                #     raise ValueError("Travel time not set for stop in sequence")
+                actual_travel_time += travel_time
+                total_dwell_time += stop.dwell  # Accumulate dwell time separately
+                prev_node = stop.node
+        
+        # Total route time = travel + dwell
+        # TODO remove these as we can calculate it later on
+        actual_route_travel_time = actual_travel_time + total_dwell_time
+        # Detour = actual route time - sum of direct trip times
+        detour_time = actual_travel_time - total_direct_travel_time
+        
+        # Calculate idling time (vehicle arrives before pickup is allowed)
+        idling_time = 0.0
+        if new_trips and sequence:
+            first_pickup = next((stop for stop in sequence if stop.type == 'pickup'), None)
+            if first_pickup:
+                time_to_reach_first_pickup = NetworkHandler.travel_time_from_matrix(
+                    next_immediate_node, first_pickup.node, tt_matrix, node_indices
+                )
+                earliest_pickup_time = min(trip.pick_up_time for trip in new_trips)
+                time_until_pickup_allowed = (
+                    earliest_pickup_time - time_at_next_immediate_node
+                )
+                idling_time = max(0.0, time_until_pickup_allowed - time_to_reach_first_pickup)
+        
+        return (direct_trip_times, total_direct_travel_time, actual_travel_time, total_dwell_time, actual_route_travel_time, detour_time, idling_time)
 
     @staticmethod
     def cost_of_serving_sequence(next_immediate_node, vehicle, tt_matrix, node_indices):
@@ -371,12 +458,13 @@ class VehicleHandler:
             return VehicleHandler.get_exact_stop_sequence(
                 last_node, time_at_last_node, max_am_capacity, max_wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, [], 0, tt_matrix, node_indices)
         else:
+            raise NotImplementedError("Heuristic stop sequence not implemented")
             return VehicleHandler.get_heuristic_stop_sequence(
                 last_node, time_at_last_node, max_am_capacity, max_wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, existing_sequence, tt_matrix, node_indices)
     
     @staticmethod
     def get_exact_stop_sequence(
-            last_node, time_at_last_node, max_am_capacity, max_wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, sequence, cost, tt_matrix, node_indices):
+            last_node, time_at_last_node, max_am_capacity, max_wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, sequence, cost, tt_matrix, node_indices):   
         if len(trips_to_pick_up) == 0 and len(trips_to_drop_off) == 0:
             return sequence, cost, True, last_node, time_at_last_node
         feasible = False

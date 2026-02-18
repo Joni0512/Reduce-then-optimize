@@ -18,12 +18,15 @@ class VehicleStop:
                  node: Node, 
                  type: str, 
                  dwell: int):
+        """
+        TODO In order to reduce calls to the network handler backend server, the travel time can be passed as a parameter and be used in the feature builder.
+        travel_time: float = travel_time from the last vehicle position to the position of this stop (only used for feature creation in COAML pipeline)
+        """
         self.trip_id: str = trip_id
         self.node: Node = node # MANIFEST_LOC
         assert type in [VehicleStop.ACT_PICKUP, VehicleStop.ACT_DROPOFF, VehicleStop.ACT_DEPOT, VehicleStop.ACT_REBALANCE]
         self.type: str = type # MANIFEST_ACTION
         self.dwell: int = dwell # either pickup or alight
-        
         # TODO define this information it would facilitate the information handling a lot
         # NOTE (test later) why do we never use this information, can we just remove them
         # self.stop_time: int = None          # MANIFEST_SCHED_TIME

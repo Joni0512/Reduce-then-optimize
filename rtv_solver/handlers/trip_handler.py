@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from gurobipy import GRB
 
+from rtv_solver.structure.vehicle import TripInsertionPlan
 from rtv_solver.structure.trip import Trip
 from rtv_solver.structure.shared_trip import SharedTrip
 from rtv_solver.structure.trip_cost import TripCost
@@ -99,13 +100,19 @@ class TripHandler:
     # TRIP COST GENERATION
     @staticmethod
     def create_trip_cost(vehicle: Vehicle, trip_no, trips, prev_sequence, config: Config):
-        plan = VehicleHandler.plan_trip_insertions(vehicle, trips, prev_sequence=prev_sequence)
-        feasible = plan.sequence_feasible
-        if config.RETURN_DEPOT:
-            feasible = plan.sequence_feasible and plan.depot_feasible
-        if feasible:
-            return TripCost(trip_no, vehicle.id, plan.added_cost, plan.sequence)
-        return None
+        try:
+            plan: TripInsertionPlan = VehicleHandler.plan_trip_insertions(vehicle, trips, prev_sequence=prev_sequence)
+            feasible = plan.sequence_feasible
+            if config.RETURN_DEPOT:
+                feasible = plan.sequence_feasible and plan.depot_feasible
+            if feasible:
+                return TripCost(trip_no, vehicle.id, plan.added_cost, plan.sequence, plan)
+            return None
+        except Exception as e:
+            console_logger.error(f"Error in create_trip_cost for trip {trip_no}, vehicle {vehicle.id}: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
     
     @staticmethod
     def _process_trip_cost_result(trip_cost):
@@ -114,7 +121,9 @@ class TripHandler:
     
     @staticmethod
     def _on_worker_error(e):
-        console_logger.error("Worker crashed:", repr(e))
+        console_logger.error("Worker crashed: %s", repr(e))
+        console_logger.error("Error type: %s", type(e).__name__)
+        console_logger.error("Error details: %s", str(e))
         traceback.print_exc()
         raise e
 
