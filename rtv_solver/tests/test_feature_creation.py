@@ -95,8 +95,6 @@ def test_trip_cost_features_single(config: Config, payload: dict, trip_costs_new
     current_time = 20000
     trip_cost = trip_costs_neworder[0]
 
-    print(repr(trip_cost))
-
     feat_dict = fb._trip_cost_features(trip_cost, current_time)
     trip_cost_features = TripCostFeatures(**feat_dict)
 

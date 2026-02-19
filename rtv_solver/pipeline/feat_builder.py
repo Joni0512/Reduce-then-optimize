@@ -210,9 +210,6 @@ class FeatureBuilder:
         feat_end_time = time.time()
         console_logger.info(f"{len(feature_names)} features for {len(trip_costs)} items created in {feat_end_time - feat_start_time} seconds.")
 
-        print(matrix)
-        print(feature_names)
-
         return matrix, feature_names
         
     
