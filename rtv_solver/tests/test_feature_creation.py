@@ -7,6 +7,8 @@ from rtv_solver.pipeline.feat_builder import TripCostFeatures
 from rtv_solver.structure.trip_cost import TripCost
 from rtv_solver.structure.vehicle import Vehicle
 from rtv_solver.structure.config import Config
+from rtv_solver.structure.request import Request
+from rtv_solver.structure.node import Node
 
 @pytest.mark.basic
 def test_vehicle_features_start(config: Config, payload: dict, vehicles_start: dict[int, Vehicle]): 
@@ -143,3 +145,95 @@ def test_trip_cost_features_double(config: Config, payload: dict, trip_costs_new
     assert trip_cost_features.tc_norm_detour_time == pytest.approx(0.015930480796446645)
     assert trip_cost_features.tc_norm_idling_time == pytest.approx(0.63075)
     assert trip_cost_features.tc_sharing_efficiency_factor == pytest.approx(0.18795396)
+
+
+@pytest.mark.basic
+def test_future_requests_features(config: Config, payload: dict):
+    """
+    Manually verifiable test for _future_requests_features.
+
+    Operating area from the payload fixture:
+      min_lat = 35.69877243,  max_lat = 35.768268585  (lat_range = 0.069496155)
+      min_lon = -77.967590332, max_lon = -77.887863159  (lon_range = 0.079727173)
+
+    current_time = 18000, BATCH_INTERVAL = 1200
+      Interval 1: earliest_pickup_time in (18000, 19200)  → decay = 1.0
+      Interval 2: earliest_pickup_time in [19200, 20400)  → decay = 0.5
+      Interval 3: earliest_pickup_time in [20400, 21600)  → decay = 0.25
+      Interval 4: earliest_pickup_time in [21600, 22800)  → decay = 0.125
+      Beyond interval 4 or at/before current_time: ignored
+
+    Grid cell mapping (row/col 0-indexed, row 0 = south, col 0 = west):
+      (min_lat, min_lon)  → cell (0, 0)   [south-west corner]
+      (max_lat, max_lon)  → row/col clamped from 7 → cell (6, 6)  [north-east corner]
+    """
+    fb = FeatureBuilder(payload, config)
+
+    min_lat, max_lat = fb.min_lat, fb.max_lat
+    min_lon, max_lon = fb.min_lon, fb.max_lon
+
+    current_time = 18000.0
+
+    requests = [
+        # Interval 1 (offset=500 → index=1) → decay 1.0; SW corner → cell (0, 0)
+        Request(identifier=101, earliest_pickup_time=18500, latest_pickup_time=20000,
+                earliest_arrival_time=18800, latest_arrival_time=21000,
+                origin=Node(lat=min_lat, lon=min_lon),
+                destination=Node(lat=min_lat, lon=min_lon),
+                dwell_pickup=60, dwell_alight=60, am_capacity=1, wc_capacity=0),
+        # Interval 2 (offset=1500 → index=2) → decay 0.5; SW corner → cell (0, 0)
+        Request(identifier=102, earliest_pickup_time=19500, latest_pickup_time=21000,
+                earliest_arrival_time=20000, latest_arrival_time=22000,
+                origin=Node(lat=min_lat, lon=min_lon),
+                destination=Node(lat=min_lat, lon=min_lon),
+                dwell_pickup=60, dwell_alight=60, am_capacity=1, wc_capacity=0),
+        # Interval 1 (offset=700 → index=1) → decay 1.0; NE corner → cell (6, 6)
+        Request(identifier=103, earliest_pickup_time=18700, latest_pickup_time=20300,
+                earliest_arrival_time=19000, latest_arrival_time=21000,
+                origin=Node(lat=max_lat, lon=max_lon),
+                destination=Node(lat=max_lat, lon=max_lon),
+                dwell_pickup=60, dwell_alight=60, am_capacity=1, wc_capacity=0),
+        # Interval 3 (offset=2500 → index=3) → decay 0.25; NE corner → cell (6, 6)
+        Request(identifier=106, earliest_pickup_time=20500, latest_pickup_time=22300,
+                earliest_arrival_time=20800, latest_arrival_time=22600,
+                origin=Node(lat=max_lat, lon=max_lon),
+                destination=Node(lat=max_lat, lon=max_lon),
+                dwell_pickup=60, dwell_alight=60, am_capacity=1, wc_capacity=0),
+        # Interval 4 (offset=3700 → index=4) → decay 0.125; SW corner → cell (0, 0)
+        Request(identifier=107, earliest_pickup_time=21700, latest_pickup_time=23500,
+                earliest_arrival_time=22000, latest_arrival_time=24000,
+                origin=Node(lat=min_lat, lon=min_lon),
+                destination=Node(lat=min_lat, lon=min_lon),
+                dwell_pickup=60, dwell_alight=60, am_capacity=1, wc_capacity=0),
+        # At current_time exactly → ignored (pickup_time <= current_time)
+        Request(identifier=104, earliest_pickup_time=18000, latest_pickup_time=19800,
+                earliest_arrival_time=18200, latest_arrival_time=20000,
+                origin=Node(lat=min_lat, lon=min_lon),
+                destination=Node(lat=min_lat, lon=min_lon),
+                dwell_pickup=60, dwell_alight=60, am_capacity=1, wc_capacity=0),
+        # Beyond horizon: offset=4801 → index=5 > 4 → ignored
+        Request(identifier=105, earliest_pickup_time=22801, latest_pickup_time=24601,
+                earliest_arrival_time=23100, latest_arrival_time=25000,
+                origin=Node(lat=min_lat, lon=min_lon),
+                destination=Node(lat=min_lat, lon=min_lon),
+                dwell_pickup=60, dwell_alight=60, am_capacity=1, wc_capacity=0),
+    ]
+
+    fv = fb._future_requests_features(requests, current_time)
+
+    # always exactly 49 keys (7x7 grid)
+    assert len(fv) == 49
+    assert all(f"fr_grid_{r}_{c}" in fv for r in range(7) for c in range(7))
+
+    # SW corner: R101 (1.0) + R102 (0.5) + R107 (0.125) = 1.625
+    assert fv["fr_grid_0_0"] == pytest.approx(1.625)
+
+    # NE corner: R103 (1.0) + R106 (0.25) = 1.25
+    assert fv["fr_grid_6_6"] == pytest.approx(1.25)
+
+    # every other cell must be zero
+    for r in range(7):
+        for c in range(7):
+            if (r, c) not in [(0, 0), (6, 6)]:
+                assert fv[f"fr_grid_{r}_{c}"] == pytest.approx(0.0), \
+                    f"Expected 0.0 for cell ({r},{c}), got {fv[f'fr_grid_{r}_{c}']}"

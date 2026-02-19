@@ -432,45 +432,80 @@ class FeatureBuilder:
 
     def _future_requests_features(self, requests: List[Request], current_time: float) -> FeatureVector:
         """
-        based on a set of future requests, consider the area as defined in the square and build the following feature vector:
-        - turn the operating area into a 7x7 grid to assign the request pickup locations to one grid location (basically aggregating future information)
-        - based on the future time steps of self.config.BATCH_INTERVAL, check which requests pickup time window are going to be used in the next two INTERVALS
-        - for each request pickup we want to have a decay factor so that each request that is active in the next Interval gets a score of 1 and if it is in two iterations, only 0.5 and halving the effect with each future interval at that time.
-        - sum all factors across all requests per area grid location
-        - disregard information about the dropoff or capacities
+        Aggregates future request pickup demand onto a 7x7 geographic grid with interval-based
+        temporal decay.
 
+        The operating area (defined by min/max lat and lon) is divided into a 7x7 grid.
+        For each request whose earliest pickup time is in the future, the pickup origin is
+        mapped to a grid cell and a decay score is accumulated:
 
-        update the doc string with the final functionality. implement a basic test based on a clear and simple set of requests for manual checkup.
+          - Interval 1  [current_time,                current_time + 1*BATCH_INTERVAL): score = 1.0
+          - Interval 2  [current_time + BATCH_INTERVAL,  current_time + 2*BATCH_INTERVAL): score = 0.5
+          - Interval 3  [current_time + 2*BATCH_INTERVAL, current_time + 3*BATCH_INTERVAL): score = 0.25
+          - Interval 4  [current_time + 3*BATCH_INTERVAL, current_time + 4*BATCH_INTERVAL): score = 0.125
+          - Beyond interval 4: ignored
+
+        Requests whose earliest_pickup_time falls beyond the look-ahead horizon
+        (4 * BATCH_INTERVAL) are ignored. Dropoff location and capacity are not used.
+
+        Returns a 49-element FeatureVector keyed as ``fr_grid_{row}_{col}`` where row 0 / col 0
+        corresponds to the south-west corner of the operating area (min lat / min lon).
+
+        Parameters
+        ----------
+        requests : List[Request]
+            Candidate future requests (not yet dispatched). Only requests with
+            earliest_pickup_time strictly after current_time are considered.
+        current_time : float
+            Current simulation time.
+
+        Returns
+        -------
+        FeatureVector
+            Flat dict with 49 entries (7×7 grid), each value being the sum of decay scores
+            accumulated for that grid cell.
         """
-        if not requests:
-            return {
-                "req_count": 0,
-                "req_earliest_pickup": 0.0,
-                "req_latest_pickup": 0.0,
-                "req_earliest_arrival": 0.0,
-                "req_latest_arrival": 0.0,
-                "req_total_am_demand": 0,
-                "req_total_wc_demand": 0,
-                "req_avg_priority": 0.0,
-            }
+        GRID_SIZE = 7
+        NUM_INTERVALS = 4
 
-        earliest_pickup = min(r.earliest_pickup_time for r in requests)
-        latest_pickup = max(r.latest_pickup_time for r in requests)
-        earliest_arrival = min(r.earliest_arrival_time for r in requests)
-        latest_arrival = max(r.latest_arrival_time for r in requests)
-        total_am = sum(r.am_capacity for r in requests)
-        total_wc = sum(r.wc_capacity for r in requests)
-        avg_priority = sum(r.priority for r in requests) / len(requests)
+        grid = np.zeros((GRID_SIZE, GRID_SIZE), dtype=float)
+
+        lat_range = self.max_lat - self.min_lat
+        lon_range = self.max_lon - self.min_lon
+
+        for request in requests:
+            pickup_time = request.earliest_pickup_time
+            if pickup_time <= current_time:
+                continue
+
+            # Which 1-indexed interval does this pickup fall into?
+            offset = pickup_time - current_time
+            interval_index = int(offset // self.config.BATCH_INTERVAL) + 1
+
+            if interval_index > NUM_INTERVALS:
+                continue
+
+            decay = 0.5 ** (interval_index - 1)
+
+            # Map pickup lat/lon to grid cell (row=south→north, col=west→east)
+            if lat_range > 0:
+                row = int((request.origin.lat - self.min_lat) / lat_range * GRID_SIZE)
+            else:
+                row = 0
+            if lon_range > 0:
+                col = int((request.origin.lon - self.min_lon) / lon_range * GRID_SIZE)
+            else:
+                col = 0
+
+            row = min(row, GRID_SIZE - 1)
+            col = min(col, GRID_SIZE - 1)
+
+            grid[row, col] += decay
 
         return {
-            "req_count": len(requests),
-            "req_earliest_pickup": earliest_pickup,
-            "req_latest_pickup": latest_pickup,
-            "req_earliest_arrival": earliest_arrival,
-            "req_latest_arrival": latest_arrival,
-            "req_total_am_demand": total_am,
-            "req_total_wc_demand": total_wc,
-            "req_avg_priority": avg_priority,
+            f"fr_grid_{row}_{col}": float(grid[row, col])
+            for row in range(GRID_SIZE)
+            for col in range(GRID_SIZE)
         }
     
     @staticmethod       
