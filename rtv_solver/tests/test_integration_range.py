@@ -87,7 +87,8 @@ def test_integration_solver_parametrized(
         step_size: int,
         keep_active: bool,
         return_depot: bool,
-        expected_feasible: bool):
+        expected_feasible: bool,
+        config: Config):
     """
     Integration edge case with specific vehicle that ends before requests are finished
 
@@ -96,7 +97,7 @@ def test_integration_solver_parametrized(
     FIXME performance increase if we removed any vehicles from the TripGeneration once they are inactive and do not iterate if our vehicle are not active anymore
     """
     payload = _init_payload(vehicle_count, first_vehicle_reduced_time, request_time_span_minutes)
-    config = Config()
+    # update parameters of config for constantly fixed results
     config.MAX_CARDINALITY = max_cardinality
     config.STEP_SIZE = step_size
     config.BATCH_INTERVAL = batch_interval

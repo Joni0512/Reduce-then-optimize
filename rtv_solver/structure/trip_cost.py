@@ -21,6 +21,7 @@ class TripCost:
             f"trip_no={self.trip_no!r}, "
             f"vehicle_id={self.vehicle_id!r}, "
             f"cost={self.cost!r}, "
-            f"sequence={self.sequence!r}"
+            f"sequence={self.sequence!r}, "
+            f"plan={self.plan!r}"
             f")"
         )
