@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rtv_solver"
-version = "0.1.36"
+version = "0.1.37"
 description = "A solver for real-time vehicle routing problems"
 readme = "README.md"
 authors = [
@@ -26,6 +26,10 @@ include = [
     "rtv_solver",
     "rtv_solver.handlers",
     "rtv_solver.structure",
+    "rtv_solver.util",
+    "rtv_solver.visuals",
+    "rtv_solver.pipeline",
+    "rtv_solver.tests"
 ]
 
 [tool.pytest.ini_options]

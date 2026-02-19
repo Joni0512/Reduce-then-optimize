@@ -81,7 +81,6 @@ class COAMLPipeline():
                 new_driver_runs, assignment_status = self.solve_iteration(new_payload, iteration)
             
             # TODO i want the status development of requests (active, boarded, unserved, delivered) 
-            # TODO how do I get the status for already delivered requests
             data_logger.info("Status", extra={"timestamp": current_time, "status": assignment_status})                
             # increment time (might not be the size of the batch) and iteration
             current_time += self.config.STEP_SIZE 
@@ -152,23 +151,17 @@ class COAMLPipeline():
         
         if len(vehicle_handler.vehicles) != 0:
             single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
-            feat_start_time = time.time()
 
             feature_matrix, feature_names = self.feature_builder.build_matrix_from_trip_handler(trip_handler, payload_object.current_time)     
-            
-            print(feature_matrix)
-            print(feature_names)
-            feat_end_time = time.time()
-            console_logger.info(f"{len(feature_names)} features for {len(trip_costs)} items created in {feat_end_time - feat_start_time} seconds.")
 
             optimizer = CO_TripCostMinimization(single_trip_map, 
-                                            trip_list, 
-                                            trip_costs, 
-                                            vehicle_to_trips_cost_map, 
-                                            trip_to_vehicle_cost_map, 
-                                            self.config)
+                                                trip_list, 
+                                                trip_costs, 
+                                                vehicle_to_trips_cost_map, 
+                                                trip_to_vehicle_cost_map, 
+                                                self.config)
             result = optimizer.run(request_batch, active_requests)
-
+            
             if self.config.REBALANCING:
                 rebalancing_optimizer = CO_RebalancingCoverage(self.config)
                 result = rebalancing_optimizer.run(result, vehicle_handler.vehicles, request_batch)

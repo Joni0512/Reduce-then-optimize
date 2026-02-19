@@ -4,6 +4,7 @@ from typing import Dict, Iterable, List, Tuple, Union
 from dataclasses import dataclass, asdict
 
 import numpy as np
+import time
 from geopy.distance import geodesic
 
 from rtv_solver.structure.trip import Trip
@@ -17,8 +18,17 @@ from rtv_solver.structure.config import Config
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.structure.vehicle import TripInsertionPlan
 
+from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
+import logging
+
+console_logger = logging.getLogger(BASIC_LOGGER)
+data_logger = logging.getLogger(DATA_LOGGER)
+
 FeatureVector = Dict[str, Union[int, float]]
 
+"""
+using the dataclasses, we can easily add padding with empty items as the default values are already defined"""
+# TODO we need a single place where all features are defined and explained and can be easily adjusted in a single place
 @dataclass
 class StateFeatures:
     """
@@ -50,6 +60,34 @@ class VehicleFeatures:
     v_norm_remaining_wc_cap: float = 1.0
     v_am_cap: int = 0
     v_wc_cap: int = 0 
+
+
+@dataclass 
+class TripCostFeatures:
+    """1D feature scores for each request-trip-vehicle combination for aggregated information; that also defines the blank defaults if nothing can be calculated"""
+    tc_cost: float = 0.0
+    tc_added_cost: float = 0.0
+    tc_sequence_len: int = 0
+    tc_num_trips: int = 0
+
+    tc_travel_time_to_first_pickup: float = 0.0
+    tc_norm_travel_time_to_first_pickup: float = 0.0
+    tc_total_direct_travel_time: float = 0.0
+    tc_actual_travel_time: float = 0.0
+    tc_norm_batch_actual_travel_time: float = 0.0
+    tc_total_dwell_time: float = 0.0
+    tc_dwell_time_ratio: float = 0.0
+    
+    tc_detour_time: float = 0.0
+    tc_norm_detour_time: float = 0.0
+    tc_total_am_demand: int = 0
+    tc_total_wc_demand: int = 0
+
+    tc_norm_idling_time: float = 0.0
+    tc_sharing_efficiency_factor: float = 0.0
+
+    # tc_actual_route_travel_time: float = 0.0 can be deduced from values above in the features
+
 
 
 class FeatureBuilder:
@@ -84,7 +122,6 @@ class FeatureBuilder:
 
         self.BINARY_DISTANCE_CONDITION = 1000
 
-     
     def build_from_trip_handler(self, trip_handler: TripHandler, current_time: float) -> List[FeatureVector]:
         """
         Build feature dictionaries from a populated TripHandler instance.
@@ -125,7 +162,7 @@ class FeatureBuilder:
             fv.update(self._state_features(current_time, vehicles))
             # fv.update(self._trip_features(trip))
             fv.update(self._vehicle_features(vehicle, vehicles, current_time))
-            fv.update(self._trip_cost_features(tc))
+            fv.update(self._trip_cost_features(tc, current_time))
             # fv.update(self._request_aggregate_features(trip_requests))
 
             features.append(fv)
@@ -164,9 +201,20 @@ class FeatureBuilder:
         )
         return matrix, feature_names
 
-    def build_matrix_from_trip_handler(self, trip_handler: TripHandler, current_time: float):
+    def build_matrix_from_trip_handler(self, trip_handler: TripHandler, current_time: float) -> Tuple[np.ndarray, List[str]]:
+        feat_start_time = time.time()
+        
         trip_costs, trips, vehicles, requests = self._get_components_from_trip_handler(trip_handler)
-        return self.build_matrix(trip_costs, trips, vehicles, requests, current_time)
+        matrix, feature_names = self.build_matrix(trip_costs, trips, vehicles, requests, current_time)
+
+        feat_end_time = time.time()
+        console_logger.info(f"{len(feature_names)} features for {len(trip_costs)} items created in {feat_end_time - feat_start_time} seconds.")
+
+        print(matrix)
+        print(feature_names)
+
+        return matrix, feature_names
+        
     
     # INTERNAL HELPERS
     def _get_components_from_trip_handler(self, trip_handler: TripHandler):
@@ -298,202 +346,104 @@ class FeatureBuilder:
 
             return asdict(f)
 
-    def _trip_cost_features(self, trip_cost: TripCost) -> FeatureVector:
+    def _trip_cost_features(self, trip_cost: TripCost, current_time: float) -> FeatureVector:
         """
-        Calculates features from TripInsertionPlan data based on feature priorities.
-        
-        Feature categories (from feature_priorities.md lines 39-47):
-        1. Cost - total cost of the trip insertion
-        2. Distance to initial pickup - normalized by max distance
-        3. Detour distances - extra distance added vs direct trips
-        4. Waiting times - time between earliest and actual pickup
-        5. Time slack to infeasibility - how close to constraint violations
-        6. Idling time - vehicle arrives before pickup is possible
-        7. Sharing efficiency - distance saved/added by trip combination
-        
-        NOTE: Most travel time metrics are pre-calculated in TripInsertionPlan
-        during vehicle_handler.plan_trip_insertions() to avoid redundant network calls.
+        Calculates features from TripCost/TripInsertionPlan data and returns them as a flat dict (FeatureVector).
+        All feature defaults are defined in TripCostFeatures.
 
-        # TODO check accuracy of results and build test problem that checks this
+        Feature categories:
+        1. Cost - total insertion cost and added marginal cost; sequence length and number of trips.
+        2. Travel time to first pickup - raw value and normalized by max_distance (time units).
+        3. Detour time - min/max individual direct trip times, total direct travel time, actual
+           route travel time (normalized by BATCH_INTERVAL), total dwell time and dwell-time ratio
+           relative to actual route time, and absolute/normalized detour time.
+        4. Idling time - time the vehicle waits at a stop before the earliest pickup is allowed,
+           normalized by BATCH_INTERVAL.
+        5. Sharing efficiency factor - (actual_travel_time - total_direct_travel_time) /
+           total_direct_travel_time; positive means extra travel overhead, would be negative for savings.
+        6. Capacity demand - total ambulatory (am) and wheelchair (wc) demand across all trips in the plan.
+
+        NOTE: All travel-time values are pre-calculated in TripInsertionPlan during
+        vehicle_handler.plan_trip_insertions() to avoid redundant network calls.
         """
+        # TODO check accuracy of results and build test problem that checks this
         plan: TripInsertionPlan = trip_cost.plan
-        features: FeatureVector = {}
+        features: TripCostFeatures = TripCostFeatures()
         
-        # === 1. COST ===
-        features["tc_cost"] = float(trip_cost.cost)
-        features["tc_added_cost"] = float(plan.added_cost) if plan.added_cost >= 0 else 0.0
-        features["tc_sequence_len"] = len(plan.sequence)
-        features["tc_num_trips"] = len(plan.trips)
-        
-        # === 2. TRAVEL TIME TO FIRST PICKUP ===
-        # Use veh_travel_time which is pre-calculated in vehicle_handler
+        # COST
+        features.tc_cost = float(trip_cost.cost)
+        features.tc_sequence_len = len(plan.sequence)
+        features.tc_num_trips = len(plan.trips)
+        if plan.added_cost >= 0:
+            features.tc_added_cost = float(plan.added_cost)
+
+        # TRAVEL TIME TO FIRST PICKUP
+        # Use veh_travel_time which is pre-calculated in vehicle_handler, meaning for current time to get to the next stop
         if plan.veh_travel_time is not None:
-            features["tc_travel_time_to_first_pickup"] = float(plan.veh_travel_time)
+            features.tc_travel_time_to_first_pickup = float(plan.veh_travel_time)
             max_travel_time = self.max_distance  # Cost is in time units
-            features["tc_norm_travel_time_to_first_pickup"] = (
-                plan.veh_travel_time / max_travel_time
-            )
-        else:
-            features["tc_travel_time_to_first_pickup"] = 0.0
-            features["tc_norm_travel_time_to_first_pickup"] = 0.0
+            features.tc_norm_travel_time_to_first_pickup = (plan.veh_travel_time / max_travel_time)
         
-        # === 3. DETOUR TIME (pre-calculated in TripInsertionPlan) ===
-        # These values are computed during plan_trip_insertions using tt_matrix
-        # Individual direct trip times (list)        
-        if plan.direct_trip_times is not None:
-            features["tc_direct_trip_times"] = plan.direct_trip_times
-            features["tc_min_direct_trip_time"] = min(plan.direct_trip_times) if plan.direct_trip_times else 0.0
-            features["tc_max_direct_trip_time"] = max(plan.direct_trip_times) if plan.direct_trip_times else 0.0
-        else:
-            features["tc_direct_trip_times"] = []
-            features["tc_min_direct_trip_time"] = 0.0
-            features["tc_max_direct_trip_time"] = 0.0
-        
+        # DETOUR TIME        
         # Total and average direct travel times
         if plan.total_direct_travel_time is not None:
-            features["tc_total_direct_travel_time"] = float(plan.total_direct_travel_time)
-            features["tc_avg_direct_trip_time"] = (
-                plan.total_direct_travel_time / len(plan.trips) if plan.trips else 0.0
-            )
-        else:
-            features["tc_total_direct_travel_time"] = 0.0
-            features["tc_avg_direct_trip_time"] = 0.0
-        
+            features.tc_total_direct_travel_time = float(plan.total_direct_travel_time)        
         # Actual route breakdown: travel vs dwell
         if plan.actual_travel_time is not None:
-            features["tc_actual_travel_time"] = float(plan.actual_travel_time)
-        else:
-            features["tc_actual_travel_time"] = 0.0
-        
+            features.tc_actual_travel_time = float(plan.actual_travel_time)
+            features.tc_norm_batch_actual_travel_time = features.tc_actual_travel_time / self.config.BATCH_INTERVAL
         if plan.total_dwell_time is not None:
-            features["tc_total_dwell_time"] = float(plan.total_dwell_time)
+            features.tc_total_dwell_time = float(plan.total_dwell_time)
             # Dwell time ratio relative to total route time
             if plan.actual_route_travel_time and plan.actual_route_travel_time > 0:
-                features["tc_dwell_time_ratio"] = (
-                    plan.total_dwell_time / plan.actual_route_travel_time
-                )
-            else:
-                features["tc_dwell_time_ratio"] = 0.0
-        else:
-            features["tc_total_dwell_time"] = 0.0
-            features["tc_dwell_time_ratio"] = 0.0
-        
-        # Total route time (travel + dwell)
-        if plan.actual_route_travel_time is not None:
-            features["tc_actual_route_travel_time"] = float(plan.actual_route_travel_time)
-        else:
-            features["tc_actual_route_travel_time"] = 0.0
-        
+                features.tc_dwell_time_ratio = (
+                    plan.total_dwell_time / plan.actual_travel_time)
         # Detour metrics
         if plan.detour_time is not None:
-            features["tc_detour_time"] = float(plan.detour_time)
-            features["tc_norm_detour_time"] = plan.detour_time / self.max_distance
-        else:
-            features["tc_detour_time"] = 0.0
-            features["tc_norm_detour_time"] = 0.0
-        
-        # === 4. WAITING TIMES ===
-        # Time between earliest pickup and latest pickup (flexibility window)
-        waiting_times = []
-        pickup_time_slacks = []
-        dropoff_time_slacks = []
-        
-        for trip in plan.trips:
-            # Waiting time flexibility (how long we can delay pickup)
-            waiting_time = trip.latest_pick_up_time - trip.pick_up_time
-            waiting_times.append(waiting_time)
-            
-            # Time slack for pickup constraint
-            pickup_slack = trip.latest_pick_up_time - trip.pick_up_time
-            pickup_time_slacks.append(pickup_slack)
-            
-            # Time slack for dropoff constraint
-            dropoff_slack = trip.latest_arrival_time - trip.earliest_arrival_time
-            dropoff_time_slacks.append(dropoff_slack)
-        
-        if waiting_times:
-            features["tc_avg_waiting_time"] = sum(waiting_times) / len(waiting_times)
-            features["tc_min_waiting_time"] = min(waiting_times)
-            features["tc_max_waiting_time"] = max(waiting_times)
-            
-            # Normalize by maximum possible waiting time (end of operating period)
-            max_possible_wait = self.total_operating_time
-            features["tc_norm_avg_waiting_time"] = (
-                features["tc_avg_waiting_time"] / max_possible_wait
-            )
-        else:
-            features["tc_avg_waiting_time"] = 0.0
-            features["tc_min_waiting_time"] = 0.0
-            features["tc_max_waiting_time"] = 0.0
-            features["tc_norm_avg_waiting_time"] = 0.0
-        
-        # === 5. TIME SLACK TO INFEASIBILITY ===
-        # Minimum slack indicates how close we are to violating constraints
-        all_time_slacks = pickup_time_slacks + dropoff_time_slacks
-        
-        if all_time_slacks:
-            features["tc_min_time_slack"] = min(all_time_slacks)
-            features["tc_avg_time_slack"] = sum(all_time_slacks) / len(all_time_slacks)
-            features["tc_norm_min_time_slack"] = (
-                features["tc_min_time_slack"] / self.total_operating_time
-            )
-        else:
-            features["tc_min_time_slack"] = 0.0
-            features["tc_avg_time_slack"] = 0.0
-            features["tc_norm_min_time_slack"] = 0.0
-        
-        # === 6. IDLING TIME (pre-calculated in TripInsertionPlan) ===
+            features.tc_detour_time = float(plan.detour_time)
+            features.tc_norm_detour_time = plan.detour_time / self.max_distance
+
+        # IDLING TIME
         # Time vehicle waits after arriving before pickup is allowed
         if plan.idling_time is not None:
-            features["tc_idling_time"] = float(plan.idling_time)
-            features["tc_norm_idling_time"] = plan.idling_time / self.config.BATCH_INTERVAL
-        else:
-            features["tc_idling_time"] = 0.0
-            features["tc_norm_idling_time"] = 0.0
-        
-        # === 7. SHARING EFFICIENCY FACTOR (using pre-calculated values) ===
+            features.tc_norm_idling_time = plan.idling_time / self.config.BATCH_INTERVAL
+
+        # SHARING EFFICIENCY FACTOR
         # Factor of how much extra travel time is added (negative = savings)
-        # -1.0 = save 100% (perfect overlap), 0.0 = no gain/loss, >0 = inefficient
         if (plan.total_direct_travel_time is not None and 
-            plan.actual_route_travel_time is not None and 
+            plan.actual_travel_time is not None and 
             plan.total_direct_travel_time > 0):
             
             total_direct = plan.total_direct_travel_time
-            actual_route = plan.actual_route_travel_time
-            
+            actual_route = plan.actual_travel_time # not consider default dwell times
+
             # Efficiency: (actual - direct) / direct
-            # Negative = good (savings), positive = bad (extra travel time)
+            # Negative = (savings), positive = (extra travel time)
             sharing_factor = (actual_route - total_direct) / total_direct
-            features["tc_sharing_efficiency_factor"] = sharing_factor
-            
-            # Inverse: travel time saved ratio (positive = good)
-            time_saved_ratio = (total_direct - actual_route) / total_direct
-            features["tc_time_saved_ratio"] = time_saved_ratio
-        else:
-            features["tc_sharing_efficiency_factor"] = 0.0
-            features["tc_time_saved_ratio"] = 0.0
+            features.tc_sharing_efficiency_factor = sharing_factor
         
-        # === CAPACITY FEATURES ===
+        # CAPACITY FEATURES
         total_am_demand = sum(trip.am_capacity for trip in plan.trips)
         total_wc_demand = sum(trip.wc_capacity for trip in plan.trips)
-        
-        features["tc_total_am_demand"] = float(total_am_demand)
-        features["tc_total_wc_demand"] = float(total_wc_demand)
-        features["tc_avg_am_demand"] = (
-            float(total_am_demand) / len(plan.trips) if plan.trips else 0.0
-        )
-        features["tc_avg_wc_demand"] = (
-            float(total_wc_demand) / len(plan.trips) if plan.trips else 0.0
-        )
+        features.tc_total_am_demand = float(total_am_demand)
+        features.tc_total_wc_demand = float(total_wc_demand)
 
-        print(trip_cost.trip_no, trip_cost.vehicle_id, features)
-        
-        return features
+        # TODO add remaining times in relation to the current_time for current dropoffs (basically potential for later detours)
 
-    def _request_aggregate_features(self, requests: List[Request]) -> FeatureVector:
+        # print(trip_cost.trip_no, trip_cost.vehicle_id, features)
+        return asdict(features)
+
+    def _future_requests_features(self, requests: List[Request], current_time: float) -> FeatureVector:
         """
-        Aggregate request-related information over all requests in the trip.
-        Covers time windows, demand and priority.
+        based on a set of future requests, consider the area as defined in the square and build the following feature vector:
+        - turn the operating area into a 7x7 grid to assign the request pickup locations to one grid location (basically aggregating future information)
+        - based on the future time steps of self.config.BATCH_INTERVAL, check which requests pickup time window are going to be used in the next two INTERVALS
+        - for each request pickup we want to have a decay factor so that each request that is active in the next Interval gets a score of 1 and if it is in two iterations, only 0.5 and halving the effect with each future interval at that time.
+        - sum all factors across all requests per area grid location
+        - disregard information about the dropoff or capacities
+
+
+        update the doc string with the final functionality. implement a basic test based on a clear and simple set of requests for manual checkup.
         """
         if not requests:
             return {

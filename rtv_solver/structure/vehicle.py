@@ -10,6 +10,7 @@ from rtv_solver.structure.driver_run import ManifestEntry
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
 
+# TODO move to a separate file in order to keep it more readable
 @dataclass
 class TripInsertionPlan:
     depot_feasible: bool = False

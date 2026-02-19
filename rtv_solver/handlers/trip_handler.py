@@ -115,7 +115,7 @@ class TripHandler:
             raise
     
     @staticmethod
-    def _process_trip_cost_result(trip_cost):
+    def _process_trip_cost_result(trip_cost: TripCost):
         if trip_cost != None:
             TripHandler.trip_costs.append(trip_cost)
     

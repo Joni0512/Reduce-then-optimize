@@ -24,25 +24,29 @@ For the basic GLM architecture, we need specific features that we can develop.
     - DONE relative part of operating time fulfilled (relative to max operating time of that vehicle)
     - DONE relative remaining capacities (for am and wc)
     - DONE total capacities (for am and wc) (to enable different vehicles)
+    - remaining active time, so last stop already registered in manifest (applies if we keep_active so state t and t+1 are more closely correlated)
 
 - trip features
-    - vehicles in vicinity for pickup areas (how can we calculate this based on future trips that still might be in-time?)
-    - number of requests, normalized to [0, max_cardinality], what is the highest possible value
-    - sum of distances of each separate trip
+    - (DONE) sum of distances of each separate trip (relative to real cost - single trip would be 1.0, shared trip should be lower as a pre-condition for higher service rate)
+    - DONE total distance (cost of trip)
     - remaining wait time of a trip, how many intervals can we postpone? (nudge towards servicing earlier requests as more important)
+    - DONE number of requests, normalized to [0, max_cardinality], what is the highest possible value
+    - vehicles in vicinity for pickup areas (how can we calculate this based on future trips that still might be in-time?)
 
-- shared trip features / requests aggregated?
-    - which ones?
+- vehicle-trip / trip cost features
+    - DONE cost
+    - DONE distance to initial pickup, normalized by maximum distance
+    - (done) avg. detour distances (how much distance do the direct trips have and how much distance are we adding to connect trips, negative value is more positive?)
+    - (done) avg. waiting time for each request, normalized to total value of maximum waiting time
+    - closest value of maxxing out a request (time-based) and getting close to infeasibility because a constraint is missed
+    - (done) avg. idling time of vehicle (arriving at position before pickup is possible)
+    - DONE avg. factor of how much the added trip adds as extra distance (if tour is the same, factor would be -1 as we save 100% of one trip, if they are subsequent, factor 0 (no gain); if the route adds more distance than just the two trips, factor in relation positive)
+
+- future payload information
+    - split area in grid cells (7x7) and add decay factor with more value for recent timestep (first interval +1, second interval +0.5, ...)
+
+shared trip features / requests aggregated?
     - encoding of all locations (how can we do that with a variable number of participating requests)
-- vehicle-trip features
-    - cost
-    - distance to initial pickup, normalized by maximum distance
-    - avg. detour distances (as currently visible)
-    - avg. waiting time for each request, normalized to total value of maximum waiting time
-    - closest value of maxing out a request (time-based) and getting close to infeasibility because a constraint is missed
-    - idling time of vehicle (arriving at position before pickup is possible)
-    - avg. factor of how much the added trip adds as extra distance (if tour is the same, factor would be -1 as we save 100% of one trip, if they are subsequent, factor 0 (no gain); if the route adds more distance than just the two trips, factor in relation positive)
-    - load after the fact
 
 Assumption: vicinity defined by direct radial distance to a position depsite a road network, reduces calculation of specific network routes (especially useful in the grid-like networks common in the USA which we use for our experiments)
 
