@@ -165,7 +165,7 @@ def assignment_result():
         {
             0: 
                 (
-                    [ # collection of tripsa
+                    [ # collection of trips
                         Trip( 
                             request_id=1, 
                             trip_number=0, 
