@@ -2,7 +2,7 @@ import numpy as np
 import gurobipy as gp
 from gurobipy import GRB
 
-from rtv_solver.pipeline.co_tripCostMinimization import CO
+from rtv_solver.pipeline import CO
 
 from rtv_solver.handlers.vehicle_handler import VehicleHandler
 

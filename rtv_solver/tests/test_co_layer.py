@@ -1,6 +1,6 @@
 import pytest
 
-from rtv_solver.pipeline.co_tripCostMinimization import CO_TripCostMinimization
+from rtv_solver.pipeline import CO_TripCostMinimization
 from rtv_solver.structure.assignment_result import AssignmentResult
 
 @pytest.mark.basic

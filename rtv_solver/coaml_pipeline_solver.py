@@ -15,9 +15,7 @@ from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.online_rtv_solver import OnlineRTVSolver
 from rtv_solver.structure.config import Config
 
-from rtv_solver.pipeline.co_tripCostMinimization import CO_TripCostMinimization
-from rtv_solver.pipeline.co_rebalancing import CO_RebalancingCoverage
-from rtv_solver.pipeline.feat_builder import FeatureBuilder
+from rtv_solver.pipeline import CO_TripCostMinimization, CO_RebalancingCoverage, FeatureBuilder
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
@@ -99,7 +97,7 @@ class COAMLPipeline():
         """
         Solver for the entire payload.
         
-        With conifg.return_depot, this method will not add the final trips to the depot. The user has to call finalize_driverRuns(...) to add those final stops. 
+        With config.return_depot, this method will not add the final trips to the depot. The user has to call finalize_driverRuns(...) to add the final stops. 
         """
         # TODO improve code quality as we currently have a lot of repetition that should not be required as we need similar information in online, offline and COAML
         # initalize network and payload
@@ -153,14 +151,15 @@ class COAMLPipeline():
             single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
 
             feature_matrix, feature_names = self.feature_builder.build_matrix_from_trip_handler(trip_handler, payload_object.current_time)     
-
-            optimizer = CO_TripCostMinimization(single_trip_map, 
-                                                trip_list, 
-                                                trip_costs, 
-                                                vehicle_to_trips_cost_map, 
-                                                trip_to_vehicle_cost_map, 
-                                                self.config)
-            result = optimizer.run(request_batch, active_requests)
+            # TODO make optimizer injectable to allow for different optimizers (e.g. CO_TripCostMinimization, CO_RebalancingCoverage, etc.) and handle setup in the main file instead of here
+            self.optimizer = CO_TripCostMinimization(
+                single_trip_map, 
+                trip_list, 
+                trip_costs, 
+                vehicle_to_trips_cost_map, 
+                trip_to_vehicle_cost_map, 
+                self.config)
+            result = self.optimizer.run(request_batch, active_requests)
             
             if self.config.REBALANCING:
                 rebalancing_optimizer = CO_RebalancingCoverage(self.config)

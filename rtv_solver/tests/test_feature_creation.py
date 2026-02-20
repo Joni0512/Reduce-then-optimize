@@ -1,8 +1,6 @@
 import pytest
 
-from rtv_solver.pipeline import FeatureBuilder
-from rtv_solver.pipeline.feat_builder import VehicleFeatures, StateFeatures
-from rtv_solver.pipeline.feat_builder import TripCostFeatures
+from rtv_solver.pipeline import FeatureBuilder, VehicleFeatures, StateFeatures, TripCostFeatures
 
 from rtv_solver.structure.trip_cost import TripCost
 from rtv_solver.structure.vehicle import Vehicle
