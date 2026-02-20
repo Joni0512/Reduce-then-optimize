@@ -50,3 +50,13 @@ class Request:
             f"priority={self.priority!r}"
             f")"
         )
+    
+    def get_direct_travel_time(self):
+        return self.earliest_arrival_time - self.earliest_pickup_time
+
+    def get_time_window_duration(self):
+        pickup_duration = float(self.latest_pickup_time - self.earliest_pickup_time)
+        dropoff_duration = float(self.latest_arrival_time - self.earliest_arrival_time)
+        if abs( pickup_duration - dropoff_duration ) > 0.00001:
+            print(f"DEBUG {self.id}: pickup_duration: {pickup_duration}, dropoff_duration: {dropoff_duration}")
+        return dropoff_duration

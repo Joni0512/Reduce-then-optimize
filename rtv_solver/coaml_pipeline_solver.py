@@ -100,7 +100,7 @@ class COAMLPipeline():
         # TODO improve code quality as we currently have a lot of repetition that should not be required as we need similar information in online, offline and COAML
         # initalize network and payload
         NetworkHandler.init(True, self.config.SERVER_URL)
-        payload_object = PayloadParser.get_payload_object(subset_payload)
+        payload_object = PayloadParser.get_payload_object(subset_payload, False)
         # get all requests of payload, add 
         request_handler = RequestHandler(payload_object.requests, self.config.DWELL_PICKUP, self.config.DWELL_ALIGHT)
         temp_batch = request_handler.get_all_requests()

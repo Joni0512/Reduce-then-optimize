@@ -3,6 +3,9 @@ from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.structure.vehicle_stop import VehicleStop
 
 import copy
+import pickle
+from pathlib import Path
+from typing import Any
 
 class PayloadParser:
     """
@@ -66,7 +69,7 @@ class PayloadParser:
     STATS_DROPPED = 'dropped'
 
     @staticmethod
-    def get_payload_object(payload, online=True) -> Payload:
+    def get_payload_object(payload: dict[str: Any], online: bool=True) -> Payload:
         """
         Based on the inserted payload data, a new payload is created.
         Specific attention to requests as these are combined from new requests and still active or boarded requests stored in the vehicleManifests."""
@@ -345,6 +348,12 @@ class PayloadParser:
 
         return normalized
 
+    @staticmethod
+    def load_input_data(input_file: Path):
+        with open(input_file, 'rb') as f:
+            data = pickle.load(f)
+        return PayloadParser.normalize_to_canonical(data)
+
     # TODO
     # def update_requests(data):
     """
@@ -352,3 +361,109 @@ class PayloadParser:
      
     This also offers the option to add randomized versions of the same requests to get more training data sets while keeping realism."""
         
+
+
+if __name__ == "__main__":
+    """
+    analyse the payload (especially requests) in order to adapt it for custom experiments.
+
+    quick script to check the changes
+    """
+    import argparse
+    from rtv_solver.handlers.request_handler import RequestHandler
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+    import numpy as np
+
+    parser = argparse.ArgumentParser(description='Arguments for the PayloadParser main script')
+    parser.add_argument('--input_file', type=str, default='inputs/wilson_nc_initial.pkl', help='Path to the input file')
+    args = parser.parse_args()
+
+    data = PayloadParser.load_input_data(args.input_file)
+    payload = PayloadParser.get_payload_object(data, online = True)
+    request_handler = RequestHandler(payload.requests, 180, 60)
+
+    requests = request_handler.get_all_requests()
+    request_count = len(requests)
+
+    travel_times = []
+    waiting_windows = []
+
+    for req in requests:
+        travel_times.append(req.get_direct_travel_time())
+        waiting_windows.append(req.get_time_window_duration())
+
+    min_travel_time = min(travel_times)
+    max_travel_time = max(travel_times)
+    avg_travel_time = sum(travel_times) / len(travel_times)
+
+    print(f"DEBUG {request_count} requests: min_travel_time: {min_travel_time}, max_travel_time: {max_travel_time}, avg_travel_time: {avg_travel_time}, min_waiting_window: {min(waiting_windows)}, max_waiting_window: {max(waiting_windows)}, avg_waiting_window: {sum(waiting_windows) / len(waiting_windows)}")
+
+    data = {
+        'request_id': [req.id for req in requests],
+        'earliest_pickup_time': [req.earliest_pickup_time for req in requests],
+        'latest_pickup_time': [req.latest_pickup_time for req in requests],
+        'latest_arrival_time': [req.latest_arrival_time for req in requests],
+    }
+
+    df = pd.DataFrame(data)
+    # Convert times to datetime
+    # df['earliest_pickup_time'] = pd.to_datetime(df['earliest_pickup_time'])
+    # df['latest_arrival_time'] = pd.to_datetime(df['latest_arrival_time'])
+
+    df = df.sort_values('earliest_pickup_time').reset_index(drop=True)
+
+    # Define figure with two subplots
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True, gridspec_kw={'height_ratios': [2, 1]})
+
+    # --- Top subplot: Gantt bars ---
+    y_pos = range(len(df))
+    for i, row in df.iterrows():
+        # Green: earliest -> latest_pickup
+        ax1.hlines(y=i, xmin=row['earliest_pickup_time'], xmax=row['latest_pickup_time'], color='green', linewidth=8)
+        # Red: latest_pickup -> latest_arrival
+        ax1.hlines(y=i, xmin=row['latest_pickup_time'], xmax=row['latest_arrival_time'], color='red', linewidth=8)
+
+    #ax1.set_yticks(y_pos)
+    #ax1.set_yticklabels(df['request_id'])
+
+    # --- Align x-axis to the first request time ---
+    min_time = df['earliest_pickup_time'].min()
+    max_time = df['latest_arrival_time'].max()
+    min_id = df['request_id'].min()
+    max_id = df['request_id'].max()
+
+    ax1.set_xlim(min_time, max_time)
+    ax1.set_ylim(min_id, max_id)
+
+    ax1.invert_yaxis()
+    ax1.set_ylabel('Request ID')
+    ax1.set_title('Requests Time Windows')
+    # Create custom legend handles
+    legend_elements = [
+        Line2D([0], [0], color='green', lw=8, label='Pickup Window'),
+        Line2D([0], [0], color='red', lw=8, label='Remaining Travel Time')
+    ]
+
+    # Add legend to the top subplot
+    ax1.legend(handles=legend_elements, loc='upper right', frameon=False)
+
+    # --- Bottom subplot: Active requests count ---
+    # Create a fine grid of time steps
+    time_grid = np.arange(df['earliest_pickup_time'].min(), df['latest_arrival_time'].max(), 300.0)  # step 300 seconds
+    active_counts = []
+
+    for t in time_grid:
+        active = ((df['earliest_pickup_time'] <= t) & (df['latest_arrival_time'] >= t)).sum()
+        active_counts.append(active)
+
+    ax2.bar(time_grid, active_counts, width=300.0, color='skyblue', align='edge')
+    ax2.set_ylabel('Active Requests')
+    ax2.set_xlabel('Time (hours)')
+    ax2.set_xlim(min_time, max_time)
+
+    ax2.set_title('Number of Active Requests Over Time')
+
+    plt.tight_layout()
+    plt.show()
