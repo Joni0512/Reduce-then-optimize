@@ -3,6 +3,7 @@ from .co_base import CO
 from .co_tripCostMinimization import CO_TripCostMinimization
 from .co_scoreMaximization import CO_ScoreMaximization
 from .co_rebalancing import CO_RebalancingCoverage
+from .model_simpleScoring import ScoringMLP
 
 __all__ = [
     "FeatureBuilder", 
@@ -13,4 +14,5 @@ __all__ = [
     "CO_TripCostMinimization", 
     "CO_ScoreMaximization",  
     "CO_RebalancingCoverage",
+    "ScoringMLP",
 ]
