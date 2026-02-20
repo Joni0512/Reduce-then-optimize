@@ -281,7 +281,9 @@ def test_co_run_score_maximization(feature_scores, expected_trip_indices,single_
     for i, trip in enumerate(trips):
         assert trip.number == expected_trip_indices[i]
 
+# TODO test assignment with multiple vehicles for scores (requires some efforts for the test setup as we need to export the required information from the tripHandler to simulate the CO layer, interface far too complex)
 
+    
 @pytest.mark.basic
 def test_apply_trip_insertion(vehicle_init, trip_insertion_plan):
     vehicle_init.trips = {}
