@@ -69,6 +69,12 @@ class PayloadParser:
     STATS_DROPPED = 'dropped'
 
     @staticmethod
+    def load_input_data(input_file: Path):
+        with open(input_file, 'rb') as f:
+            data = pickle.load(f)
+        return PayloadParser.normalize_to_canonical(data)
+
+    @staticmethod
     def get_payload_object(payload: dict[str: Any], online: bool=True) -> Payload:
         """
         Based on the inserted payload data, a new payload is created.
@@ -347,12 +353,6 @@ class PayloadParser:
         normalized[PayloadParser.DRIVERS] = new_driver_runs
 
         return normalized
-
-    @staticmethod
-    def load_input_data(input_file: Path):
-        with open(input_file, 'rb') as f:
-            data = pickle.load(f)
-        return PayloadParser.normalize_to_canonical(data)
 
     # TODO
     # def update_requests(data):

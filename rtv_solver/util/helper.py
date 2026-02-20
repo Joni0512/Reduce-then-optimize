@@ -1,5 +1,8 @@
 import json
-import pickle
+import random
+import numpy as np
+import torch
+import os
 
 from pathlib import Path
 
@@ -21,7 +24,18 @@ def json_default(obj):
         return obj.to_dict()
     raise TypeError(f"Type {type(obj)} not serializable")
 
-def load_input_data(input_file: Path):
-    with open(input_file, 'rb') as f:
-        data = pickle.load(f)
-    return PayloadParser.normalize_to_canonical(data)
+def set_seed(seed: int = 42, debug=False):
+    """
+    Sets the seed for the random number generators to make sure it is always aligned and reproducible.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    os.environ["PYTHONHASHSEED"] = str(seed)
+
+    if debug: # slight performance penalty for deterministic operations
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        torch.use_deterministic_algorithms(True)

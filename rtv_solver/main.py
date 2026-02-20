@@ -13,12 +13,10 @@ from rtv_solver.handlers.stats_parser import StatsParser
 from rtv_solver.structure.config import Config
 
 from rtv_solver.util.logger import setup_loggers, BASIC_LOGGER, DATA_LOGGER
-from rtv_solver.util.helper import save_json, load_input_data
+from rtv_solver.util.helper import save_json, set_seed
 
 from rtv_solver.visuals.payload_visuals import plot_requests_operating_area
 from rtv_solver.visuals.route_manifest_mapper import RouteManifestMapper
-
-DEBUG_MODE = True # reduces number of vehicles and requests for easier debugging
 
 if __name__ == "__main__":
     """
@@ -53,21 +51,19 @@ if __name__ == "__main__":
     parser.add_argument('--dwell_pickup', type=int,         default=180, help='Dwell time at pickup in seconds')
     parser.add_argument('--dwell_alight', type=int,         default=60, help='Dwell time at alight (dropoff) in seconds')
     parser.add_argument('--walk_distance_cutoff', type=int, default=0, help="Walking distance between dropoff and final destination.")
-    # parser.add_argument('--rh_factor', type=int,            default=0, help='Rolling horizon factor')  # NOTE alternative to step_size
     parser.add_argument('--step_size', type=int,            default=1800, help='Step size in seconds for rolling horizon')
     parser.add_argument('--batch_interval', type=int,       default=3600, help='Batch interval in seconds')
     # stats parameters
     parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
     # TODO COAML parameters 
     # random_seed, training parameters, NN parameters
+    parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility') 
     parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'rh-ml', 'plot'], default='rh-ml', help='Mode on how the programme should solve the PDPTW')
-    arguments = parser.parse_args()
+    parser.add_argument('--debug', type=bool, default=True, help='Run in debug mode (# reduces number of vehicles and requests for easier debugging)')
 
     # implement configuration
+    arguments = parser.parse_args()
     config = Config.from_args(arguments)
-
-    # load data from file and update to canonical format for the entire system
-    data = load_input_data(Path(__file__).resolve().parent.parent / "inputs" / config.INPUT_FILE)
 
     setup_loggers(config.OUTPUT_DIR)
     console_logger = logging.getLogger(BASIC_LOGGER)
@@ -76,8 +72,13 @@ if __name__ == "__main__":
     console_logger.info(f"Output directory: {config.OUTPUT_DIR}")
     console_logger.info(f' --- Start: RTV simulation --- online > {config.MODE}')
     console_logger.info(f'Arguments: {config}')
+
+    # load data from file and update to canonical format for the entire system
+    data = PayloadParser.load_input_data(Path(__file__).resolve().parent.parent / "inputs" / config.INPUT_FILE)
+
+    set_seed(config.SEED, config.DEBUG)
     
-    if DEBUG_MODE: # check if the basic functionality of the online RTV solver works (foundation for offline RTV solver)
+    if config.DEBUG: # check if the basic functionality of the online RTV solver works (foundation for offline RTV solver)
         console_logger.setLevel(logging.INFO)
         config.RTV_TIMEOUT = 600000 # if I am clicking through inputs, it never breaks due to timeout
         

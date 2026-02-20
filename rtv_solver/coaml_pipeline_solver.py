@@ -32,7 +32,11 @@ class COAMLPipeline():
         self.config = config
 
     def solve_pdptw(self, payload: dict):
-        online_rtv_solver = OnlineRTVSolver(self.config)
+        """
+        Handles payloads across iterations of the rolling horizon
+        
+        With config.return_depot, this method will not add the final trips to the depot. The user has to call finalize_driverRuns(...) to add the final stops.
+        """
         self.feature_builder = FeatureBuilder(payload, self.config)
         # determine time interval of entire requests set
         start_time, end_time = PayloadParser.get_requests_time_interval(payload)
@@ -93,9 +97,7 @@ class COAMLPipeline():
     
     def solve_iteration(self, subset_payload, iteration = 0):
         """
-        Solver for the entire payload.
-        
-        With config.return_depot, this method will not add the final trips to the depot. The user has to call finalize_driverRuns(...) to add the final stops. 
+        Solver for the entire payload that is given, based on the onlineRTVSolver but adapted to COAML pipeline.
         """
         # TODO improve code quality as we currently have a lot of repetition that should not be required as we need similar information in online, offline and COAML
         # initalize network and payload
@@ -149,7 +151,7 @@ class COAMLPipeline():
             single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
 
             feature_matrix, feature_names = self.feature_builder.build_matrix_from_trip_handler(trip_handler, payload_object.current_time)  
-
+            
             # TODO make optimizer injectable to allow for different optimizers (e.g. CO_TripCostMinimization, CO_RebalancingCoverage, etc.) and handle setup in the main file instead of here, so we can run it based on the mode of the current program
             self.optimizer = CO_TripCostMinimization(
                 single_trip_map, 

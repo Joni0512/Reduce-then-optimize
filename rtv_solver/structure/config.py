@@ -22,6 +22,7 @@ class Config:
     Loggers cannot be used here as they are defined based on the output_dir. For debugging, please use print().
     """
     # technical setup
+    DEBUG: bool = False
     CONFIG_FILE: str = ""
     OVERRIDE: List[str] = field(default_factory=list)
     OUTPUT_DIR: Path = Path("outputs") / "debug"
@@ -47,6 +48,8 @@ class Config:
     DWELL_ALIGHT: int = 60
     # stats parameters
     TRAVEL_TIME_MARGIN: int = 5
+    # COAML parameters
+    SEED: int = 42
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -82,6 +85,7 @@ class Config:
         # add the change for the input_file
         # if a config is missing an item due to additional config items, one can override it by adding it there and still use the same config settings
         config = cls(
+            DEBUG = args.debug,
             CONFIG_FILE = args.config_file,
             OVERRIDE = args.override, 
             OUTPUT_DIR = output_directory,
@@ -103,7 +107,8 @@ class Config:
             WALK_DISTANCE_CUTOFF = args.walk_distance_cutoff,
             STEP_SIZE = args.step_size,
             BATCH_INTERVAL = args.batch_interval,
-            TRAVEL_TIME_MARGIN = args.travel_time_margin
+            TRAVEL_TIME_MARGIN = args.travel_time_margin,
+            SEED = args.seed
         )
 
         save_json({"config_dict": config.to_dict(),
