@@ -74,12 +74,10 @@ class COAMLPipeline():
 
             # solve the RTV problem and update manifests
             if len(selected_requests) == 0:
-                new_driver_runs, assignment_status = driver_runs, {PayloadParser.STATS_ASSIGNED: {}, PayloadParser.STATS_UNSERVED: []}
+                new_driver_runs = driver_runs
             else:    
-                new_driver_runs, assignment_status = self.solve_iteration(new_payload, iteration)
-            
-            # TODO i want the status development of requests (active, boarded, unserved, delivered) 
-            data_logger.info("Status", extra={"timestamp": current_time, "status": assignment_status})                
+                new_driver_runs = self.solve_iteration(new_payload, iteration)
+                          
             # increment time (might not be the size of the batch) and iteration
             current_time += self.config.STEP_SIZE 
             iteration += 1
@@ -150,8 +148,9 @@ class COAMLPipeline():
         if len(vehicle_handler.vehicles) != 0:
             single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
 
-            feature_matrix, feature_names = self.feature_builder.build_matrix_from_trip_handler(trip_handler, payload_object.current_time)     
-            # TODO make optimizer injectable to allow for different optimizers (e.g. CO_TripCostMinimization, CO_RebalancingCoverage, etc.) and handle setup in the main file instead of here
+            feature_matrix, feature_names = self.feature_builder.build_matrix_from_trip_handler(trip_handler, payload_object.current_time)  
+
+            # TODO make optimizer injectable to allow for different optimizers (e.g. CO_TripCostMinimization, CO_RebalancingCoverage, etc.) and handle setup in the main file instead of here, so we can run it based on the mode of the current program
             self.optimizer = CO_TripCostMinimization(
                 single_trip_map, 
                 trip_list, 
@@ -176,7 +175,7 @@ class COAMLPipeline():
                 if trip.request_id in unserved_requests:
                     unserved_requests.remove(trip.request_id)
 
-        # TODO add rebalancing handling based on rebalancing_assignment that already checks required permissions
+        # TODO add rebalancing handling based on rebalancing_assignment that already checks required permissions (should not be required for our problem setting)
 
         # update driver runs
         updated_driver_runs = []
@@ -187,16 +186,19 @@ class COAMLPipeline():
             
         # check invariants whether manifest is still correct
         OnlineRTVSolver._check_consistency_of_manifests(
-                                            subset_payload[PayloadParser.DRIVERS], 
-                                            updated_driver_runs,
-                                            unserved_requests, 
-                                            subset_payload[PayloadParser.REQUESTS],
-                                            keep_active=self.config.KEEP_ACTIVE,
-                                            return_depot=self.config.RETURN_DEPOT)
-        # TODO remove this complex data structure to move data up the stack; integrate JSON logger that records information to a standardized JSON file and can later be rebuilt and analyzed using that JSON file (probably requires something similar to OutputHandler that was used in the simulation)
+            subset_payload[PayloadParser.DRIVERS], 
+            updated_driver_runs,
+            unserved_requests, 
+            subset_payload[PayloadParser.REQUESTS],
+            keep_active=self.config.KEEP_ACTIVE,
+            return_depot=self.config.RETURN_DEPOT)
+        
+        # collect information on assignment history (especially interesting if config.KEEP_ACTIVE is set to False)
         assignment_status = {PayloadParser.STATS_ASSIGNED: result.request_assignment, 
                             PayloadParser.STATS_UNSERVED: list(unserved_requests)}
-        return updated_driver_runs, assignment_status # ,trip_handler, vehicle_handler, request_handler, payload_object
+        data_logger.info("Status", extra={"timestamp": payload_object.current_time, "status": assignment_status})  
+
+        return updated_driver_runs
 
 
 
