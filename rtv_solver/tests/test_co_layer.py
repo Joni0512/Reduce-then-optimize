@@ -1,10 +1,11 @@
 import pytest
+import numpy as np
 
-from rtv_solver.pipeline import CO_TripCostMinimization
+from rtv_solver.pipeline import CO_TripCostMinimization, CO_ScoreMaximization
 from rtv_solver.structure.assignment_result import AssignmentResult
 
 @pytest.mark.basic
-def test_combinatorial_optimization_run(
+def test_co_run_trip_cost_minimization(
     single_trip_map, 
     trip_list, 
     trip_costs, 
@@ -104,7 +105,7 @@ def test_combinatorial_optimization_run(
 
 
 @pytest.mark.basic
-def test_combinatorial_optimization_run_neworder(single_trip_map_neworder, trip_list_neworder, trip_costs_neworder, vehicle_to_trips_cost_map_neworder, trip_to_vehicle_cost_map_neworder, request_batch, active_requests, config):
+def test_co_run_trip_cost_minimization_neworder(single_trip_map_neworder, trip_list_neworder, trip_costs_neworder, vehicle_to_trips_cost_map_neworder, trip_to_vehicle_cost_map_neworder, request_batch, active_requests, config):
     """check whether CO layer returns correct results from the outputs of a tripHandler; trip_costs are specifically changed to not have perfect ordering"""
 
     optimizer = CO_TripCostMinimization(
@@ -193,6 +194,92 @@ def test_combinatorial_optimization_run_neworder(single_trip_map_neworder, trip_
     assert s4.dwell == 60
 
     assert result.runtime >= 0
+
+
+@pytest.mark.basic
+def test_co_run_score_maximization(single_trip_map_neworder, trip_list_neworder, trip_costs_neworder, vehicle_to_trips_cost_map_neworder, trip_to_vehicle_cost_map_neworder, request_batch, active_requests, config):
+    """check whether CO layer with new feature scores returns correct matching based on the feature scores"""
+
+    feature_scores = np.array([1, 0, 0, 0, 0, 0, 0, 0, 0])
+
+    optimizer = CO_ScoreMaximization(
+        single_trip_map_neworder, 
+        trip_list_neworder, 
+        trip_costs_neworder,
+        vehicle_to_trips_cost_map_neworder, 
+        trip_to_vehicle_cost_map_neworder, 
+        config)
+   
+    result = optimizer.run(feature_scores, request_batch, active_requests)
+
+    assert isinstance(result, AssignmentResult)
+    assert result.unassigned_trip_count == 4
+    assert result.taxi_only_trip_count == 1
+    assert result.status == 2
+    assert result.rebalancing_assignment == {}
+    assert result.request_assignment == {1: 0}
+    assert len(result.request_assignment) == 1
+    
+    assert len(result.vehicle_assignment) == 1
+    assert 0 in result.vehicle_assignment
+
+    trips, stops = result.vehicle_assignment[0]
+
+    assert len(trips) == 1
+    assert len(stops) == 2
+
+    assert trips == [0]
+
+
+@pytest.mark.parametrize(
+    "feature_scores,expected_trip_indices",
+    [   
+        pytest.param(
+            np.array([1, 0, 0, 0, 0, 0, 0, 0, 0]), [0],
+            marks=[pytest.mark.basic],
+            id = "co_score-1"
+        ),
+        pytest.param(
+            np.array([0, 1, 0, 0, 0, 0, 0, 0, 0]), [1],
+            marks=[pytest.mark.basic],
+            id = "co_score-2"
+        ),
+        pytest.param(
+            np.array([0, 0, 0, 0, 0, 1, 0, 0, 0]), [0, 3],
+            marks=[pytest.mark.basic],
+            id = "co_score-combined"
+        ),
+    ]
+)
+def test_co_run_score_maximization(feature_scores, expected_trip_indices,single_trip_map_neworder, trip_list_neworder, trip_costs_neworder, vehicle_to_trips_cost_map_neworder, trip_to_vehicle_cost_map_neworder, request_batch, active_requests, config):
+    """check whether CO layer with new feature scores returns correct matching based on the feature scores"""
+    optimizer = CO_ScoreMaximization(
+        single_trip_map_neworder, 
+        trip_list_neworder, 
+        trip_costs_neworder,
+        vehicle_to_trips_cost_map_neworder, 
+        trip_to_vehicle_cost_map_neworder, 
+        config)
+   
+    result = optimizer.run(feature_scores, request_batch, active_requests)
+
+    assigned_count = len(expected_trip_indices)
+    assert isinstance(result, AssignmentResult)
+    assert result.unassigned_trip_count == 5 - assigned_count
+    assert result.taxi_only_trip_count == assigned_count
+    assert result.status == 2
+    assert len(result.request_assignment) == assigned_count
+    
+    assert len(result.vehicle_assignment) == 1
+    assert 0 in result.vehicle_assignment
+
+    trips, stops = result.vehicle_assignment[0]
+
+    assert len(trips) == assigned_count
+    assert len(stops) == assigned_count * 2
+
+    for i, trip in enumerate(trips):
+        assert trip.number == expected_trip_indices[i]
 
 
 @pytest.mark.basic
