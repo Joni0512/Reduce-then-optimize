@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from gurobipy import GRB
 
-from rtv_solver.structure.vehicle import TripInsertionPlan
+from rtv_solver.structure.trip_insertion_plan import TripInsertionPlan
 from rtv_solver.structure.trip import Trip
 from rtv_solver.structure.shared_trip import SharedTrip
 from rtv_solver.structure.trip_cost import TripCost

@@ -1,7 +1,7 @@
 from typing import Optional
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.sequence import StopSequence
-from rtv_solver.structure.vehicle import TripInsertionPlan
+from rtv_solver.structure.trip_insertion_plan import TripInsertionPlan
 
 class TripCost:
     """manages keys for merging trip, vehicle and cost"""

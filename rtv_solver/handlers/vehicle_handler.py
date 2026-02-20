@@ -3,7 +3,8 @@ import pickle
 
 from datetime import datetime, timedelta
 
-from rtv_solver.structure.vehicle import Vehicle, TripInsertionPlan
+from rtv_solver.structure.vehicle import Vehicle
+from rtv_solver.structure.trip_insertion_plan import TripInsertionPlan
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.node import Node
 from rtv_solver.structure.sequence import StopSequence

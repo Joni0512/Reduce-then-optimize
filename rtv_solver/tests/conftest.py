@@ -6,7 +6,8 @@ from rtv_solver.structure.trip import Trip
 from rtv_solver.structure.shared_trip import SharedTrip
 from rtv_solver.structure.trip_cost import TripCost
 from rtv_solver.structure.request import Request
-from rtv_solver.structure.vehicle import Vehicle, TripInsertionPlan
+from rtv_solver.structure.vehicle import Vehicle
+from rtv_solver.structure.trip_insertion_plan import TripInsertionPlan
 from rtv_solver.structure.config import Config
 from rtv_solver.structure.node import Node
 from rtv_solver.structure.vehicle_stop import VehicleStop

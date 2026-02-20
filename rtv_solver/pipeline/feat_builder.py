@@ -16,7 +16,7 @@ from rtv_solver.handlers.trip_handler import TripHandler
 from rtv_solver.structure.config import Config
 
 from rtv_solver.handlers.payload_parser import PayloadParser
-from rtv_solver.structure.vehicle import TripInsertionPlan
+from rtv_solver.structure.trip_insertion_plan import TripInsertionPlan
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
