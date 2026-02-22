@@ -30,6 +30,12 @@ class COAMLPipeline():
     Some functions in the OnlineRTVSolver can be reused to check feasibility."""
     def __init__(self, config: Config = None):
         self.config = config
+        # it is required here as we do not call OnlineRTVSolver as an object
+        if sys.platform == "darwin": # required to run online_solver correctly on MacOS
+            try:
+                multiprocessing.set_start_method("fork")
+            except RuntimeError: # start method was already set somewhere else -> don't crash
+                pass
 
     def solve_pdptw(self, payload: dict):
         """

@@ -8,7 +8,7 @@ import pickle
 import pytest
 from pathlib import Path
 
-from rtv_solver import OfflineRTVSolver, OnlineRTVSolver
+from rtv_solver import OfflineRTVSolver, OnlineRTVSolver, COAMLPipeline
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
 from rtv_solver.structure.config import Config
@@ -63,6 +63,7 @@ def test_integration_offlineRTVsolver_vehicle1_maxCard3():
     config.MAX_CARDINALITY = 3
     config.STEP_SIZE = 600
     config.BATCH_INTERVAL = 600
+    config.MODE = 'offline'
     # run solver
     off_solver = OfflineRTVSolver(config)
     updated_driver_runs = off_solver.solve_rtv(
@@ -105,6 +106,7 @@ def test_integration_offlineRTVsolver_vehicle2_maxCard2():
     config.MAX_CARDINALITY = 2
     config.STEP_SIZE = 600
     config.BATCH_INTERVAL = 600
+    config.MODE = 'offline'
     # run solver
     off_solver = OfflineRTVSolver(config)
     updated_driver_runs = off_solver.solve_rtv(
@@ -149,6 +151,7 @@ def test_integration_onlineRTVsolver_vehicle3_maxCard3():
     config.MAX_CARDINALITY = 3
     config.STEP_SIZE = 600
     config.BATCH_INTERVAL = 600
+    config.MODE = 'online'
     # run solver
     on_solver = OnlineRTVSolver(config)
     updated_driver_runs, _ = on_solver.solve_pdptw_rtv(payload)
@@ -179,7 +182,7 @@ def test_integration_onlineRTVsolver_vehicle3_maxCard3():
 @pytest.mark.basic
 @pytest.mark.integration
 @pytest.mark.rh
-def test_config_RHsolver_vehicleDeactivation_keepActiveTrue():
+def test_integration_RHsolver_vehicleDeactivation_keepActiveTrue():
     """
     Integration edge case with specific vehicle that ends before requests are finished
 
@@ -194,6 +197,7 @@ def test_config_RHsolver_vehicleDeactivation_keepActiveTrue():
     config.BATCH_INTERVAL = 3600
     config.KEEP_ACTIVE = True
     config.RETURN_DEPOT = True
+    config.MODE = 'offline'
     # run solver
     off_solver = OfflineRTVSolver(config)
     updated_driver_runs = off_solver.solve_rtv(
@@ -228,6 +232,35 @@ def test_config_RHsolver_vehicleDeactivation_keepActiveTrue():
 
     assert stats.depot_movements == 1
     assert stats.total_requests == 47
+
+@pytest.mark.basic
+@pytest.mark.integration
+@pytest.mark.coaml
+def test_integration_COAMLsolver_vehicle1_maxCard3():
+    """
+    Integration test for a known run with 1 vehicle and max_cardinality = 3
+    """
+    payload = _init_payload(vehicle_count=1, first_vehicle_reduced_time=72000, request_time_span_minutes=5)
+    config = Config()
+    config.MAX_CARDINALITY = 3
+    config.STEP_SIZE = 600
+    config.BATCH_INTERVAL = 600
+    config.MODE = 'rh-ml'
+
+    rh_solver = COAMLPipeline(config)
+    updated_driver_runs = rh_solver.solve_pdptw(payload)
+
+    # compute stats
+    stats_payload = {
+        PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
+        PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
+        PayloadParser.DRIVERS: updated_driver_runs,}
+    stats_evaluator = StatsParser(config=config)
+    feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
+
+    # Simplest test to check whether it runs at all correctly
+    assert feasible is True
+    assert violations == []
 
 # if __name__ == '__main__':
     # if we require a test of the results here, just add it to the main loop and start a debug run

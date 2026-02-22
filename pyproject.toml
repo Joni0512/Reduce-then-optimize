@@ -40,6 +40,7 @@ markers = [
     "slow: marks tests as slow-running",
     "integration: marks integration-level tests running the entire pipeline and the backend",
     "rh: rolling horizon approach where batch_size != step_size",
+    "coaml: coaml pipeline with machine learning elements",
     "offline: offline solver with batch_size == step_size",
     "online: online solver that solves entire payload at once"
 ]
