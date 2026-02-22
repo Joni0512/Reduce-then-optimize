@@ -19,7 +19,7 @@ class ScoringMLP(nn.Module):
         Raw scores — no activation applied to the final layer.
     """
 
-    def __init__(self, feature_dim: int, hidden_dim: int = 64) -> None:
+    def __init__(self, feature_dim: int = 0, hidden_dim: int = 64) -> None:
         """
         Args:
             feature_dim: Number of features per item. Must be constant

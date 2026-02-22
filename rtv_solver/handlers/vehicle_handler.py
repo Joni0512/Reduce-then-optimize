@@ -614,7 +614,7 @@ class VehicleHandler:
         current_am_capacity, current_wc_capacity = max_am_capacity, max_wc_capacity
         for stop in new_sequence:
             trip = trips[stop.trip_id]
-            travel_time = NetworkHandler.travel_time_from_matrix(current_node,stop.node,tt_matrix, node_indices)
+            travel_time = NetworkHandler.travel_time_from_matrix(current_node, stop.node, tt_matrix, node_indices)
             cost +=  NetworkHandler.travel_distance(current_node,stop.node)
             current_time = current_time + travel_time
             if stop.type == VehicleStop.ACT_PICKUP:

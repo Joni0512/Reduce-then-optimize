@@ -159,11 +159,14 @@ class FeatureBuilder:
             ]
 
             fv: FeatureVector = {}
-            fv.update(self._state_features(current_time, vehicles))
+            fv.update(self._state_features(current_time, vehicles))             # 6 items
             # fv.update(self._trip_features(trip))
-            fv.update(self._vehicle_features(vehicle, vehicles, current_time))
-            fv.update(self._trip_cost_features(tc, current_time))
+            fv.update(self._vehicle_features(vehicle, vehicles, current_time))  # 11 items
+            fv.update(self._trip_cost_features(tc, current_time))               # 17 items
+            fv.update(self._future_requests_features(trip_requests, current_time)) # 49 items
             # fv.update(self._request_aggregate_features(trip_requests))
+
+            # current total = 6 + 11 + 17 + 49 = 83 items
 
             features.append(fv)
 

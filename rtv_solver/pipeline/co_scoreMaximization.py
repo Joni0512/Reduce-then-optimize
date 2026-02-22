@@ -76,7 +76,7 @@ class CO_ScoreMaximization(CO):
                 trip_no = self.single_trip_map[request.id]
                 cost_map_indices = self.trip_to_vehicle_cost_map[trip_no]
 
-                model.addConstr(x_r[request_no]+gp.quicksum(x_t[i] for i in cost_map_indices) == 1, "req_{0}".format(request.id))
+                model.addConstr(x_r[request_no] + gp.quicksum(x_t[i] for i in cost_map_indices) == 1, "req_{0}".format(request.id))
                 
                 # all the previously assigned requests must be picked up
                 if request.id in active_requests and keep_active:

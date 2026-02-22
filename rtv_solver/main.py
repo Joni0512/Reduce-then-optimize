@@ -134,7 +134,7 @@ if __name__ == "__main__":
             updated_driver_runs = rh_solver.solve_pdptw(payload)
         else:
             updated_driver_runs = []
-            console_logger.info('No solution')
+            raise ValueError('No solution as no correct config.MODE provided.')
             
         # calculate statistics of each iteration; for now only the first vehicle
         stats_payload = {PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
