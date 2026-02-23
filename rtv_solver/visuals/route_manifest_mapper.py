@@ -86,6 +86,7 @@ class RouteManifestMapper():
 
             route_feature = self._merge_routeparts_features(state[PayloadParser.DRIVER_STATE_RUN_ID], route)
             features.append(route_feature)
+
         return self._feature_collection(features)
 
     def save_geojson(self, geojson: Dict[str, Any], filepath: Path | str) -> None:
@@ -102,7 +103,7 @@ class RouteManifestMapper():
             return None
         
         design_props = self._build_stop_design_properties(stop)  
-        properties = stop | design_props    
+        properties = stop | design_props   # append two dicts 
         return self._feature(geometry={
                                 "type": "Point",
                                 "coordinates": [float(lon), float(lat)],},
@@ -110,9 +111,9 @@ class RouteManifestMapper():
     
     @staticmethod
     def _build_stop_design_properties(stop: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        action = stop.get(PayloadParser.MANIFEST_ACTION, "")
-        run_id = stop.get(PayloadParser.MANIFEST_RUN_ID, "")
-        order = stop.get(PayloadParser.MANIFEST_ORDER, "")
+        action = stop.get(PayloadParser.MANIFEST_ACTION, "n/a")
+        run_id = stop.get(PayloadParser.MANIFEST_RUN_ID, "n/a")
+        order = stop.get(PayloadParser.MANIFEST_ORDER, "n/a")
         color, icon = "#000000", MakiIcon.CIRCLE
         if action == VehicleStop.ACT_PICKUP:
             color = "#7d8aff"
@@ -177,7 +178,7 @@ if __name__ == '__main__':
     debug test for visualizer
     """
     # load data from file and update to canonical format for the entire system
-    folder = Path("../outputs/debug/run_20260208_142128_5706bf") 
+    folder = Path("/Users/jw/Desktop/master_thesis/mt_sourcecode/rtv-solver/outputs/storage/comp_v1/run_20260223_164646_optimal?") 
     
     with open(folder / "result_driver_runs.json", 'r') as driver_runs_file:
         loaded_data = json.load(driver_runs_file)
@@ -187,4 +188,4 @@ if __name__ == '__main__':
 
     mapper = RouteManifestMapper(config)
     geojson = mapper.manifest_to_geojson(loaded_data, 18)
-    mapper.save_geojson(geojson, folder / "route_manifest.geojson")
+    mapper.save_geojson(geojson, folder / "route_manifest_v2.geojson")
