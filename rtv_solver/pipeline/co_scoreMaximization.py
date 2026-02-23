@@ -16,15 +16,9 @@ console_logger = logging.getLogger(BASIC_LOGGER)
 data_logger = logging.getLogger(DATA_LOGGER)
 
 class CO_ScoreMaximization(CO):
-    def __init__(self,
-                 single_trip_map: dict[int, int], 
-                 trips: list[Trip], 
-                 trip_costs: list[TripCost], 
-                 vehicle_to_trips_cost_map: dict[int, list[int]], 
-                 trip_to_vehicle_cost_map: dict[int, list[int]],
-                 config: Config):
-        super().__init__(single_trip_map, trips, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map, config)
-
+    def __init__(self, config: Config):
+        super().__init__(config)    
+    
     def run(self, feature_scores, requests: list[Request], active_requests: dict[int, Request]) -> AssignmentResult:
         model, x_t, x_r = self.solve_ilp(feature_scores, requests, active_requests, keep_active=self.config.KEEP_ACTIVE)
         assignment_result = self.transform_solution_to_assignment(model, x_t, x_r, requests)

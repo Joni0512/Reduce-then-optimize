@@ -20,21 +20,17 @@ class CO_TripCostMinimization(CO):
     """
     Combinatorial Optimization Layer that minimizes the TripCosts across all the vehicles.
     """
-    def __init__(self, 
-                 single_trip_map: dict[int, int], 
-                 trips: list[Trip], 
-                 trip_costs: list[TripCost], 
-                 vehicle_to_trips_cost_map: dict[int, list[int]], 
-                 trip_to_vehicle_cost_map: dict[int, list[int]],
-                 config: Config):
-        super().__init__(single_trip_map, trips, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map, config)
+    def __init__(self, config: Config):
+        super().__init__(config)
 
     def run(self, requests: list[Request], active_requests: dict[int, Request]):
-        model, x_t, x_r = self.solve_ilp(requests, active_requests, penalty=self.config.ILP_PENALTY, keep_active=self.config.KEEP_ACTIVE)
+        # define trip variables with related costs
+        trip_costs_obj = np.fromiter((tc.cost for tc in self.trip_costs), dtype=float, count=len(self.trip_costs))
+        model, x_t, x_r = self.solve_ilp(trip_costs_obj, requests, active_requests, penalty=self.config.ILP_PENALTY, keep_active=self.config.KEEP_ACTIVE)
         assignment_result = self.transform_solution_to_assignment(model, x_t, x_r, requests)
         return assignment_result
 
-    def solve_ilp(self, requests: list[Request], active_requests: dict[int, Request], penalty: int = 100_000, keep_active: bool = True):
+    def solve_ilp(self, trip_objective_scores: np.ndarray, requests: list[Request], active_requests: dict[int, Request], penalty: int = 100_000, keep_active: bool = True):
         """
         Build and immediatelty solves ILP of trip_costs for associated requests and vehicles
 
@@ -54,12 +50,10 @@ class CO_TripCostMinimization(CO):
             model = gp.Model('RTV assignment - Service rate + Minimum distance', env=env)
             model.Params.OutputFlag = 0
             
-            # define trip variables with related costs
-            trip_costs_obj = np.fromiter((tc.cost for tc in self.trip_costs), dtype=float, count=trip_count)
             x_t = model.addVars(trip_count,
                             lb=0,
                             ub=1,
-                            obj=trip_costs_obj,
+                            obj=trip_objective_scores, # moved this out so we can move the creation of the scores to an NN model
                             name="t", 
                             vtype=GRB.BINARY)
             

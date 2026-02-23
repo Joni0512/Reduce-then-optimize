@@ -4,6 +4,8 @@ import numpy as np
 from rtv_solver.pipeline import CO_TripCostMinimization, CO_ScoreMaximization
 from rtv_solver.structure.assignment_result import AssignmentResult
 
+from rtv_solver.structure.vehicle import Vehicle
+
 @pytest.mark.basic
 def test_co_run_trip_cost_minimization(
     single_trip_map, 
@@ -16,13 +18,8 @@ def test_co_run_trip_cost_minimization(
     active_requests):
     """check whether CO layer returns correct results from the outputs of a tripHandler"""
 
-    optimizer = CO_TripCostMinimization(
-        single_trip_map, 
-        trip_list, 
-        trip_costs,
-        vehicle_to_trips_cost_map, 
-        trip_to_vehicle_cost_map, 
-        config)
+    optimizer = CO_TripCostMinimization(config)
+    optimizer.reset(single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map)
     result = optimizer.run(request_batch, active_requests)
 
     # TODO implement equalities to compare these results
@@ -108,13 +105,8 @@ def test_co_run_trip_cost_minimization(
 def test_co_run_trip_cost_minimization_neworder(single_trip_map_neworder, trip_list_neworder, trip_costs_neworder, vehicle_to_trips_cost_map_neworder, trip_to_vehicle_cost_map_neworder, request_batch, active_requests, config):
     """check whether CO layer returns correct results from the outputs of a tripHandler; trip_costs are specifically changed to not have perfect ordering"""
 
-    optimizer = CO_TripCostMinimization(
-        single_trip_map_neworder, 
-        trip_list_neworder, 
-        trip_costs_neworder,
-        vehicle_to_trips_cost_map_neworder, 
-        trip_to_vehicle_cost_map_neworder, 
-        config)
+    optimizer = CO_TripCostMinimization(config)
+    optimizer.reset(single_trip_map_neworder, trip_list_neworder, trip_costs_neworder, vehicle_to_trips_cost_map_neworder, trip_to_vehicle_cost_map_neworder)
     result = optimizer.run(request_batch, active_requests)
 
     # TODO implement equalities to compare these results
@@ -202,14 +194,8 @@ def test_co_run_score_maximization(single_trip_map_neworder, trip_list_neworder,
 
     feature_scores = np.array([1, 0, 0, 0, 0, 0, 0, 0, 0])
 
-    optimizer = CO_ScoreMaximization(
-        single_trip_map_neworder, 
-        trip_list_neworder, 
-        trip_costs_neworder,
-        vehicle_to_trips_cost_map_neworder, 
-        trip_to_vehicle_cost_map_neworder, 
-        config)
-   
+    optimizer = CO_ScoreMaximization(config)
+    optimizer.reset(single_trip_map_neworder, trip_list_neworder, trip_costs_neworder, vehicle_to_trips_cost_map_neworder, trip_to_vehicle_cost_map_neworder)
     result = optimizer.run(feature_scores, request_batch, active_requests)
 
     assert isinstance(result, AssignmentResult)
@@ -253,13 +239,8 @@ def test_co_run_score_maximization(single_trip_map_neworder, trip_list_neworder,
 )
 def test_co_run_score_maximization(feature_scores, expected_trip_indices,single_trip_map_neworder, trip_list_neworder, trip_costs_neworder, vehicle_to_trips_cost_map_neworder, trip_to_vehicle_cost_map_neworder, request_batch, active_requests, config):
     """check whether CO layer with new feature scores returns correct matching based on the feature scores"""
-    optimizer = CO_ScoreMaximization(
-        single_trip_map_neworder, 
-        trip_list_neworder, 
-        trip_costs_neworder,
-        vehicle_to_trips_cost_map_neworder, 
-        trip_to_vehicle_cost_map_neworder, 
-        config)
+    optimizer = CO_ScoreMaximization(config)
+    optimizer.reset(single_trip_map_neworder, trip_list_neworder, trip_costs_neworder, vehicle_to_trips_cost_map_neworder, trip_to_vehicle_cost_map_neworder)
    
     result = optimizer.run(feature_scores, request_batch, active_requests)
 
@@ -285,7 +266,7 @@ def test_co_run_score_maximization(feature_scores, expected_trip_indices,single_
 
     
 @pytest.mark.basic
-def test_apply_trip_insertion(vehicle_init, trip_insertion_plan):
+def test_apply_trip_insertion(vehicle_init: Vehicle, trip_insertion_plan):
     vehicle_init.trips = {}
     vehicle_init.stop_sequence = []
     vehicle_init.time_at_last = 0

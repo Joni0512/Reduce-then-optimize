@@ -7,6 +7,10 @@ from rtv_solver.handlers.payload_parser import PayloadParser
 
 from datetime import timedelta
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from rtv_solver.structure.payload import Payload
+
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
 
@@ -99,6 +103,24 @@ class RequestHandler:
     def get_request_by_iloc(self, iloc):
         request_data = self.requests.iloc[iloc]
         return self.get_request(request_data)
+
+    def get_request_batches(self, payload_object: 'Payload') -> tuple[list[Request], dict[int, Request], dict[int, Request]]:
+        """
+        get all requests and filter active and boarded requests
+        """
+        temp_batch = self.get_all_requests()
+        request_batch = []
+        active_requests = {}
+        boarded_requests = {}
+        for req in temp_batch:
+            req_id = req.id
+            if req_id in payload_object.boarded_requests_keys:
+                boarded_requests[req_id] = req
+            else:
+                if req_id in payload_object.active_requests_keys:
+                    active_requests[req_id] = req
+                request_batch.append(req)
+        return request_batch, active_requests, boarded_requests
 
     # BELOW SIMULATION APPROACH METHODS
     def get_batch(self, end_time, max_batch_size) -> tuple[list[Request], int]:

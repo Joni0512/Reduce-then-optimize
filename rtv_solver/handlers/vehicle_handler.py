@@ -28,7 +28,10 @@ class VehicleHandler:
     MAX_WC_CAPACITY = 0
     LARGEST_TSP = 0
     
-    def __init__(self, depot, driver_runs, config: Config):
+    def __init__(self, depot, driver_runs: dict, config: Config):
+        """
+        initialize all vehicles as they are stored in the payload-object
+        """
         self.vehicles: dict[int, Vehicle] = {}
         self.count = 0
         self.earliest_start_time = None

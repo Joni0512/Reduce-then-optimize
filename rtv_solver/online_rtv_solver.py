@@ -123,12 +123,12 @@ class OnlineRTVSolver:
         if len(vehicle_handler.vehicles) != 0:
             single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
             
-            optimizer = CO_TripCostMinimization(single_trip_map, 
-                                            trip_list, 
-                                            trip_costs, 
-                                            vehicle_to_trips_cost_map, 
-                                            trip_to_vehicle_cost_map, 
-                                            self.config)
+            optimizer = CO_TripCostMinimization(self.config)
+            optimizer.reset(single_trip_map, 
+                            trip_list, 
+                            trip_costs, 
+                            vehicle_to_trips_cost_map, 
+                            trip_to_vehicle_cost_map )
             result = optimizer.run(request_batch, active_requests)
 
             # TODO add rebalancing handling including the assignment itself and validate its correct behavior

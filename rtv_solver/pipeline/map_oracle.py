@@ -22,22 +22,23 @@ from typing import Callable, Dict, List
 import torch
 from gurobipy import GRB
 
-from rtv_solver.pipeline.co_scoreMaximization import CO_ScoreMaximization
+from rtv_solver.pipeline.co_scoreMaximization import CO
 from rtv_solver.structure.config import Config
 from rtv_solver.structure.request import Request
 from rtv_solver.structure.trip_cost import TripCost
 
 
 def make_map_oracle(
-    single_trip_map: Dict[int, int],
-    trips: list,
-    trip_costs: List[TripCost],
-    vehicle_to_trips_cost_map: Dict[int, List[int]],
-    trip_to_vehicle_cost_map: Dict[int, List[int]],
-    requests: List[Request],
-    active_requests: Dict[int, Request],
-    config: Config,
-) -> Callable[[torch.Tensor], torch.Tensor]:
+        co_solver: CO,
+        single_trip_map: Dict[int, int],
+        trips: list,
+        trip_costs: List[TripCost],
+        vehicle_to_trips_cost_map: Dict[int, List[int]],
+        trip_to_vehicle_cost_map: Dict[int, List[int]],
+        requests: List[Request],
+        active_requests: Dict[int, Request],
+        config: Config,
+    ) -> Callable[[torch.Tensor], torch.Tensor]:
     """
     Build a MAP oracle callable for the current solver iteration.
 
@@ -47,6 +48,7 @@ def make_map_oracle(
     stateless closure.
 
     Args:
+        co_solver:                 combinatorial optimizer instance
         single_trip_map:           {request_id: trip_cost_index}
         trips:                     list of Trip / SharedTrip objects
         trip_costs:                list of TripCost objects (length n)
@@ -67,16 +69,10 @@ def make_map_oracle(
         FenchelYoungLoss with num_samples=k, this means k ILP solves per
         training step.  For large instances consider reducing num_samples.
     """
-    trip_cost_count = len(trip_costs)
+    optimizer = co_solver
+    optimizer.reset(single_trip_map, trips, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map)
 
-    solver = CO_ScoreMaximization(
-        single_trip_map,
-        trips,
-        trip_costs,
-        vehicle_to_trips_cost_map,
-        trip_to_vehicle_cost_map,
-        config,
-    )
+    trip_cost_count = len(trip_costs)
 
     def oracle(scores: torch.Tensor) -> torch.Tensor:
         """
@@ -89,40 +85,12 @@ def make_map_oracle(
         """
         scores_np = scores.detach().cpu().numpy().astype(float)
 
-        gurobi_model, x_t, _x_r = solver.solve_ilp(
-            scores_np,
+        gurobi_model, x_t, _x_r = optimizer.solve_ilp(
+            scores_np, # TODO make this generic for all COs, add solve_ilp to all COs
             requests,
             active_requests,
             keep_active=config.KEEP_ACTIVE,
         )
-        return extract_y_binary(gurobi_model, x_t, trip_cost_count)
+        return CO.extract_y_binary(gurobi_model, x_t, trip_cost_count)
 
     return oracle
-
-
-def extract_y_binary(
-    gurobi_model,
-    x_t,
-    trip_cost_count: int,
-) -> torch.Tensor:
-    """
-    Convert the solved Gurobi trip-selection variables into a binary tensor.
-
-    This is exposed as a standalone function so that coaml_pipeline_solver can
-    reuse it to build y_star from the CO_TripCostMinimization solution without
-    solving the ILP a second time.
-
-    Args:
-        gurobi_model:    Solved gurobi.Model instance.
-        x_t:             Gurobi variable dict {i: Var} for i in range(trip_cost_count).
-        trip_cost_count: Number of trip-cost entries (= len(trip_costs)).
-
-    Returns:
-        y: float32 Tensor of shape (trip_cost_count,) with values in {0.0, 1.0}.
-           Returns a zero vector if the model status is not OPTIMAL or SUBOPTIMAL.
-    """
-    y = torch.zeros(trip_cost_count, dtype=torch.float32)
-    if gurobi_model.Status in (GRB.OPTIMAL, GRB.SUBOPTIMAL):
-        for i in range(trip_cost_count):
-            y[i] = float(x_t[i].X)
-    return y

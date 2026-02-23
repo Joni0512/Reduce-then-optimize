@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from gurobipy import GRB
+import gurobipy as gp
 
 from rtv_solver.structure.config import Config
 from rtv_solver.structure.request import Request
@@ -7,6 +8,7 @@ from rtv_solver.structure.trip_cost import TripCost
 from rtv_solver.structure.trip import Trip
 
 from rtv_solver.structure.assignment_result import AssignmentResult
+import torch
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
@@ -24,18 +26,27 @@ class CO(ABC):
     """
     # not yet sure whether an ABC actually makes sense here as we rather need different optimizers for different goals (different scores, objectives, etc.) but we might keep the constraints; we will definitely not change the solver code in the backend as it is too cumbersome for now
     def __init__(self, 
-                 single_trip_map: dict[int, int], 
-                 trips: list[Trip], 
-                 trip_costs: list[TripCost], 
-                 vehicle_to_trips_cost_map: dict[int, list[int]], 
-                 trip_to_vehicle_cost_map: dict[int, list[int]],
                  config: Config):
-        self.single_trip_map = single_trip_map                              # {request_id: trip_id}
-        self.trips = trips              
-        self.trip_costs = trip_costs
-        self.vehicle_to_trips_cost_map = vehicle_to_trips_cost_map  # {vehicle_id: [trip_cost_index]}
-        self.trip_to_vehicle_cost_map = trip_to_vehicle_cost_map    # {trip_id: [trip_cost_index]}
+        self.single_trip_map = {}               # {request_id: trip_id}
+        self.trips = []       
+        self.trip_costs = []
+        self.vehicle_to_trips_cost_map = {}     # {vehicle_id: [trip_cost_index]}
+        self.trip_to_vehicle_cost_map = {}      # {trip_id: [trip_cost_index]}
         self.config = config
+
+    def reset(self, single_trip_map: dict[int, int], trips: list[Trip], trip_costs: list[TripCost], vehicle_to_trips_cost_map: dict[int, list[int]], trip_to_vehicle_cost_map: dict[int, list[int]]):
+        """
+        Reset the combinatorial optimizer to a new problem instance for each iteration and in order to implement the interfaces for injection patterns.
+        """
+        self.single_trip_map = single_trip_map
+        self.trips = trips
+        self.trip_costs = trip_costs
+        self.vehicle_to_trips_cost_map = vehicle_to_trips_cost_map
+        self.trip_to_vehicle_cost_map = trip_to_vehicle_cost_map
+
+    @abstractmethod
+    def solve_ilp() -> tuple[gp.Model, dict[int, gp.Var], dict[int, gp.Var]]:
+        raise NotImplementedError
 
     @abstractmethod 
     def run() -> AssignmentResult:
@@ -125,3 +136,31 @@ class CO(ABC):
             if constraint.IISConstr:
                 console_logger.error("IIS:", constraint.ConstrName)
         raise Exception(f"Gurobi solver ended with code: {model.Status}") # Code 3 INFEASIBLE
+
+    @staticmethod
+    def extract_y_binary(
+            gurobi_model,
+            x_t,
+            trip_cost_count: int,
+        ) -> torch.Tensor:
+        """
+        Convert the solved Gurobi trip-selection variables into a binary tensor.
+
+        This is exposed as a standalone function so that coaml_pipeline_solver can
+        reuse it to build y_star from the CO_TripCostMinimization solution without
+        solving the ILP a second time.
+
+        Args:
+            gurobi_model:    Solved gurobi.Model instance.
+            x_t:             Gurobi variable dict {i: Var} for i in range(trip_cost_count).
+            trip_cost_count: Number of trip-cost entries (= len(trip_costs)).
+
+        Returns:
+            y: float32 Tensor of shape (trip_cost_count,) with values in {0.0, 1.0}.
+            Returns a zero vector if the model status is not OPTIMAL or SUBOPTIMAL.
+        """
+        y = torch.zeros(trip_cost_count, dtype=torch.float32)
+        if gurobi_model.Status in (GRB.OPTIMAL, GRB.SUBOPTIMAL):
+            for i in range(trip_cost_count):
+                y[i] = float(x_t[i].X)
+        return y
