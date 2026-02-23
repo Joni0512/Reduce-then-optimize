@@ -601,4 +601,5 @@ class OnlineRTVSolver:
 
                 updated_driver_runs.append(driver_run.to_dict())
             OnlineRTVSolver._check_consistency_of_manifests(driver_runs_c, updated_driver_runs, [], [], keep_active=config.KEEP_ACTIVE, return_depot=config.RETURN_DEPOT, check_depot=True)
+            
             return updated_driver_runs  

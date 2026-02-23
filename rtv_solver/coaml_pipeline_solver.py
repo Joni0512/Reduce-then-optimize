@@ -60,9 +60,8 @@ class COAMLPipeline():
             # select requests that are to be considered in the current interval with pickup_window [current_time, current_time + interval]
             selected_requests = {}
             for request in payload[PayloadParser.REQUESTS]:
-                if ( # start of time window is part of current batch_interval
-                    request[PayloadParser.REQ_PICKUP_WINDOW_START] >= current_time
-                    and 
+                # if start of time window is part of current batch_interval
+                if (request[PayloadParser.REQ_PICKUP_WINDOW_START] >= current_time and 
                     request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + self.config.BATCH_INTERVAL 
                     ):
                     selected_requests[request[PayloadParser.REQ_BOOKING_ID]] = request
@@ -93,27 +92,26 @@ class COAMLPipeline():
             iteration += 1
 
             # update vehicles based on decisions in the previous step until current time (might not be the entire interval)
-            simulated_driver_runs = OnlineRTVSolver.simulate_manifest(self.config,
-                current_time , new_driver_runs, intermediate_location=True)
+            simulated_driver_runs = OnlineRTVSolver.simulate_manifest(self.config, current_time, new_driver_runs,   intermediate_location=True) # TODO check if intermediate_location is correct
             driver_runs = simulated_driver_runs
 
         final_driver_runs = OnlineRTVSolver.finalize_driverRuns(self.config, driver_runs, payload[PayloadParser.DEPOT])
-        # TODO update assignment_devlopment calculation. based on the data stores to JSONL instead of handing it over here
+
         return final_driver_runs
     
     def solve_iteration(self, subset_payload, iteration = 0):
         """
         Solver for the entire payload that is given, based on the onlineRTVSolver but adapted to COAML pipeline.
         """
-        # TODO improve code quality as we currently have a lot of repetition that should not be required as we need similar information in online, offline and COAML
+        # TODO (major effort) improve code quality as we currently have a lot of repetition that should not be required as we need similar information in online, offline and COAML
+        
         # initalize network and payload
         NetworkHandler.init(True, self.config.SERVER_URL)
         payload_object = PayloadParser.get_payload_object(subset_payload, False)
-        # get all requests of payload, add 
         request_handler = RequestHandler(payload_object.requests, self.config.DWELL_PICKUP, self.config.DWELL_ALIGHT)
-        temp_batch = request_handler.get_all_requests()
         
         # filter active and boarded requests for subsequent action as they need to be integrated when handling new trip generation
+        temp_batch = request_handler.get_all_requests()
         request_batch = []
         active_requests = {}
         boarded_requests = {}
@@ -125,7 +123,8 @@ class COAMLPipeline():
                 if req_id in payload_object.active_requests_keys:
                     active_requests[req_id] = req
                 request_batch.append(req)
-        # create trips of all already boarded requests # TODO these are not always boarded at this point
+        
+        # create trips of all already boarded requests # NOTE these requests are not always boarded at this point but might be still committed to a vehicle (especially if it is the first request of an idling vehicle)
         boarded_trips = TripHandler.create_trip_for_picked_requests(boarded_requests, iteration)
         
         # initialize all vehicles as they are stored in the payload-object

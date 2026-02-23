@@ -110,6 +110,8 @@ class Config:
             TRAVEL_TIME_MARGIN = args.travel_time_margin,
             SEED = args.seed
         )
+        # some checks to fail early if the config is not valid
+        assert config.STEP_SIZE <= config.BATCH_INTERVAL, f"MUST: Step size {config.STEP_SIZE} <= batch interval {config.BATCH_INTERVAL}"
 
         save_json({"config_dict": config.to_dict(),
                 "git_commit": os.popen("git rev-parse HEAD").read().strip(),
