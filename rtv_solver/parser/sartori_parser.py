@@ -1,27 +1,22 @@
-"""
-Parser for Sartori & Buriol PDPTW benchmark instances.
-https://github.com/cssartori/pdptw-instances/tree/master
-
-Format (see inputs/sartori/README.txt):
-- First 10 lines: metadata (SIZE, ROUTE-TIME, CAPACITY, etc.)
-- NODES: SIZE lines with <id> <lat> <lon> <dem> <etw> <ltw> <sd> <p> <d>
-  - Node 0 is depot
-  - dem > 0 for pickup, dem < 0 for delivery
-  - Pickup id pairs with delivery id = id + (SIZE-1)/2
-- EDGES: SIZE lines of SIZE integers (travel times in minutes, OSRM-based)
-"""
 import copy
 
-import matplotlib.patches as mpatches
-import matplotlib.pyplot as plt
-import numpy as np
-
-
 class SartoriParser:
-    """Parser for Sartori & Buriol (2019) PDPTW benchmark instances."""
+    """
+    Parser for Sartori & Buriol PDPTW benchmark instances.
+    https://github.com/cssartori/pdptw-instances/tree/master
+
+    Format (see inputs/sartori/README.txt):
+    - First 10 lines: metadata (SIZE, ROUTE-TIME, CAPACITY, etc.)
+    - NODES: SIZE lines with <id> <lat> <lon> <dem> <etw> <ltw> <sd> <p> <d>
+    - Node 0 is depot
+    - dem > 0 for pickup, dem < 0 for delivery
+    - Pickup id pairs with delivery id = id + (SIZE-1)/2
+    - EDGES: SIZE lines of SIZE integers (travel times in minutes, OSRM-based)
+    """
+    # TODO exchange relevant keys to PayloadParser keys, but first need a file to check correct outcome
 
     @staticmethod
-    def parse_sartori_file(filepath, num_vehicles=None):
+    def parse_file(filepath, num_vehicles=None):
         """
         Parse a Sartori instance file and return data in the same format as LiLimParser.
 
@@ -172,140 +167,3 @@ class SartoriParser:
             "driver_runs": driver_runs,
             "travel_time_matrix": travel_time_matrix,
         }
-
-    @staticmethod
-    def plot_request_time_windows(
-        requests,
-        travel_time_matrix,
-        title="Request Time Windows",
-        figsize=(14, 10),
-        sort_by="pickup_start",
-        max_requests=None,
-    ):
-        """
-        Create a horizontal bar plot showing time windows for each request.
-
-        Same interface as LiLimParser.plot_request_time_windows.
-        """
-        if sort_by == "pickup_start":
-            sorted_requests = sorted(
-                requests, key=lambda r: r["pickup_time_window_start"]
-            )
-        elif sort_by == "dropoff_end":
-            sorted_requests = sorted(
-                requests, key=lambda r: r["dropoff_time_window_end"]
-            )
-        elif sort_by == "duration":
-            sorted_requests = sorted(
-                requests,
-                key=lambda r: r["dropoff_time_window_end"]
-                - r["pickup_time_window_start"],
-            )
-        elif sort_by == "booking_id":
-            sorted_requests = sorted(
-                requests, key=lambda r: int(r["booking_id"])
-            )
-        else:
-            sorted_requests = requests
-
-        if max_requests is not None:
-            sorted_requests = sorted_requests[:max_requests]
-
-        n_requests = len(sorted_requests)
-        fig, ax = plt.subplots(figsize=figsize)
-
-        pickup_color = "#2ecc71"
-        dropoff_color = "#e74c3c"
-        span_color = "#bdc3c7"
-        y_positions = np.arange(n_requests)
-        bar_height = 0.6
-
-        for i, req in enumerate(sorted_requests):
-            pickup_start = req["pickup_time_window_start"]
-            pickup_end = req["pickup_time_window_end"]
-            dropoff_start = req["dropoff_time_window_start"]
-            dropoff_end = req["dropoff_time_window_end"]
-
-            ax.barh(
-                y_positions[i],
-                dropoff_end - pickup_start,
-                left=pickup_start,
-                height=bar_height,
-                color=span_color,
-                alpha=0.3,
-                edgecolor="none",
-            )
-            ax.barh(
-                y_positions[i],
-                pickup_end - pickup_start,
-                left=pickup_start,
-                height=bar_height,
-                color=pickup_color,
-                alpha=0.8,
-                edgecolor="none",
-            )
-            ax.barh(
-                y_positions[i],
-                dropoff_end - dropoff_start,
-                left=dropoff_start,
-                height=bar_height,
-                color=dropoff_color,
-                alpha=0.8,
-                edgecolor="none",
-            )
-
-            pickup_node = req["pickup_pt"]["node_id"]
-            dropoff_node = req["dropoff_pt"]["node_id"]
-            travel_time = travel_time_matrix[pickup_node][dropoff_node]
-            ax.plot(
-                [pickup_start, pickup_start + travel_time],
-                [y_positions[i], y_positions[i]],
-                color="blue",
-                linestyle="--",
-                alpha=0.7,
-                label="Travel Time" if i == 0 else "",
-            )
-
-        ax.set_yticks(y_positions)
-        ax.set_yticklabels(
-            [req["booking_id"] for req in sorted_requests], fontsize=6
-        )
-        ax.set_xlabel("Time", fontsize=12)
-        ax.set_ylabel("Request ID", fontsize=12)
-        ax.set_title(title, fontsize=14, fontweight="bold")
-
-        pickup_patch = mpatches.Patch(
-            color=pickup_color, alpha=0.8, label="Pickup Window"
-        )
-        dropoff_patch = mpatches.Patch(
-            color=dropoff_color, alpha=0.8, label="Dropoff Window"
-        )
-        span_patch = mpatches.Patch(
-            color=span_color, alpha=0.3, label="Overall Span"
-        )
-        ax.legend(
-            handles=[pickup_patch, dropoff_patch, span_patch],
-            loc="upper right",
-        )
-        ax.grid(axis="x", alpha=0.3, linestyle="--")
-        ax.set_axisbelow(True)
-        ax.invert_yaxis()
-        plt.tight_layout()
-        return fig, ax
-
-    @staticmethod
-    def plot_from_file(filepath, **kwargs):
-        """
-        Convenience method to parse a file and plot time windows.
-
-        Args:
-            filepath: Path to Sartori instance file
-            **kwargs: Additional arguments passed to plot_request_time_windows
-
-        Returns:
-            fig, ax: matplotlib figure and axis objects
-        """
-        data = SartoriParser.parse_sartori_file(filepath)
-        return SartoriParser.plot_request_time_windows(
-            data["requests"], data["travel_time_matrix"], **kwargs
-        )
