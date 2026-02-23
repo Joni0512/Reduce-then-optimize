@@ -105,8 +105,10 @@ class OnlineRTVSolver:
                                                  boarded_trips, 
                                                  self.config.DWELL_ALIGHT, 
                                                  self.config.DWELL_PICKUP)
+
+        # TODO add depot node with id, so it can be calculated later on using the travel_time_matrix
         
-        NetworkHandler.initialize_travel_time_matrix()
+        NetworkHandler.initialize_travel_time_matrix() 
         iteration += 1  # increase iteration as the prior step was just rebuilding from the last iteration (if there was a prior step)
         
         try:
@@ -552,6 +554,7 @@ class OnlineRTVSolver:
                 updated_driver_runs[earliest_vehicle_index] = earliest_vehicle
         return updated_driver_runs, unserved_requests
     
+    @staticmethod
     def finalize_driverRuns(config: Config, driver_runs: dict, depot_dict: dict) -> dict:
         """
         if config.return_depot finalize the vehicles by adding a depot stop to each ride, otherwise return input

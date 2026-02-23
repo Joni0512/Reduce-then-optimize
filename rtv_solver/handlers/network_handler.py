@@ -54,6 +54,11 @@ class NetworkHandler:
 
     @staticmethod
     def initialize_travel_time_matrix():
+        """
+        calculates all possible travel times between all nodes available nodes
+
+        Whenever we call this, we have considered all request nodes and vehicles, so we can calculate all possible travel times between all nodes and do not have to call the backend server for each calculation.
+        """
         global SERVER_BASED, EUCLIDEAN, travel_time_matrix, no_of_nodes
 
         num_nodes = len(NetworkHandler.node_data)

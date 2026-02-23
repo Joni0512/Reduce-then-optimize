@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import random
 import numpy as np
@@ -22,6 +23,8 @@ def json_default(obj):
         return str(obj)
     if isinstance(obj, Stats):
         return obj.to_dict()
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return dataclasses.asdict(obj)
     raise TypeError(f"Type {type(obj)} not serializable")
 
 def set_seed(seed: int = 42, debug=False):

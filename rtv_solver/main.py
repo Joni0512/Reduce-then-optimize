@@ -89,7 +89,6 @@ if __name__ == "__main__":
         vehicle_state = driver_runs_reduced[0][PayloadParser.DRIVER_STATE]
         vehicle_manifest = driver_runs_reduced[0][PayloadParser.DRIVER_MANIFEST]        
         # vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 25000
-        config.MAX_CARDINALITY = 3
 
         # BUG combination 2 --> iteration keeps running and still tries to optimize despite no active vehicle being left
         # TODO how to set vehicles to inactive, so they are not part of the optimization anymore but are also completed in their manifest (depot return and complete manifest of prior assigned trips)
@@ -135,7 +134,7 @@ if __name__ == "__main__":
         else:
             updated_driver_runs = []
             raise ValueError('No solution as no correct config.MODE provided.')
-            
+
         # calculate statistics of each iteration; for now only the first vehicle
         stats_payload = {PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
                         PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
@@ -146,10 +145,10 @@ if __name__ == "__main__":
         
         console_logger.info(stats)
         console_logger.info(f'Violations: {violations}')
-        console_logger.info(f"Total time: {time.time() - start_time}")
+        console_logger.info(f"Total time: {time.time() - start_time:.2f}s")
 
-        console_logger.info("Request history analysed.")
-        console_logger.info(assignment_history)
+        # console_logger.info("Request history analysed.")
+        # console_logger.info(assignment_history)
 
         save_json(stats_payload, 
                 config.OUTPUT_DIR / "result_driver_runs.json")
@@ -163,7 +162,8 @@ if __name__ == "__main__":
             loaded_data = json.load(driver_runs_file)
         mapper = RouteManifestMapper(config)
         geojson = mapper.manifest_to_geojson(loaded_data, 18)
-        mapper.save_geojson(geojson, config.OUTPUT_DIR / "route_manifest.geojson")
+        mapper.save_geojson(geojson, config.OUTPUT_DIR / "route_manifest_v2.geojson")
 
-    plot_requests_operating_area(payload, show=False, save_path=config.OUTPUT_DIR / "request_distribution.png") 
+    # not required always, can be easily recreated and is not based on the result but rather the initial data
+    # plot_requests_operating_area(payload, show=False, save_path=config.OUTPUT_DIR / "request_distribution.png") 
     

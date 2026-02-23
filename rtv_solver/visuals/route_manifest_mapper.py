@@ -71,6 +71,19 @@ class RouteManifestMapper():
                 # update location for right connections
                 last_loc = next_loc
 
+            # add depot stop if it has not been added yet as final stop (applies to online routing)
+            if stop.get(PayloadParser.MANIFEST_ACTION) != VehicleStop.ACT_DEPOT:
+                new_stop = {
+                    PayloadParser.MANIFEST_ACTION: VehicleStop.ACT_DEPOT, 
+                    PayloadParser.MANIFEST_LOC: depot[PayloadParser.DEPOT_PT],
+                    PayloadParser.MANIFEST_ORDER: len(manifest) + 1}
+                stop_feature = self._build_stop_feature(new_stop)
+                features.append(stop_feature)
+                next_loc = Node.from_dict(depot[PayloadParser.DEPOT_PT])
+            
+                route_part = self._build_simple_route_feature(last_loc, next_loc)
+                route.append(route_part)
+
             route_feature = self._merge_routeparts_features(state[PayloadParser.DRIVER_STATE_RUN_ID], route)
             features.append(route_feature)
         return self._feature_collection(features)
