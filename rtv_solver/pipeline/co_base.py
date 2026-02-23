@@ -69,7 +69,7 @@ class CO(ABC):
         request_count = len(requests)
 
         if model.Status == GRB.OPTIMAL or model.Status == GRB.SUBOPTIMAL:
-            console_logger.info("ILP solution time: {0}s".format(model.Runtime))
+            console_logger.info(f"ILP solved in {model.Runtime:.3f} s.")
 
             for vehicle_id in self.vehicle_to_trips_cost_map:
                 for i in self.vehicle_to_trips_cost_map[vehicle_id]:

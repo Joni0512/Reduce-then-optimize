@@ -14,8 +14,8 @@ from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.online_rtv_solver import OnlineRTVSolver
 from rtv_solver.structure.config import Config
 
-from rtv_solver.pipeline import CO_ScoreMaximization, CO_TripCostMinimization, CO_RebalancingCoverage, FeatureBuilder
-from rtv_solver.pipeline import FenchelYoungLoss, make_map_oracle, extract_y_binary, ScoringMLP
+from rtv_solver.pipeline import CO, CO_ScoreMaximization, CO_TripCostMinimization, CO_RebalancingCoverage, FeatureBuilder
+from rtv_solver.pipeline import FenchelYoungLoss, make_map_oracle, ScoringMLP
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
@@ -44,18 +44,22 @@ class COAMLPipeline():
                 optimizer.step()
     """
     def __init__(
-        self,
-        config: Config = None,
-    ):
+            self,
+            config: Config = None,
+        ):
+        # TODO add elements to config in order to make it more readable
         self.config = config
-        self.model = ScoringMLP(feature_dim=66, hidden_dim=32) # TODO rebuild so we can have the fixed feature_matrix dimension here and define them before instead of inline to
-        self.fy_loss = FenchelYoungLoss(num_samples=2, sigma=1.0)
-        # Holds the FY loss tensor from the most recent solve_iteration call.
-        # None when no model is set or when the ILP returned no feasible solution.
+        
+        self.model = ScoringMLP(feature_dim=66, hidden_dim=32) # TODO update architecture so we do not need the dimension fixed manually and can rather register the model that has this values automatically.
+        self.fy_loss = FenchelYoungLoss(num_samples=15, sigma=0.1)
+        self.optimizer = CO_ScoreMaximization(config)
+        self.default_optimizer = CO_TripCostMinimization(config)    
+        
         self.last_loss: Optional[torch.Tensor] = None
-        # it is required here as we do not call OnlineRTVSolver as an object
-        if sys.platform == "darwin": # required to run online_solver correctly on MacOS
+        
+        if sys.platform == "darwin": # required to run correctly on MacOS
             try:
+                # it is required here as we do not call OnlineRTVSolver as an object
                 multiprocessing.set_start_method("fork")
             except RuntimeError: # start method was already set somewhere else -> don't crash
                 pass
@@ -119,7 +123,6 @@ class COAMLPipeline():
             driver_runs = simulated_driver_runs
 
         final_driver_runs = OnlineRTVSolver.finalize_driverRuns(self.config, driver_runs, payload[PayloadParser.DEPOT])
-
         return final_driver_runs
     
     def solve_iteration(self, subset_payload, iteration = 0):
@@ -131,29 +134,18 @@ class COAMLPipeline():
         # initalize network and payload
         NetworkHandler.init(True, self.config.SERVER_URL)
         payload_object = PayloadParser.get_payload_object(subset_payload, False)
-        request_handler = RequestHandler(payload_object.requests, self.config.DWELL_PICKUP, self.config.DWELL_ALIGHT)
-        
-        # filter active and boarded requests for subsequent action as they need to be integrated when handling new trip generation
-        temp_batch = request_handler.get_all_requests()
-        request_batch = []
-        active_requests = {}
-        boarded_requests = {}
-        for req in temp_batch:
-            req_id = req.id
-            if req_id in payload_object.boarded_requests_keys:
-                boarded_requests[req_id] = req
-            else:
-                if req_id in payload_object.active_requests_keys:
-                    active_requests[req_id] = req
-                request_batch.append(req)
-        
-        # create trips of all already boarded requests # NOTE these requests are not always boarded at this point but might be still committed to a vehicle (especially if it is the first request of an idling vehicle)
-        boarded_trips = TripHandler.create_trip_for_picked_requests(boarded_requests, iteration)
-        
-        # initialize all vehicles as they are stored in the payload-object
+        request_handler = RequestHandler(payload_object.requests, 
+                                         self.config.DWELL_PICKUP, 
+                                         self.config.DWELL_ALIGHT)
+        request_batch, active_requests, boarded_requests = request_handler.get_request_batches(payload_object)
         vehicle_handler = VehicleHandler(payload_object.depot, 
                                          payload_object.driver_runs,
                                          self.config)
+        
+        
+        # create trips of all already boarded requests 
+        # NOTE these requests are not always boarded at this point but might be still committed to a vehicle (especially if it is the first request of an idling vehicle)
+        boarded_trips = TripHandler.create_trip_for_picked_requests(boarded_requests, iteration)
         # update vehicle position/trips/times along its path according to all data stored in the manifest
         vehicle_handler.add_manifest_to_vehicles(payload_object.driver_runs,
                                                  boarded_requests,
@@ -177,47 +169,52 @@ class COAMLPipeline():
         
         if len(vehicle_handler.vehicles) != 0:
             single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
-
-            feature_matrix, feature_names = self.feature_builder.build_matrix_from_trip_handler(trip_handler, payload_object.current_time)  
-            
-            # TODO make optimizer injectable to allow for different optimizers (e.g. CO_TripCostMinimization, CO_RebalancingCoverage, etc.) and handle setup in the main file instead of here, so we can run it based on the mode of the current program
-            self.optimizer = CO_ScoreMaximization(
-                single_trip_map, 
-                trip_list, 
-                trip_costs, 
-                vehicle_to_trips_cost_map, 
-                trip_to_vehicle_cost_map, 
-                self.config)
-            # self.optimizer = CO_TripCostMinimization(
-            #     single_trip_map, 
-            #     trip_list, 
-            #     trip_costs, 
-            #     vehicle_to_trips_cost_map, 
-            #     trip_to_vehicle_cost_map, 
-            #     self.config)
-
-            feature_tensor = torch.tensor(feature_matrix, dtype=torch.float32)
-            feature_scores = self.model(feature_tensor)
             
             # Split run() so we can capture x_t for y_star extraction; result is identical to self.optimizer.run().
+            self.optimizer.reset(single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map)
+            self.default_optimizer.reset(single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map)
+
+            # calculate solution based on 
+            feature_matrix, _ = self.feature_builder.build_matrix_from_trip_handler(trip_handler, payload_object.current_time) 
+            feature_tensor = torch.tensor(feature_matrix, dtype=torch.float32)
+            feature_scores = self.model(feature_tensor)
             ilp_model, x_t, x_r = self.optimizer.solve_ilp(
                 feature_scores,
-                request_batch, active_requests,
+                request_batch, 
+                active_requests,
                 penalty=self.config.ILP_PENALTY,
-                keep_active=self.config.KEEP_ACTIVE,
-            )
+                keep_active=self.config.KEEP_ACTIVE)
+            # transform solution to assignment, used to update vehicles and manifests
+            # THIS result must be used for future comparisons
             result = self.optimizer.transform_solution_to_assignment(
-                ilp_model, x_t, x_r, request_batch
-            )
+                ilp_model, x_t, x_r, request_batch)
+            
+            # calculate default solution based on the ILP minimizing trip costs (used for FY loss)
+            trip_obj_scores = np.fromiter((tc.cost for tc in trip_costs), dtype=float, count=len(trip_costs))
+            default_ilp_model, default_x_t, default_x_r = self.default_optimizer.solve_ilp(
+                trip_obj_scores, 
+                request_batch, 
+                active_requests, 
+                penalty=self.config.ILP_PENALTY, 
+                keep_active=self.config.KEEP_ACTIVE)
+            console_logger.info(f"Default ILP solved in {default_ilp_model.Runtime:.3f} s.")
+            default_result = self.default_optimizer.transform_solution_to_assignment(
+                default_ilp_model, default_x_t, default_x_r, request_batch)
+
+            # compute Fenchel-Young loss
             self._compute_fy_loss(
                 feature_matrix,
-                ilp_model, x_t, len(trip_costs),
-                single_trip_map, trip_list, trip_costs,
-                vehicle_to_trips_cost_map, trip_to_vehicle_cost_map,
-                request_batch, active_requests,
-            )
-
-            # result = self.optimizer.run(feature_scores, request_batch, active_requests)
+                default_ilp_model, 
+                default_x_t, 
+                len(trip_costs),
+                single_trip_map, 
+                trip_list, 
+                trip_costs,
+                vehicle_to_trips_cost_map, 
+                trip_to_vehicle_cost_map,
+                request_batch, 
+                active_requests)
+            
             self.last_loss = None
 
             if self.config.REBALANCING:
@@ -287,12 +284,10 @@ class COAMLPipeline():
         Side effects:
             Sets self.last_loss.
         """
-        y_star = extract_y_binary(ilp_model, x_t, trip_cost_count)
+        y_star = CO.extract_y_binary(ilp_model, x_t, trip_cost_count)
 
         if y_star.sum().item() == 0:
-            console_logger.warning(
-                "FY loss skipped: CO_TripCostMinimization returned no feasible assignment."
-            )
+            console_logger.warning("FY loss skipped: Optimizer did not assign any RTVs.")
             self.last_loss = None
             return
 
@@ -300,6 +295,7 @@ class COAMLPipeline():
         scores = self.model(feature_tensor)     # (n,)
 
         oracle = make_map_oracle(
+            self.optimizer,
             single_trip_map,
             trip_list,
             trip_costs,

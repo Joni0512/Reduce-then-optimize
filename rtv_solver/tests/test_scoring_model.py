@@ -56,12 +56,12 @@ def test_raw_scores_can_be_negative(model, feature_dim):
 
 @pytest.mark.basic
 def test_scores_not_bounded_to_zero_one(model, feature_dim):
-    """Scores must not be bounded to [0, 1] — sigmoid would be a bug."""
+    """Scores must not be bounded to [0, 1] — sigmoid would mix up the results"""
     torch.manual_seed(7)
     x = torch.randn(100, feature_dim) * 5.0  # large inputs push raw outputs outside [0,1]
     scores = model(x)
     outside_unit = ((scores > 1.0) | (scores < 0.0)).any().item()
-    assert outside_unit, "all scores inside [0,1] — did a sigmoid sneak in?"
+    assert outside_unit, "all scores inside [0,1] — sigmoid added?"
 
 @pytest.mark.basic
 def test_backward_pass_runs(model, feature_dim):

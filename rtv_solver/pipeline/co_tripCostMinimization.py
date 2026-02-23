@@ -25,8 +25,8 @@ class CO_TripCostMinimization(CO):
 
     def run(self, requests: list[Request], active_requests: dict[int, Request]):
         # define trip variables with related costs
-        trip_costs_obj = np.fromiter((tc.cost for tc in self.trip_costs), dtype=float, count=len(self.trip_costs))
-        model, x_t, x_r = self.solve_ilp(trip_costs_obj, requests, active_requests, penalty=self.config.ILP_PENALTY, keep_active=self.config.KEEP_ACTIVE)
+        trip_obj_scores = np.fromiter((tc.cost for tc in self.trip_costs), dtype=float, count=len(self.trip_costs))
+        model, x_t, x_r = self.solve_ilp(trip_obj_scores, requests, active_requests, penalty=self.config.ILP_PENALTY, keep_active=self.config.KEEP_ACTIVE)
         assignment_result = self.transform_solution_to_assignment(model, x_t, x_r, requests)
         return assignment_result
 
