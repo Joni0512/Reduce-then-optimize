@@ -1,0 +1,311 @@
+"""
+Parser for Sartori & Buriol PDPTW benchmark instances.
+https://github.com/cssartori/pdptw-instances/tree/master
+
+Format (see inputs/sartori/README.txt):
+- First 10 lines: metadata (SIZE, ROUTE-TIME, CAPACITY, etc.)
+- NODES: SIZE lines with <id> <lat> <lon> <dem> <etw> <ltw> <sd> <p> <d>
+  - Node 0 is depot
+  - dem > 0 for pickup, dem < 0 for delivery
+  - Pickup id pairs with delivery id = id + (SIZE-1)/2
+- EDGES: SIZE lines of SIZE integers (travel times in minutes, OSRM-based)
+"""
+import copy
+
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
+import numpy as np
+
+
+class SartoriParser:
+    """Parser for Sartori & Buriol (2019) PDPTW benchmark instances."""
+
+    @staticmethod
+    def parse_sartori_file(filepath, num_vehicles=None):
+        """
+        Parse a Sartori instance file and return data in the same format as LiLimParser.
+
+        Args:
+            filepath: Path to the Sartori instance file
+            num_vehicles: Optional number of vehicles. If None, defaults to min(50, num_requests).
+
+        Returns:
+            dict with keys: requests, depot, driver_runs, travel_time_matrix
+        """
+        with open(filepath, "r") as f:
+            lines = f.readlines()
+
+        # Parse header (first 10 lines)
+        header = {}
+        for line in lines[:10]:
+            line = line.strip()
+            if ":" in line:
+                key, value = line.split(":", 1)
+                header[key.strip()] = value.strip()
+
+        size = int(header["SIZE"])
+        route_time = int(header["ROUTE-TIME"])
+        capacity = int(header["CAPACITY"])
+
+        # Find NODES and EDGES sections
+        nodes_start = None
+        edges_start = None
+        for i, line in enumerate(lines):
+            if line.strip() == "NODES":
+                nodes_start = i + 1
+            elif line.strip() == "EDGES":
+                edges_start = i + 1
+                break
+
+        if nodes_start is None or edges_start is None:
+            raise ValueError("Invalid Sartori file: missing NODES or EDGES section")
+
+        # Parse nodes
+        tasks = {}
+        for i in range(size):
+            line = lines[nodes_start + i]
+            parts = line.strip().split()
+            if len(parts) < 9:
+                raise ValueError(f"Invalid node line {i + 1}: {line}")
+
+            node_id = int(parts[0])
+            lat = float(parts[1])
+            lon = float(parts[2])
+            demand = int(parts[3])
+            etw = int(parts[4])
+            ltw = int(parts[5])
+            service_time = int(parts[6])
+
+            tasks[node_id] = {
+                "task_no": node_id,
+                "x": lon,  # Use lon as x for consistency with LiLimParser
+                "y": lat,  # Use lat as y
+                "demand": demand,
+                "earliest": etw,
+                "latest": ltw,
+                "service_time": service_time,
+            }
+
+        # Depot is node 0
+        depot_task = tasks[0]
+        depot = {"pt": {"lon": depot_task["x"], "lat": depot_task["y"]}}
+        depot_start_time = depot_task["earliest"]
+        depot_end_time = depot_task["latest"]
+        depot_loc = {"lon": depot_task["x"], "lat": depot_task["y"]}
+
+        # Build pickup-delivery pairs: pickup id -> delivery id = id + (SIZE-1)/2
+        num_pickups = (size - 1) // 2
+        requests = []
+        for pickup_id in range(1, num_pickups + 1):
+            delivery_id = pickup_id + num_pickups
+            pickup_task = tasks[pickup_id]
+            delivery_task = tasks[delivery_id]
+
+            if pickup_task["demand"] <= 0 or delivery_task["demand"] >= 0:
+                raise ValueError(
+                    f"Invalid pair: pickup {pickup_id} (dem={pickup_task['demand']}), "
+                    f"delivery {delivery_id} (dem={delivery_task['demand']})"
+                )
+
+            request = {
+                "booking_id": str(pickup_id),
+                "pickup_pt": {
+                    "lon": pickup_task["x"],
+                    "lat": pickup_task["y"],
+                    "node_id": pickup_task["task_no"],
+                },
+                "dropoff_pt": {
+                    "lon": delivery_task["x"],
+                    "lat": delivery_task["y"],
+                    "node_id": delivery_task["task_no"],
+                },
+                "pickup_time_window_start": pickup_task["earliest"],
+                "pickup_time_window_end": pickup_task["latest"],
+                "dropoff_time_window_start": delivery_task["earliest"],
+                "dropoff_time_window_end": delivery_task["latest"],
+                "am": abs(pickup_task["demand"]),
+                "wc": 0,
+                "pickup_service_time": pickup_task["service_time"],
+                "dropoff_service_time": delivery_task["service_time"],
+            }
+            requests.append(request)
+
+        requests = sorted(requests, key=lambda r: r["pickup_time_window_start"])
+
+        # Parse travel time matrix from EDGES
+        travel_time_matrix = []
+        for i in range(size):
+            line = lines[edges_start + i]
+            row = [int(x) for x in line.strip().split()]
+            if len(row) != size:
+                raise ValueError(
+                    f"EDGES row {i + 1}: expected {size} values, got {len(row)}"
+                )
+            travel_time_matrix.append(row)
+
+        # Build driver_runs
+        if num_vehicles is None:
+            num_vehicles = min(50, len(requests))
+
+        driver_runs = []
+        for i in range(num_vehicles):
+            driver_runs.append(
+                {
+                    "state": {
+                        "run_id": i,
+                        "start_time": depot_start_time,
+                        "end_time": depot_end_time,
+                        "am_capacity": capacity,
+                        "wc_capacity": 0,
+                        "locations_already_serviced": 0,
+                        "location_dt_seconds": depot_start_time,
+                        "loc": copy.deepcopy(depot_loc),
+                        "total_locations": 0,
+                    },
+                    "manifest": [],
+                }
+            )
+
+        return {
+            "requests": requests,
+            "depot": depot,
+            "driver_runs": driver_runs,
+            "travel_time_matrix": travel_time_matrix,
+        }
+
+    @staticmethod
+    def plot_request_time_windows(
+        requests,
+        travel_time_matrix,
+        title="Request Time Windows",
+        figsize=(14, 10),
+        sort_by="pickup_start",
+        max_requests=None,
+    ):
+        """
+        Create a horizontal bar plot showing time windows for each request.
+
+        Same interface as LiLimParser.plot_request_time_windows.
+        """
+        if sort_by == "pickup_start":
+            sorted_requests = sorted(
+                requests, key=lambda r: r["pickup_time_window_start"]
+            )
+        elif sort_by == "dropoff_end":
+            sorted_requests = sorted(
+                requests, key=lambda r: r["dropoff_time_window_end"]
+            )
+        elif sort_by == "duration":
+            sorted_requests = sorted(
+                requests,
+                key=lambda r: r["dropoff_time_window_end"]
+                - r["pickup_time_window_start"],
+            )
+        elif sort_by == "booking_id":
+            sorted_requests = sorted(
+                requests, key=lambda r: int(r["booking_id"])
+            )
+        else:
+            sorted_requests = requests
+
+        if max_requests is not None:
+            sorted_requests = sorted_requests[:max_requests]
+
+        n_requests = len(sorted_requests)
+        fig, ax = plt.subplots(figsize=figsize)
+
+        pickup_color = "#2ecc71"
+        dropoff_color = "#e74c3c"
+        span_color = "#bdc3c7"
+        y_positions = np.arange(n_requests)
+        bar_height = 0.6
+
+        for i, req in enumerate(sorted_requests):
+            pickup_start = req["pickup_time_window_start"]
+            pickup_end = req["pickup_time_window_end"]
+            dropoff_start = req["dropoff_time_window_start"]
+            dropoff_end = req["dropoff_time_window_end"]
+
+            ax.barh(
+                y_positions[i],
+                dropoff_end - pickup_start,
+                left=pickup_start,
+                height=bar_height,
+                color=span_color,
+                alpha=0.3,
+                edgecolor="none",
+            )
+            ax.barh(
+                y_positions[i],
+                pickup_end - pickup_start,
+                left=pickup_start,
+                height=bar_height,
+                color=pickup_color,
+                alpha=0.8,
+                edgecolor="none",
+            )
+            ax.barh(
+                y_positions[i],
+                dropoff_end - dropoff_start,
+                left=dropoff_start,
+                height=bar_height,
+                color=dropoff_color,
+                alpha=0.8,
+                edgecolor="none",
+            )
+
+            pickup_node = req["pickup_pt"]["node_id"]
+            dropoff_node = req["dropoff_pt"]["node_id"]
+            travel_time = travel_time_matrix[pickup_node][dropoff_node]
+            ax.plot(
+                [pickup_start, pickup_start + travel_time],
+                [y_positions[i], y_positions[i]],
+                color="blue",
+                linestyle="--",
+                alpha=0.7,
+                label="Travel Time" if i == 0 else "",
+            )
+
+        ax.set_yticks(y_positions)
+        ax.set_yticklabels(
+            [req["booking_id"] for req in sorted_requests], fontsize=6
+        )
+        ax.set_xlabel("Time", fontsize=12)
+        ax.set_ylabel("Request ID", fontsize=12)
+        ax.set_title(title, fontsize=14, fontweight="bold")
+
+        pickup_patch = mpatches.Patch(
+            color=pickup_color, alpha=0.8, label="Pickup Window"
+        )
+        dropoff_patch = mpatches.Patch(
+            color=dropoff_color, alpha=0.8, label="Dropoff Window"
+        )
+        span_patch = mpatches.Patch(
+            color=span_color, alpha=0.3, label="Overall Span"
+        )
+        ax.legend(
+            handles=[pickup_patch, dropoff_patch, span_patch],
+            loc="upper right",
+        )
+        ax.grid(axis="x", alpha=0.3, linestyle="--")
+        ax.set_axisbelow(True)
+        ax.invert_yaxis()
+        plt.tight_layout()
+        return fig, ax
+
+    @staticmethod
+    def plot_from_file(filepath, **kwargs):
+        """
+        Convenience method to parse a file and plot time windows.
+
+        Args:
+            filepath: Path to Sartori instance file
+            **kwargs: Additional arguments passed to plot_request_time_windows
+
+        Returns:
+            fig, ax: matplotlib figure and axis objects
+        """
+        data = SartoriParser.parse_sartori_file(filepath)
+        return SartoriParser.plot_request_time_windows(
+            data["requests"], data["travel_time_matrix"], **kwargs
+        )
