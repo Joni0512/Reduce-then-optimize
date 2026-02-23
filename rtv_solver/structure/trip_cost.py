@@ -12,6 +12,9 @@ class TripCost:
         self.sequence = StopSequence(sequence)
         self.plan: Optional[TripInsertionPlan] = plan
 
+    def simple_str(self):
+        return f"TC({self.trip_no}, veh={self.vehicle_id}, cost={self.cost:.1f}, seq={self.sequence.simple_str()})"
+    
     def __str__(self):
         return f"TripCost(t_no={self.trip_no}, v_id={self.vehicle_id}, cost={self.cost}, seq={self.sequence})"
     

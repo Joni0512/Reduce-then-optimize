@@ -51,8 +51,8 @@ if __name__ == "__main__":
     parser.add_argument('--dwell_pickup', type=int,         default=180, help='Dwell time at pickup in seconds')
     parser.add_argument('--dwell_alight', type=int,         default=60, help='Dwell time at alight (dropoff) in seconds')
     parser.add_argument('--walk_distance_cutoff', type=int, default=0, help="Walking distance between dropoff and final destination.")
-    parser.add_argument('--step_size', type=int,            default=1800, help='Step size in seconds for rolling horizon')
-    parser.add_argument('--batch_interval', type=int,       default=3600, help='Batch interval in seconds')
+    parser.add_argument('--step_size', type=int,            default=600, help='Step size in seconds for rolling horizon')
+    parser.add_argument('--batch_interval', type=int,       default=1800, help='Batch interval in seconds')
     # stats parameters
     parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
     # TODO COAML parameters 
@@ -103,7 +103,7 @@ if __name__ == "__main__":
         
         # create a simplified set of requests, consider all requests that start before end_requests
         current_time = 5*3600 + 30*60
-        step = 5*60
+        step = 20*60
         selected_requests = []
         for request in data[PayloadParser.REQUESTS]:
             if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + step:

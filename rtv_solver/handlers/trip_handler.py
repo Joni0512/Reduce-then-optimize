@@ -67,7 +67,7 @@ class TripHandler:
         self.generate_trip_costs(self.vehicles, self.config.MAX_THREAD_CNT, 0)
         self.generate_shared_trips(self.vehicles, self.config.MAX_CARDINALITY, self.config.MAX_THREAD_CNT, self.config.SHARE_COST_FACTOR)
 
-        console_logger.info(f"Time spent on RTV generation: {time.time() - self.starting_time:.3f} seconds. Number of trips generated: {len(self.trips)}.")
+        console_logger.info(f"{len(self.trips)} RTV combos generated: {time.time() - self.starting_time:.3f}s")
         return self.ondemand_only_trip_map, self.trips, TripHandler.trip_costs, self.vehicle_to_trips_cost_map, self.trip_to_vehicle_cost_map
 
 
@@ -376,7 +376,7 @@ class TripHandler:
                 self._create_rr_graph()
             if len(self.shared_trips_map[cardinality]) == 0:
                 break # no trip_cost generation if no trips exist
-            console_logger.info(f"{len(self.shared_trips_map[cardinality])} cardinality {cardinality} trips generated in {time.time()-st:.3f} seconds.")
+            console_logger.info(f"{len(self.shared_trips_map[cardinality])} cardinality {cardinality} trips generated in {time.time()-st:.3f}s.")
             self.generate_trip_costs(vehicles, max_num_thread, trip_start)           
             cardinality += 1
 

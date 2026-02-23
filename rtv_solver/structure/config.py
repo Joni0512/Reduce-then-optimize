@@ -56,13 +56,22 @@ class Config:
     
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "Config":
+        """
+        Create a Config instance from the arguments. 
+        
+        Conversion to lower keys is necessary so both shell scripts and main.py work in parallel.
+        """
         reproduced = False
 
         # print(f"Default arguments: {args}")
+        # Convert to dictionary and lower keys; convert back to Namespace
+        lower_args_dict = {k.lower(): v for k, v in vars(args).items()}
+        args = argparse.Namespace(**lower_args_dict)
 
         if args.config_file:
-            # Load config from file
+            # Load config from file; convert json_dict to lower keys
             cfg_json = load_json(Path(args.config_file))["config_dict"]
+            cfg_json = {k.lower(): v for k, v in cfg_json.items()}
 
             # Extract base output directory
             base_output_dir = cls.derive_base_output_dir(cfg_json["output_dir"])

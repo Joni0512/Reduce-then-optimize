@@ -187,7 +187,7 @@ class SwapHandler:
             m.optimize()
 
             if m.Status == GRB.OPTIMAL or m.Status == GRB.SUBOPTIMAL:
-                console_logger.info("Time spent on optimization: {0}".format(m.Runtime))
+                console_logger.info("SwapILP time: {0}s".format(m.Runtime))
 
                 for i in range(no_options):
                     if x_t[i].X == 1:

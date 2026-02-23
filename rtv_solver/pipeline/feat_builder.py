@@ -89,7 +89,6 @@ class TripCostFeatures:
     # tc_actual_route_travel_time: float = 0.0 can be deduced from values above in the features
 
 
-
 class FeatureBuilder:
     """It builds one feature vector per `TripCost` in order to match the size of new scores to the number of feasible trips associated with costs, combining:
     - vehicle information
@@ -162,11 +161,12 @@ class FeatureBuilder:
             fv.update(self._state_features(current_time, vehicles))             # 6 items
             # fv.update(self._trip_features(trip))
             fv.update(self._vehicle_features(vehicle, vehicles, current_time))  # 11 items
-            fv.update(self._trip_cost_features(tc, current_time))               # 17 items
+            # fv.update(self._trip_cost_features(tc, current_time))               # 17 items
             fv.update(self._future_requests_features(trip_requests, current_time)) # 49 items
             # fv.update(self._request_aggregate_features(trip_requests))
 
-            # current total = 6 + 11 + 17 + 49 = 83 items
+            # current total = 6 + 11 + 49 = 66 items
+            # + 11 + 17 + 49 = 83 items
 
             features.append(fv)
 
@@ -209,9 +209,8 @@ class FeatureBuilder:
         
         trip_costs, trips, vehicles, requests = self._get_components_from_trip_handler(trip_handler)
         matrix, feature_names = self.build_matrix(trip_costs, trips, vehicles, requests, current_time)
-
-        feat_end_time = time.time()
-        console_logger.info(f"{len(feature_names)} features for {len(trip_costs)} items created in {feat_end_time - feat_start_time} seconds.")
+ 
+        console_logger.info(f"{len(feature_names)} features for {len(trip_costs)} items created in {time.time() - feat_start_time:.3f} s.")
 
         return matrix, feature_names
         

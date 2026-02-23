@@ -58,6 +58,11 @@ class StopSequence(list):
         seq_str = "\n \t" + "\n\t".join([str(node) for node in sequence_list])
         return seq_str
 
+    def simple_str(self):
+        """get just the trip-IDs once of the sequence"""
+        single_trip_ids = dict.fromkeys(stop.trip_id for stop in self)
+        return ", ".join(single_trip_ids)
+
     def __str__(self):
         return str(self.sequence_to_string(self))
 
