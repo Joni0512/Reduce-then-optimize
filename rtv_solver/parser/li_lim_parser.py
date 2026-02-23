@@ -1,7 +1,10 @@
 import copy
 import numpy as np
 
-class LiLimParser:
+from rtv_solver.parser.base_parser import BaseParser
+
+
+class LiLimParser(BaseParser):
     """
     Parser for Li & Lim PDPTW benchmark instances.
     https://www.sintef.no/projectweb/top/pdptw/li-lim-benchmark/
@@ -17,7 +20,7 @@ class LiLimParser:
     # TODO exchange relevant keys to PayloadParser keys, but first need a file to check correct outcome
 
     @staticmethod
-    def parse_file(filepath):
+    def parse_file(filepath: str):
         with open(filepath, 'r') as f:
             lines = f.readlines()
 

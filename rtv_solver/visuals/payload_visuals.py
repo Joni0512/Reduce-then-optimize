@@ -81,6 +81,7 @@ def plot_request_time_windows(
         fig, ax: matplotlib figure and axis objects
     """
     # TODO move data collection into the payloadParser as a static method (so here no responsibility remains on handling the data keys)
+    # TODO add support for the new 'chattanooga' format and 'wilson' format
     requests = data['requests']
     travel_time_matrix = data['travel_time_matrix']
 
@@ -173,11 +174,13 @@ def plot_request_time_windows(
 
 if __name__ == "__main__":
     from rtv_solver.parser.li_lim_parser import LiLimParser
-    input_file = 'inputs/li_lim/pdp_100/lc102.txt'
-    data = LiLimParser.parse_file(input_file)
-    
-    # from rtv_solver.parser.sartori_parser import SartoriParser
-    # input_file = 'inputs/sartori/n100/bar-n100-2.txt'
-    # data = SartoriParser.parse_file(input_file)
+    from rtv_solver.parser.sartori_parser import SartoriParser
 
+    # parser = LiLimParser()       # swap this one line to change parser
+    # input_file = 'inputs/li_lim/pdp_100/lc102.txt'
+
+    parser = SartoriParser()
+    input_file = 'inputs/sartori/n100/bar-n100-2.txt'
+
+    data = parser.parse_file(input_file)
     plot_request_time_windows(data, save_path=None, show=True)

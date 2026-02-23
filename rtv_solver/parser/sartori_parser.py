@@ -1,6 +1,9 @@
 import copy
 
-class SartoriParser:
+from rtv_solver.parser.base_parser import BaseParser
+
+
+class SartoriParser(BaseParser):
     """
     Parser for Sartori & Buriol PDPTW benchmark instances.
     https://github.com/cssartori/pdptw-instances/tree/master
