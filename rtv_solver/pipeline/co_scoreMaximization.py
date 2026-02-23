@@ -30,9 +30,8 @@ class CO_ScoreMaximization(CO):
         assignment_result = self.transform_solution_to_assignment(model, x_t, x_r, requests)
         return assignment_result
         
-    def solve_ilp(self, feature_scores, requests: list[Request], active_requests: dict[int, Request], keep_active: bool = True):
-        """
-        """
+    def solve_ilp(self, feature_scores, requests: list[Request], active_requests: dict[int, Request], penalty: int = 100_000, keep_active: bool = True):
+        # TODO add docstring
         trip_count = len(self.trip_costs)
         request_count = len(requests)
 

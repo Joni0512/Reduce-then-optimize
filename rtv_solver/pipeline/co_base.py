@@ -58,7 +58,7 @@ class CO(ABC):
         request_count = len(requests)
 
         if model.Status == GRB.OPTIMAL or model.Status == GRB.SUBOPTIMAL:
-            console_logger.info("Total time spent on optimization: {0}".format(model.Runtime))
+            console_logger.info("ILP solution time: {0}s".format(model.Runtime))
 
             for vehicle_id in self.vehicle_to_trips_cost_map:
                 for i in self.vehicle_to_trips_cost_map[vehicle_id]:
@@ -75,7 +75,8 @@ class CO(ABC):
                                 trips.append(self.trips[sub_trip_no])
                         trip_sizes.append(len(trips))
                         vehicle_assignment[vehicle_id] = (trips, trip_cost.sequence)
-                        console_logger.info(f"Assignment: {trip_cost}")
+                        console_logger.debug(f"Assignment: {trip_cost}")
+                        console_logger.info(f"Assignment: {trip_cost.simple_str()}")
 
             for request in requests:
                 found_assignment = False

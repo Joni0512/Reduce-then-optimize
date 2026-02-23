@@ -30,8 +30,11 @@ class ScoringMLP(nn.Module):
         self.feature_dim = feature_dim
         self.hidden_dim = hidden_dim
 
+        # added more complexity to the model to test if it can easily reach convergence
         self.net = nn.Sequential(
             nn.Linear(feature_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 1),
         )

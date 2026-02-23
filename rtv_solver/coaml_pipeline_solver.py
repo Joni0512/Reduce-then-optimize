@@ -1,11 +1,10 @@
-import copy
 import multiprocessing
 import sys
 from multiprocessing import Pool
-import time
 import numpy as np
 import copy
-import json
+from typing import Optional
+import torch
 
 from rtv_solver.handlers.request_handler import RequestHandler
 from rtv_solver.handlers.network_handler import NetworkHandler
@@ -15,7 +14,8 @@ from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.online_rtv_solver import OnlineRTVSolver
 from rtv_solver.structure.config import Config
 
-from rtv_solver.pipeline import CO_TripCostMinimization, CO_RebalancingCoverage, FeatureBuilder
+from rtv_solver.pipeline import CO_ScoreMaximization, CO_TripCostMinimization, CO_RebalancingCoverage, FeatureBuilder
+from rtv_solver.pipeline import FenchelYoungLoss, make_map_oracle, extract_y_binary, ScoringMLP
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
@@ -27,9 +27,32 @@ class COAMLPipeline():
     """
     Implements COAML pipeline for a rolling-horizon solution for the PDPTW.
     
-    Some functions in the OnlineRTVSolver can be reused to check feasibility."""
-    def __init__(self, config: Config = None):
+    Some functions in the OnlineRTVSolver can be reused to check feasibility.
+
+    When a scoring model and Fenchel-Young loss are supplied, each call to
+    solve_iteration() additionally computes a training loss and stores it in
+    self.last_loss.  The vehicle assignment itself is always determined by
+    CO_TripCostMinimization (unchanged), so routing quality is unaffected.
+
+    Training loop usage (not implemented here)::
+
+        for t, payload in stream:
+            optimizer.zero_grad()
+            driver_runs = pipeline.solve_iteration(payload, t)
+            if pipeline.last_loss is not None:
+                pipeline.last_loss.backward()
+                optimizer.step()
+    """
+    def __init__(
+        self,
+        config: Config = None,
+    ):
         self.config = config
+        self.model = ScoringMLP(feature_dim=66, hidden_dim=32) # TODO rebuild so we can have the fixed feature_matrix dimension here and define them before instead of inline to
+        self.fy_loss = FenchelYoungLoss(num_samples=2, sigma=1.0)
+        # Holds the FY loss tensor from the most recent solve_iteration call.
+        # None when no model is set or when the ILP returned no feasible solution.
+        self.last_loss: Optional[torch.Tensor] = None
         # it is required here as we do not call OnlineRTVSolver as an object
         if sys.platform == "darwin": # required to run online_solver correctly on MacOS
             try:
@@ -158,15 +181,45 @@ class COAMLPipeline():
             feature_matrix, feature_names = self.feature_builder.build_matrix_from_trip_handler(trip_handler, payload_object.current_time)  
             
             # TODO make optimizer injectable to allow for different optimizers (e.g. CO_TripCostMinimization, CO_RebalancingCoverage, etc.) and handle setup in the main file instead of here, so we can run it based on the mode of the current program
-            self.optimizer = CO_TripCostMinimization(
+            self.optimizer = CO_ScoreMaximization(
                 single_trip_map, 
                 trip_list, 
                 trip_costs, 
                 vehicle_to_trips_cost_map, 
                 trip_to_vehicle_cost_map, 
                 self.config)
-            result = self.optimizer.run(request_batch, active_requests)
+            # self.optimizer = CO_TripCostMinimization(
+            #     single_trip_map, 
+            #     trip_list, 
+            #     trip_costs, 
+            #     vehicle_to_trips_cost_map, 
+            #     trip_to_vehicle_cost_map, 
+            #     self.config)
+
+            feature_tensor = torch.tensor(feature_matrix, dtype=torch.float32)
+            feature_scores = self.model(feature_tensor)
             
+            # Split run() so we can capture x_t for y_star extraction; result is identical to self.optimizer.run().
+            ilp_model, x_t, x_r = self.optimizer.solve_ilp(
+                feature_scores,
+                request_batch, active_requests,
+                penalty=self.config.ILP_PENALTY,
+                keep_active=self.config.KEEP_ACTIVE,
+            )
+            result = self.optimizer.transform_solution_to_assignment(
+                ilp_model, x_t, x_r, request_batch
+            )
+            self._compute_fy_loss(
+                feature_matrix,
+                ilp_model, x_t, len(trip_costs),
+                single_trip_map, trip_list, trip_costs,
+                vehicle_to_trips_cost_map, trip_to_vehicle_cost_map,
+                request_batch, active_requests,
+            )
+
+            # result = self.optimizer.run(feature_scores, request_batch, active_requests)
+            self.last_loss = None
+
             if self.config.REBALANCING:
                 rebalancing_optimizer = CO_RebalancingCoverage(self.config)
                 result = rebalancing_optimizer.run(result, vehicle_handler.vehicles, request_batch)
@@ -206,6 +259,59 @@ class COAMLPipeline():
         data_logger.info("Status", extra={"timestamp": payload_object.current_time, "status": assignment_status})  
 
         return updated_driver_runs
+
+    def _compute_fy_loss(
+        self,
+        feature_matrix: np.ndarray,
+        ilp_model,
+        x_t,
+        trip_cost_count: int,
+        single_trip_map: dict,
+        trip_list: list,
+        trip_costs: list,
+        vehicle_to_trips_cost_map: dict,
+        trip_to_vehicle_cost_map: dict,
+        request_batch: list,
+        active_requests: dict,
+    ) -> None:
+        """
+        Compute and store the Fenchel-Young loss for the current iteration.
+
+        Uses the CO_TripCostMinimization solution as y_star (ground truth) and
+        CO_ScoreMaximization as the MAP oracle for perturb-and-MAP.
+
+        The result is stored in self.last_loss.  If the ILP did not yield a
+        feasible solution (y_star is all-zero), the loss is skipped and
+        self.last_loss is set to None.
+
+        Side effects:
+            Sets self.last_loss.
+        """
+        y_star = extract_y_binary(ilp_model, x_t, trip_cost_count)
+
+        if y_star.sum().item() == 0:
+            console_logger.warning(
+                "FY loss skipped: CO_TripCostMinimization returned no feasible assignment."
+            )
+            self.last_loss = None
+            return
+
+        feature_tensor = torch.tensor(feature_matrix, dtype=torch.float32)
+        scores = self.model(feature_tensor)     # (n,)
+
+        oracle = make_map_oracle(
+            single_trip_map,
+            trip_list,
+            trip_costs,
+            vehicle_to_trips_cost_map,
+            trip_to_vehicle_cost_map,
+            request_batch,
+            active_requests,
+            self.config,
+        )
+
+        self.last_loss = self.fy_loss(scores, y_star, oracle)
+        console_logger.info(f"FY loss computed: {self.last_loss.item():.4f}")
 
 
 
