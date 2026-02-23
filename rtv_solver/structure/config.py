@@ -21,6 +21,7 @@ class Config:
     
     Loggers cannot be used here as they are defined based on the output_dir. For debugging, please use print().
     """
+    # FIXME make sure that configs that are missing elements should just take the config values, that should be possibel right (in order to rerun the prior settings with new additional elements)
     # technical setup
     DEBUG: bool = False
     CONFIG_FILE: str = ""

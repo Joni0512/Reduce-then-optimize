@@ -282,11 +282,10 @@ No major problems with the RTV solver.
 
 ## Todos & Improvements
 
-- [ ] repetitions in structures and data objects, DriverRun, Vehicle and driver_run-dicts very similar - major effort but probably very valuable to align the two and only switch to dictionaries at specific place (could later improve conditionals and when data can be changed to notice problems earlier and could remove certain issues)
+- [ ] repetitions in structures and data objects, DriverRun, Vehicle and driver_run-dicts - major effort but probably very valuable to align the two and only switch to dictionaries at specific place (could later improve conditionals and when data can be changed to notice problems earlier and could remove certain issues)
 - [ ] test (& fix) rebalancing (not as important in current setup)
 - [ ] Dropoff window in `wilson / rh-ml` is fixed in payload, add a method to define this in main_script and update the payload data during the call based on our own definition of waiting times that we want to consider. (alternative: create new payloads with these changes)
 - [ ] add feature to tag vehicles as "inactive" in contrast to "started" and only calculate trip Generation with active vehicles when they are not used anymore
-- [ ] update payload_object.current_time in order to be able to use it properly, (does not seem to be correct at the moment)
 - [ ] ensure that one can still build a python package from it without setup.py and use pyproject.toml more usefully
 - [ ] export a requirements.txt and integrate to pyproject.toml
 - [ ] when breaking RTV generation time, break off new generation but still optimize to keep it running but with a warning in the stats that it did not run to optimality (instead of crashing on the spot - it would be interesting to see the same run with all the trips already created)
