@@ -369,6 +369,7 @@ if __name__ == "__main__":
 
     quick script to check the changes
     """
+    # TODO move this into a visual function
     import argparse
     from rtv_solver.handlers.request_handler import RequestHandler
     import pandas as pd
@@ -377,10 +378,11 @@ if __name__ == "__main__":
     import numpy as np
 
     parser = argparse.ArgumentParser(description='Arguments for the PayloadParser main script')
-    parser.add_argument('--input_file', type=str, default='inputs/wilson_nc_initial.pkl', help='Path to the input file')
+    parser.add_argument('--input_file', type=str, default='inputs/wilson/random_weekeday_2.pkl', help='Path to the input file')
     args = parser.parse_args()
 
     data = PayloadParser.load_input_data(args.input_file)
+    
     payload = PayloadParser.get_payload_object(data, online = True)
     request_handler = RequestHandler(payload.requests, 180, 60)
 
