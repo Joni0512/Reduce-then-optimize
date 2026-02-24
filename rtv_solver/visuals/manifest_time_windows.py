@@ -287,10 +287,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Plot manifest time windows from a result_driver_runs.json file"
     )
+    _project_root = Path(__file__).parent.parent.parent
     parser.add_argument(
         "--result_file",
         type=str,
-        default="outputs/storage/comp_v1/run_20260223_164646_optimal?/result_driver_runs.json",
+        default=str(_project_root / "outputs/storage/comp_v1/run_20260224_142551_rhML_extendedCard/result_driver_runs.json"),
         help="Path to result_driver_runs.json",
     )
     parser.add_argument(
