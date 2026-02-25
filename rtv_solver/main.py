@@ -38,27 +38,27 @@ if __name__ == "__main__":
     parser.add_argument('--input_file', type=str,           default="wilson_nc_initial.pkl", help='Request input file') # alternative: rtv-solver/inputs/localDB_payload_oct.pkl
     parser.add_argument('--server_url', type=str,           default="http://127.0.0.1:5001/", help='Backend server URL')
     parser.add_argument('--max_thread_cnt', type=int,       default=16, help='Maximum thread count for parallel processing')
-    parser.add_argument('--rtv_timeout', type=int,          default=120, help='RTV construction timeout in seconds')
+    parser.add_argument('--rtv_timeout', type=int,          default=3600, help='RTV construction timeout in seconds')
     parser.add_argument('--ilp_timeout', type=int,          default=120, help='ILP solver timeout in seconds')
     parser.add_argument('--ilp_penalty', type=int,          default=100_000, help='Penalty for not serving a trip')
     # experiment parameters
-    parser.add_argument('--max_cardinality', type=int,      default=2, help='Maximum trips to be shared when creating trips in one batch_interval') # alt: total trips in same vehicle
-    parser.add_argument('--largest_tsp', type=int,          default=8, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
-    parser.add_argument('--share_cost_factor', type=int,    default=1.2, help='Shareable cost factor in factor of original single cost [???]') # TODO originally the value was 10, that value is extremely high and thus too many trips are considered feasible (ideally we would apply this earlier to reduce the amount of trips / tripCosts generated)
+    parser.add_argument('--max_cardinality', type=int,      default=8, help='Maximum trips to be shared when creating trips in one batch_interval') # alt: total trips in same vehicle
+    parser.add_argument('--largest_tsp', type=int,          default=16, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
+    parser.add_argument('--share_cost_factor', type=int,    default=5, help='Shareable cost factor in factor of original single cost [???]') # TODO originally the value was 10, that value is extremely high and thus too many trips are considered feasible (ideally we would apply this earlier to reduce the amount of trips / tripCosts generated)
     parser.add_argument('--rebalancing', type=bool,         default=False, help='(NOT WOKRING 12.02.2026) Vehicles are rebalanced if the need arises based on missed requests and idling vehicles.')
     parser.add_argument('--keep_active', type=bool,         default=True, help='Active requests from an ILP solution in a prior iteration must be kept.')
     parser.add_argument('--return_depot', type=bool,        default=True, help="Vehicles must return to the originating depot.")
     parser.add_argument('--dwell_pickup', type=int,         default=180, help='Dwell time at pickup in seconds')
     parser.add_argument('--dwell_alight', type=int,         default=60, help='Dwell time at alight (dropoff) in seconds')
     parser.add_argument('--walk_distance_cutoff', type=int, default=0, help="Walking distance between dropoff and final destination.")
-    parser.add_argument('--step_size', type=int,            default=600, help='Step size in seconds for rolling horizon')
-    parser.add_argument('--batch_interval', type=int,       default=1800, help='Batch interval in seconds')
+    parser.add_argument('--step_size', type=int,            default=500, help='Step size in seconds for rolling horizon')
+    parser.add_argument('--batch_interval', type=int,       default=2000, help='Batch interval in seconds')
     # stats parameters
     parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
     # TODO COAML parameters 
     # random_seed, training parameters, NN parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility') 
-    parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'rh-ml', 'plot'], default='rh-ml', help='Mode on how the programme should solve the PDPTW')
+    parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'rh-ml', 'plot', 'optimal_solution'], default='offline', help='Mode on how the programme should solve the PDPTW')
     parser.add_argument('--debug', type=bool, default=True, help='Run in debug mode (# reduces number of vehicles and requests for easier debugging)')
 
     # implement configuration
@@ -102,7 +102,7 @@ if __name__ == "__main__":
         
         # create a simplified set of requests, consider all requests that start before end_requests
         current_time = 5*3600 + 30*60
-        step = 20*60
+        step = 30*60
         selected_requests = []
         for request in data[PayloadParser.REQUESTS]:
             if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + step:
@@ -131,6 +131,17 @@ if __name__ == "__main__":
         elif config.MODE == 'rh-ml':
             rh_solver = COAMLPipeline(config)
             updated_driver_runs = rh_solver.solve_pdptw(payload)
+        elif config.MODE == 'optimal_solution':
+            # change the settings in order for the online solver to find the actual optimal solution (if possible)
+            max_cardinality = len(payload[PayloadParser.REQUESTS])
+            config.MAX_CARDINALITY = max_cardinality
+            config.LARGEST_TSP = max_cardinality * 2
+            config.RTV_TIMEOUT = 3600 # 1 hour
+            config.ILP_TIMEOUT = 3600 # 1 hour
+            config.SHARE_COST_FACTOR = 5
+            console_logger.info(f"Using settings for optimal solution: MAX_CARDINALITY: {config.MAX_CARDINALITY}, LARGEST_TSP: {config.LARGEST_TSP}, RTV_TIMEOUT: {config.RTV_TIMEOUT}, ILP_TIMEOUT: {config.ILP_TIMEOUT}, SHARE_COST_FACTOR: {config.SHARE_COST_FACTOR}")
+            on_solver = OnlineRTVSolver(config)
+            updated_driver_runs, _ = on_solver.solve_pdptw_rtv(payload)
         else:
             updated_driver_runs = []
             raise ValueError('No solution as no correct config.MODE provided.')
