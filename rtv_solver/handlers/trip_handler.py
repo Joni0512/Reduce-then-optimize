@@ -28,6 +28,11 @@ console_logger = logging.getLogger(BASIC_LOGGER)
 data_logger = logging.getLogger(DATA_LOGGER)
 
 
+class RTVTimeoutError(Exception):
+    """Raised when RTV generation exceeds the configured timeout"""
+    pass
+
+
 class TripHandler:
     """"
     TripHandler handles the generation of RTV combinations and eventually solves 
@@ -59,13 +64,21 @@ class TripHandler:
         """
         Run trip generation: on-demand trips, trip costs, shared trips,
         Logs time spent on RTV generation.
+        On timeout, returns whatever partial results were computed rather than raising.
         """
         self.starting_time = time.time()
         # TODO FIXME this does not count active vehicles # goal: if there is no more active vehicles, one can skip the iteration
         # TODO also does not need to run if we do not have any requests, does it?
-        self.generate_ondemand_only_trips(self.requests, self.iteration)
-        self.generate_trip_costs(self.vehicles, self.config.MAX_THREAD_CNT, 0)
-        self.generate_shared_trips(self.vehicles, self.config.MAX_CARDINALITY, self.config.MAX_THREAD_CNT, self.config.SHARE_COST_FACTOR)
+        try:
+            self.generate_ondemand_only_trips(self.requests, self.iteration)
+            self.generate_trip_costs(self.vehicles, self.config.MAX_THREAD_CNT, 0)
+            self.generate_shared_trips(self.vehicles, self.config.MAX_CARDINALITY, self.config.MAX_THREAD_CNT, self.config.SHARE_COST_FACTOR)
+        except RTVTimeoutError as e:
+            console_logger.warning(
+                f"RTV generation timed out after {time.time() - self.starting_time:.3f}s — "
+                f"continuing with {len(self.trips)} trips and {len(TripHandler.trip_costs)} trip costs. ({e})"
+            )
+            self._rebuild_mappings()
 
         console_logger.info(f"{len(self.trips)} RTV combos generated: {time.time() - self.starting_time:.3f}s")
         return self.ondemand_only_trip_map, self.trips, TripHandler.trip_costs, self.vehicle_to_trips_cost_map, self.trip_to_vehicle_cost_map
@@ -133,6 +146,7 @@ class TripHandler:
         
         Method applies mulitprocessing to run the TripCost generation in parallel.
         """
+        start_time = time.time()
         if trip_start == 0: 
             TripHandler.trip_costs = []
 
@@ -204,7 +218,7 @@ class TripHandler:
                     self.trip_to_vehicle_cost_map[sub_trip_no].append(trip_cost_index)
             trip_cost_index += 1
 
-        console_logger.info(f"{len(TripHandler.trip_costs) - last_trip_cost_index} new trip costs generated.")
+        console_logger.info(f"{len(TripHandler.trip_costs) - last_trip_cost_index} new trip costs generated in {time.time() - start_time:.3f}s.")
 
     # SHARED TRIP GENERATION
     @staticmethod
@@ -374,9 +388,9 @@ class TripHandler:
             
             if cardinality == 2: 
                 self._create_rr_graph()
+            console_logger.info(f"{len(self.shared_trips_map[cardinality])} cardinality {cardinality} trips generated in {time.time()-st:.3f}s.")
             if len(self.shared_trips_map[cardinality]) == 0:
                 break # no trip_cost generation if no trips exist
-            console_logger.info(f"{len(self.shared_trips_map[cardinality])} cardinality {cardinality} trips generated in {time.time()-st:.3f}s.")
             self.generate_trip_costs(vehicles, max_num_thread, trip_start)           
             cardinality += 1
 
@@ -387,7 +401,24 @@ class TripHandler:
     def _check_rtv_timeout(self):
         time_spent = time.time() - self.starting_time
         if time_spent > self.config.RTV_TIMEOUT:
-            raise Exception("RTV generation timedout: {0} > {1}".format(time_spent, self.config.RTV_TIMEOUT))
+            raise RTVTimeoutError("RTV generation timed out: {0:.3f}s > {1}s".format(time_spent, self.config.RTV_TIMEOUT))
+
+    def _rebuild_mappings(self):
+        """Rebuild vehicle/trip cost mappings from whatever trip_costs exist (used after a partial timeout)."""
+        self.vehicle_to_trips_cost_map = {vehicle_id: [] for vehicle_id in self.vehicles}
+        self.trip_to_vehicle_cost_map = {trip.number: [] for trip in self.trips}
+        for trip_cost_index, trip_cost in enumerate(TripHandler.trip_costs):
+            vehicle_id = trip_cost.vehicle_id
+            trip_no = trip_cost.trip_no
+            if vehicle_id in self.vehicle_to_trips_cost_map:
+                self.vehicle_to_trips_cost_map[vehicle_id].append(trip_cost_index)
+            if trip_no in self.trip_to_vehicle_cost_map:
+                trip = self.trips[trip_no]
+                self.trip_to_vehicle_cost_map[trip_no].append(trip_cost_index)
+                if not isinstance(trip, Trip):
+                    for sub_trip_no in trip.trips:
+                        if sub_trip_no in self.trip_to_vehicle_cost_map:
+                            self.trip_to_vehicle_cost_map[sub_trip_no].append(trip_cost_index)
 
     def _can_walk(self, origin, destination):
         distance = NetworkHandler.travel_distance(origin, destination)

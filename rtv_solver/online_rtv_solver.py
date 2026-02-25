@@ -9,7 +9,7 @@ import copy
 from rtv_solver.handlers.request_handler import RequestHandler
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.vehicle_handler import VehicleHandler
-from rtv_solver.handlers.trip_handler import TripHandler
+from rtv_solver.handlers.trip_handler import TripHandler, RTVTimeoutError
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.swap_handler import SwapHandler
 
@@ -119,11 +119,12 @@ class OnlineRTVSolver:
                 active_requests,
                 iteration,
                 self.config)
-        except Exception as e:
+            single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
+        except RTVTimeoutError as e:
+            console_logger.error(f"Error in trip generation: {e}")
             raise e
         
         if len(vehicle_handler.vehicles) != 0:
-            single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
             
             optimizer = CO_TripCostMinimization(self.config)
             optimizer.reset(single_trip_map, 
