@@ -1,10 +1,13 @@
+# import matplotlib.pyplot as plt
 import numpy as np
 import os
 import copy
 import hexaly.optimizer
 from .handlers.network_handler import NetworkHandler
 from .structure.node import Node
-from hexaly.optimizer import HxCallbackType
+
+import gurobipy as gp
+from gurobipy import GRB
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
@@ -17,15 +20,13 @@ data_logger = logging.getLogger(DATA_LOGGER)
 # TODO clean up code and make sure it works
 # TODO remove parts of code that are not needed for the solver or that are already part of other classes, seems to be a lot of repetition from payload etc.
 
-class HexalySolver:
+class GurobiSolver:
     """
-    Hexaly solver for solving the PDPTW.
+    Gurobi solver for solving the PDPTW in one go and not making use of the RTV procedure.
 
-    Installation through (https://www.hexaly.com/docs/last/installation). Academic License is required.
+    Installation through (https://www.gurobi.com/solutions/licensing/). Academic License is required.
 
-    Currently does not work to replace our solutions based on the RTV approach as it does not handle hard time constraints but rather soft ones that just minimize the overall delay instead of the delay on a single trip. 
-
-    DEBUG condition: You can load an existing solution and check this solver as it normally should not change anything further if it is truly optimal (this test currently fails)
+    Currently does not work as some of the conditions are incorrect. 
     """
     # TODO add init that handles the config values
     def __init__(self, config):
@@ -55,6 +56,7 @@ class HexalySolver:
         for request in requests:
             unserved.append(request["booking_id"])
         nb_customers = len(requests)*2 # each request has a pickup and a dropoff
+        nb_requests = len(requests)
 
         driver_runs = copy.deepcopy(payload["driver_runs"])
         truck_capacity = driver_runs[0]["state"]["am_capacity"] # NOTE sets capacity equal for all trucks
@@ -133,6 +135,7 @@ class HexalySolver:
 
         console_logger.info(f"Truck load data: {truck_load_data}")
         console_logger.info(f"No of customers: {nb_customers}")
+        console_logger.info(f"No of requests: {nb_requests}")
         console_logger.info(f"No of trucks: {nb_trucks}")
         console_logger.info(f"Max horizon: {max_horizon}")
 
@@ -166,6 +169,8 @@ class HexalySolver:
                 "booking_id":               booking_id,
             }
             requests.append(request)
+
+        nb_requests += len(active_requests)
 
         # --- Solver index mapping and per-node data arrays ---
         # node_map / reverse_node_map translate between network node IDs and the 0-based integer indices the Hexaly solver expects.
@@ -256,6 +261,17 @@ class HexalySolver:
             for j in range(nb_customers):
                 dist_matrix_from_start_data[i][j+1] = time_matrix[truck_current_location_data[i]][reverse_node_map[j]]
 
+        pickup_node = []
+        delivery_node = []
+
+        for i in range(nb_customers):
+            if pick_up_index[i] == -1:  # i is pickup
+                pickup_node.append(i)
+                delivery_node.append(delivery_index[i])
+
+        nb_requests = len(pickup_node)
+        R = range(nb_requests)
+
         console_logger.info(f"Distance matrix shape: {len(dist_matrix_data)},{len(dist_matrix_data[0])}")
         console_logger.info(f"Distance matrix: {dist_matrix_data}")
         console_logger.info(f"No of demand data: {len(demands_data)}")
@@ -267,214 +283,347 @@ class HexalySolver:
             with open(output_dir / "hexaly" / "fixed_requests_{0}.txt".format(iteration), 'a') as f:
                 f.write("Iteration	{0} :  {1}\n".format(iteration," ".join(str(x) for x in fixed_requests)))
 
-        with hexaly.optimizer.HexalyOptimizer() as optimizer:
-            # Declare the optimization model
-            model = optimizer.model
+        # TODO debug test
+        model = gp.Model("VRPPD_TW")
 
-            # Sequence of customers visited by each truck
-            customers_sequences = [model.list(nb_customers) for k in range(nb_trucks)]
+        # -------------------------
+        # Sets
+        # -------------------------
+        K = range(nb_trucks)
+        N = range(nb_customers)
+        R = range(nb_requests)
 
-            # All customers must be visited by exactly one truck
-            model.constraint(model.partition(customers_sequences))
+        # Include depot as node 0
+        V = range(nb_customers + 1)  # 0 = depot
+        customers = range(1, nb_customers + 1)
 
-            # /Create Hexaly arrays to be able to access them with "at" operators
-            demands = model.array(demands_data)
-            earliest = model.array(earliest_start_data)
-            latest = model.array(latest_end_data)
-            service_time = model.array(service_time_data)
-            dist_matrix = model.array(dist_matrix_data)
-            dist_matrix_from_start = model.array(dist_matrix_from_start_data)
-            truck_loads = model.array(truck_load_data)
-            truck_current_time = model.array(truck_current_time_data)
-            # run_id_fix = model.array(run_id_fix_data)
-            # dist_depot = model.array(dist_depot_data)
+        # -------------------------
+        # Decision Variables
+        # -------------------------
 
-            dist_routes = [None] * nb_trucks
-            end_time = [None] * nb_trucks
-            home_lateness = [None] * nb_trucks
-            lateness = [None] * nb_trucks
+        # x[k,i,j] = 1 if truck k goes from i to j
+        x = model.addVars(K, V, V, vtype=GRB.BINARY, name="x")
 
-            # A truck is used if it visits at least one customer
-            new_trucks_used = [] 
-            for k in range(nb_trucks):
-                if k not in used_trucks:
-                    new_trucks_used.append(model.count(customers_sequences[k]) > 0)
-            trucks_used = [(model.count(customers_sequences[k]) > 0) for k in range(nb_trucks)]
-            nb_trucks_used = model.sum(new_trucks_used)
+        # customer served by truck k
+        y = model.addVars(K, customers, vtype=GRB.BINARY, name="y")
 
-            # Pickups and deliveries
-            customers_sequences_array = model.array(customers_sequences)
-            for i in range(nb_customers):
-                if pick_up_index[i] == -1:
-                    pick_up_list_index = model.find(customers_sequences_array, i)
-                    delivery_list_index = model.find(customers_sequences_array, delivery_index[i])
-                    model.constraint(pick_up_list_index == delivery_list_index)
-                    pick_up_list = model.at(customers_sequences_array, pick_up_list_index)
-                    delivery_list = model.at(customers_sequences_array, delivery_list_index)
-                    model.constraint(model.index(pick_up_list, i) < model.index(delivery_list, delivery_index[i]))
-                if run_id_fix_data[i] != -1:
-                    drop_off_list_index = model.find(customers_sequences_array, i)
-                    model.constraint(drop_off_list_index == run_id_fix_data[i])
+        # arrival time
+        t = model.addVars(K, customers, vtype=GRB.CONTINUOUS, lb=0, name="t")
 
-            for k in range(nb_trucks):
-                sequence = customers_sequences[k]
-                c = model.count(sequence)
+        # request served
+        # z[r] = 1 → request r is fully served; z[r] = 0 → request skipped
+        z = model.addVars(R, vtype=GRB.BINARY, name="request_served")
 
-                # The quantity needed in each route must not exceed the truck capacity at any
-                # point in the sequence
-                demand_lambda = model.lambda_function(
-                    lambda i, prev: prev + demands[sequence[i]])
-                route_quantity = model.array(model.range(0, c), demand_lambda, truck_loads[k])
+        # cumulative load
+        load = model.addVars(K, customers, vtype=GRB.CONTINUOUS, lb=0, name="load")
 
-                quantity_lambda = model.lambda_function(
-                    lambda i: route_quantity[i] <= truck_capacity)
-                model.constraint(model.and_(model.range(0, c), quantity_lambda))
+        # truck used
+        truck_used = model.addVars(K, vtype=GRB.BINARY, name="truck_used")
 
-                # Distance traveled by each truck
-                dist_lambda = model.lambda_function(
-                    lambda i: model.at(dist_matrix, sequence[i - 1]+1, sequence[i]+1))
-                depot_dist_lambda = model.lambda_function(
-                    lambda i: model.at(dist_matrix, 0, i+1))
-                dist_routes[k] = model.sum(model.range(1, c), dist_lambda) \
-                    + model.iif(c > 0, model.at(dist_matrix_from_start, k, sequence[0] + 1) + model.at(dist_matrix,sequence[c - 1]+1,0),model.at(dist_matrix_from_start, k, 0))
+        # lateness per customer
+        # lateness = model.addVars(K, customers, vtype=GRB.CONTINUOUS, lb=0, name="lateness")
 
-                # End of each visit
-                end_lambda = model.lambda_function(
-                    lambda i, prev:
-                        model.max(
-                            earliest[sequence[i]],
-                            model.iif(
-                                i == 0,
-                                truck_current_time[k] + model.at(dist_matrix_from_start, k, sequence[0]+1),
-                                prev + model.at(dist_matrix, sequence[i - 1]+1, sequence[i]+1)))
-                        + service_time[sequence[i]])
+        # home lateness
+        # home_lateness = model.addVars(K, vtype=GRB.CONTINUOUS, lb=0, name="home_lateness")
 
-                end_time[k] = model.array(model.range(0, c), end_lambda, 0)
+        # -------------------------
+        # Constraints
+        # -------------------------
 
-                # Arriving home after max_horizon
-                home_lateness[k] = model.iif(
-                    trucks_used[k],
-                    model.max(
-                        0,
-                        end_time[k][c - 1] + model.at(dist_matrix,sequence[c - 1]+1,0) - max_horizon),
-                    0)
+        # No self loops
+        for k in K:
+            for i in V:
+                model.addConstr(x[k, i, i] == 0)
 
-                # Completing visit after latest_end
-                late_selector = model.lambda_function(
-                    lambda i: model.max(0, end_time[k][i] - latest[sequence[i]]))
-                lateness[k] = home_lateness[k] + model.sum(model.range(0, c), late_selector)
+        # # Each customer visited exactly once
+        # for j in customers:
+        #     model.addConstr(gp.quicksum(y[k, j] for k in K) == 1)
 
-            # Total lateness (must be 0 for the solution to be valid)
-            total_lateness = model.sum(lateness)
+        # Each customer visited at most once
+        for j in customers:
+            model.addConstr(gp.quicksum(y[k, j] for k in K) <= 1)
 
-            # Total distance traveled
-            total_distance = model.div(model.round(100 * model.sum(dist_routes)), 100)
+        # Link y and x
+        for k in K:
+            for j in customers:
+                model.addConstr(
+                    gp.quicksum(x[k, i, j] for i in V) == y[k, j]
+                )
+                model.addConstr(
+                    gp.quicksum(x[k, j, i] for i in V) == y[k, j]
+                )
 
-            # Objective: minimize the number of trucks used, then minimize the distance traveled
-            # TODO make objective flexible, we want to have minimal distance with fixed number of vehicles
-            # go through code to run the solver with same objective as in the online solver with RTV approach
-            model.minimize(total_lateness)
-            model.minimize(total_distance)
-            # if min_truck:
-            #     model.minimize(nb_trucks_used)
-            #     model.minimize(total_distance)
-            # else:
-                # model.minimize(nb_trucks_used)
-                
-            model.close()
-            optimizer.save_environment("export.hxm")
+        # Truck used
+        for k in K:
+            model.addConstr(
+                truck_used[k] >= gp.quicksum(y[k, j] for j in customers) / nb_customers
+            )
 
-            # # Print model for inspection
-            # for obj in model.objectives:
-            #     print("Objective:", obj)
+        # Flow from depot
+        for k in K:
+            model.addConstr(
+                gp.quicksum(x[k, 0, j] for j in customers) == truck_used[k]
+            )
+            model.addConstr(
+                gp.quicksum(x[k, j, 0] for j in customers) == truck_used[k]
+            )
 
-            # for v in model.expressions:
-            #     print("Name:", v.name, "Type:", v.type, "Domain:", v.domain)
+        # ----------
+        # Request pairing
+        # ------------------
+        for r in R:
+            p = pickup_node[r] + 1
+            d = delivery_node[r] + 1
 
-            # for i, c in enumerate(model.constraints):
-            #     print(f"Constraint {i}: {c}")
+            # pickup served iff request served
+            model.addConstr(y[k, p] - y[k, d] == 0)
 
+        model.addConstr(
+            gp.quicksum(y[k, p] for k in K) == z[r]
+        )
 
+        model.addConstr(
+            gp.quicksum(y[k, d] for k in K) == z[r]
+        )
 
-            # adding existing schedule
-            # TODO load up solution
-            for i in range(nb_trucks):
-                driver_run = driver_runs[i]
-                manifest = driver_run["manifest"]
-                completed = driver_run["state"]["locations_already_serviced"]
-                customer_seq_val = customers_sequences[i].get_value()
-                customer_seq_val.clear()
-                for stop in manifest[completed:]:
-                    node_id = stop["loc"]["node_id"]
-                    if node_id in node_map:
-                        node = node_map[node_id]
-                        customer_seq_val.add(node)
+        # sanity check
+        for r in R:
+            assert pick_up_index[delivery_node[r]] == pickup_node[r]        
 
-            # Parameterize the optimizer
-            optimizer.param.time_limit = time_limit
+        # -------------------------
+        # Capacity accumulation
+        # -------------------------
 
-            # optimizer.save_environment("outputs_hexaly/export.hxb.gz")
-            # optimizer.write("outputs_hexaly/model.lp")
-            optimizer.solve()
+        M = 1e6
 
-            # Write the solution in a file with the following format:
-            #  - number of trucks used and total distance
-            #  - for each truck the customers visited (omitting the start/end at the depot)
+        for k in K:
+            for i in customers:
+                for j in customers:
+                    if i != j:
+                        model.addConstr(
+                            load[k, j] >= load[k, i]
+                            + demands_data[j-1]
+                            - M * (1 - x[k, i, j])
+                        )
+
+            for j in customers:
+                model.addConstr(load[k, j] <= truck_capacity)
+                model.addConstr(load[k, j] >= demands_data[j-1] * y[k, j])
+
+        # -------------------------
+        # Time propagation
+        # -------------------------
+
+        for k in K:
+            # Depot → first customer propagation
+            for j in customers:
+                model.addConstr(
+                    t[k, j] >=
+                    truck_current_time_data[k]
+                    + dist_matrix_from_start_data[k][j]
+                    - M * (1 - x[k, 0, j])
+                )
+
+            # Customer → customer propagation
+            for i in customers:
+                for j in customers:
+                    if i != j:
+                        model.addConstr(
+                            t[k, j] >=
+                            t[k, i]
+                            + service_time_data[i-1]
+                            + dist_matrix_data[i][j]
+                            - M * (1 - x[k, i, j])
+                        )
+        # # -------------------------
+        # # Time windows
+        # # -------------------------
+
+        # for k in K:
+        #     for j in customers:
+        #         model.addConstr(t[k, j] >= earliest_start_data[j-1])
+        #         model.addConstr(
+        #             lateness[k, j] >= t[k, j] - latest_end_data[j-1]
+        #         )
+
+        # -------------------------
+        # Hard Time Windows
+        # -------------------------
+        for k in K:
+            for j in customers:
+
+                # Enforce only if customer is served by truck k
+                model.addConstr(
+                    t[k, j] >= earliest_start_data[j-1] - M * (1 - y[k, j])
+                )
+
+                model.addConstr(
+                    t[k, j] <= latest_end_data[j-1] + M * (1 - y[k, j])
+                )    
+        # -------------------------
+        # Pickup & Delivery
+        # -------------------------
+
+        for i in N:
+            if pick_up_index[i] == -1:
+                d = delivery_index[i]
+
+                for k in K:
+                    model.addConstr(
+                        y[k, i+1] == y[k, d+1]
+                    )
+
+                    model.addConstr(
+                        t[k, d+1] >= t[k, i+1] + service_time_data[i]
+                    )
+
+            if run_id_fix_data[i] != -1:
+                fixed_k = run_id_fix_data[i]
+                model.addConstr(y[fixed_k, i+1] == 1)
+
+        # # -------------------------
+        # # Home lateness
+        # # -------------------------
+
+        # for k in K:
+        #     for i in customers:
+        #         model.addConstr(
+        #             home_lateness[k] >=
+        #             t[k, i]
+        #             + service_time_data[i-1]
+        #             + dist_matrix_data[i][0]
+        #             - max_horizon
+        #             - M * (1 - x[k, i, 0])
+        #         )
+
+        # -------------------------
+        # Hard return before max_horizon
+        # -------------------------
+
+        for k in K:
+            for i in customers:
+                model.addConstr(
+                    t[k, i]
+                    + service_time_data[i-1]
+                    + dist_matrix_data[i][0]
+                    <= max_horizon
+                    + M * (1 - x[k, i, 0])
+                )
+
+        # -------------------------
+        # Objective
+        # -------------------------
+
+        # total_lateness = (
+        #     gp.quicksum(lateness[k, j] for k in K for j in customers)
+        #     + gp.quicksum(home_lateness[k] for k in K)
+        # )
+
+        # model.setObjective(total_lateness, GRB.MINIMIZE)
+
+        total_distance = gp.quicksum(
+            dist_matrix_data[i][j] * x[k, i, j]
+            for k in K
+            for i in V
+            for j in V
+        )
+
+        # primary: Maximize number of served requests
+        model.ModelSense = GRB.MAXIMIZE
+        # First objective: maximize served requests
+        model.setObjectiveN(
+            gp.quicksum(z[r] for r in R),
+            index=0,
+            priority=2
+        )
+
+        # Second objective: minimize distance
+        # Since global sense is MAXIMIZE, minimize distance by maximizing negative distance
+        model.setObjectiveN(
+            - total_distance,
+            index=1,
+            priority=1
+        )
+
+        model.setObjective(total_distance, GRB.MINIMIZE)
+
+        model.Params.TimeLimit = time_limit
+
+        # FIXME debug
+        model.addConstr(z[0] == 1)
+
+        model.optimize()
+
+        # Write the solution in a file with the following format:
+        #  - number of trucks used and total distance
+        #  - for each truck the customers visited (omitting the start/end at the depot)
             
-            console_logger.info(f"Customers sequences: {customers_sequences}")
-            console_logger.info(f"Number of trucks used: {nb_trucks_used.value}, Total distance: {total_distance.value}")
+        
+        routes = {}
 
-            
-            # transition from solver solution to driver_runs
-            route_no = 0
-            print_no = 0
-            for k in range(nb_trucks):
-                routes[route_no] = []
-                # Values in sequence are in 0...nbCustomers. +2 is to put it back in
-                # 2...nbCustomers+2 as in the data files (1 being the depot)
-                if k in used_trucks or trucks_used[k].value == 1:
-                    # f.write("Route %d: " % print_no)
-                    for customer in customers_sequences[k].value:
-                        routes[route_no].append(customer)
-                        # f.write("%d " % (customer + 1))
-                    print_no += 1
-                # f.write("\n")
-                route_no += 1
-            
-            # creating driver runs from routes
-            new_driver_runs = []
-            for driver_run in driver_runs:
-                state = copy.deepcopy(driver_run["state"])
-                # state["locations_already_serviced"] = 0
-                # state["location_dt_seconds"] = 0
-                # state["loc"] = depot
-                new_driver_run = {"state": state, "manifest": driver_run["manifest"][:state["locations_already_serviced"]]}
-                new_driver_runs.append(new_driver_run)
-            for route_no, route in routes.items():
-                driver_run = new_driver_runs[route_no]
-                driver_run["state"]["total_locations"] = len(route) + driver_run["state"]["locations_already_serviced"]
-                current_time = driver_run["state"]["location_dt_seconds"]
-                current_loc = driver_run["state"]["loc"]["node_id"]
-                current_order = driver_run["state"]["locations_already_serviced"] + 1
-                for i in route:
-                    console_logger.info(f"Current order: {current_order}, Current location: {current_loc}, Current time: {current_time}")
-                    current_time += time_matrix[current_loc][reverse_node_map[i]]
-                    if current_time < earliest_start_data[i]:
-                        current_time = earliest_start_data[i]
-                    action = "pickup" if pick_up_index[i] == -1 else "dropoff"
-                    request = requests[reverse_request_map[i]]
-                    booking_id = request["booking_id"]
-                    demand = demands_data[i] if pick_up_index[i] == -1 else - demands_data[i]
-                    loc = request["pickup_pt"] if action == "pickup" else request["dropoff_pt"]
-                    stop = {'run_id': driver_run["state"]["run_id"], 'booking_id': booking_id, 'order': current_order, 'action': action, 
-                            "loc": loc, 'scheduled_time': current_time, 
-                            'am': demand, 'wc': 0, 'time_window_start': earliest_start_data[i], 
-                            'time_window_end':latest_end_data[i], 'dwell': service_time_data[i]}
-                    current_loc = reverse_node_map[i]    
-                    current_order += 1
-                    current_time += service_time_data[i]
-                    driver_run["manifest"].append(stop)
-                # driver_run["state"]["end_time"] = current_time      
+        for k in K:
+            routes[k] = []
+
+            if truck_used[k].X < 0.5:
+                continue
+
+            # find first customer after depot
+            current = None
+            for j in V:
+                if j != 0 and x[k, 0, j].X > 0.5:
+                    current = j
+                    break
+
+            # follow path
+            while current is not None and current != 0:
+                customer_index = current - 1  # convert back to 0..nb_customers-1
+                routes[k].append(customer_index)
+
+                next_node = None
+                for j in V:
+                    if x[k, current, j].X > 0.5:
+                        next_node = j
+                        break
+
+                if next_node == 0:
+                    break
+
+                current = next_node
+        
+        # creating driver runs from routes
+        new_driver_runs = []
+        for driver_run in driver_runs:
+            state = copy.deepcopy(driver_run["state"])
+            # state["locations_already_serviced"] = 0
+            # state["location_dt_seconds"] = 0
+            # state["loc"] = depot
+            new_driver_run = {"state": state, "manifest": driver_run["manifest"][:state["locations_already_serviced"]]}
+            new_driver_runs.append(new_driver_run)
+        for route_no, route in routes.items():
+            driver_run = new_driver_runs[route_no]
+            driver_run["state"]["total_locations"] = len(route) + driver_run["state"]["locations_already_serviced"]
+            current_time = driver_run["state"]["location_dt_seconds"]
+            current_loc = driver_run["state"]["loc"]["node_id"]
+            current_order = driver_run["state"]["locations_already_serviced"] + 1
+            for i in route:
+                console_logger.info(f"Current order: {current_order}, Current location: {current_loc}, Current time: {current_time}")
+                current_time += time_matrix[current_loc][reverse_node_map[i]]
+                if current_time < earliest_start_data[i]:
+                    current_time = earliest_start_data[i]
+                action = "pickup" if pick_up_index[i] == -1 else "dropoff"
+                request = requests[reverse_request_map[i]]
+                booking_id = request["booking_id"]
+                demand = demands_data[i] if pick_up_index[i] == -1 else - demands_data[i]
+                loc = request["pickup_pt"] if action == "pickup" else request["dropoff_pt"]
+                stop = {'run_id': driver_run["state"]["run_id"], 'booking_id': booking_id, 'order': current_order, 'action': action, 
+                        "loc": loc, 'scheduled_time': current_time, 
+                        'am': demand, 'wc': 0, 'time_window_start': earliest_start_data[i], 
+                        'time_window_end':latest_end_data[i], 'dwell': service_time_data[i]}
+                current_loc = reverse_node_map[i]    
+                current_order += 1
+                current_time += service_time_data[i]
+                driver_run["manifest"].append(stop)
+            # driver_run["state"]["end_time"] = current_time      
 
         if output_dir:
             # ensure the file exists
@@ -490,7 +639,3 @@ class HexalySolver:
                         f.write("Route	{0} :  {1}\n".format(driver_run["state"]["run_id"],nodes))
                     # route_id += 1
         return new_driver_runs, []
-
-    @staticmethod
-    def check_solution(solution_payload, server_url, time_limit, output_dir):
-        HexalySolver.solve_pdptw(server_url, solution_payload, time_limit=time_limit, output_dir=output_dir, iteration=0, min_truck=False, dwell_pickup=180, dwell_dropoff=60, tt_matrix=None)
