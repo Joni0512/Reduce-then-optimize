@@ -310,6 +310,9 @@ class OnlineRTVSolver:
         return new_driver_runs
 
     def solve_pdptw_heuristic(self, payload, return_added_vmt=False):
+        """ uses heuristic to
+        DO NOT USE IT FOR RTV solution. 
+        """
         updated_driver_runs = copy.deepcopy(payload[PayloadParser.DRIVERS])
         total_cost = 0
         unserved_requests = []
@@ -336,7 +339,9 @@ class OnlineRTVSolver:
         return updated_driver_runs, unserved_requests
 
     def solve_pdptw(self, payload, skip_swapping=True):
-        """"""
+        """
+        takes payload and decides which solver to run (heuristic or RTV)
+        """
         # NOTE what is the difference to PDPTW_RTV
         # TODO currently not working due to the changes of the return values of solve-pdptw-rtv
         remaining_requests = []
@@ -534,7 +539,11 @@ class OnlineRTVSolver:
         return best_cost-prev_cost, new_driver_run
 
     def serve_asap(self, payload):
-        """serve a request as soon as possible"""
+        """
+        serve a request as soon as possible
+        
+        DO NOT USE IT for RTV generation process or COAML pipeline
+        """
         # TODO check when this is valuable
         unserved_requests = []
         updated_driver_runs = copy.deepcopy(payload[PayloadParser.DRIVERS])

@@ -5,7 +5,7 @@ import json
 
 from pathlib import Path
 
-from rtv_solver import OnlineRTVSolver, OfflineRTVSolver, COAMLPipeline
+from rtv_solver import OnlineRTVSolver, OfflineRTVSolver, COAMLPipeline, HexalySolver, GurobiSolver
 
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
@@ -58,7 +58,7 @@ if __name__ == "__main__":
     # TODO COAML parameters 
     # random_seed, training parameters, NN parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility') 
-    parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'rh-ml', 'plot', 'optimal_solution'], default='offline', help='Mode on how the programme should solve the PDPTW')
+    parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'rh-ml', 'plot', 'optimal_solution', 'hexaly_solution'], default='hexaly_solution', help='Mode on how the programme should solve the PDPTW')
     parser.add_argument('--debug', type=bool, default=True, help='Run in debug mode (# reduces number of vehicles and requests for easier debugging)')
 
     # implement configuration
@@ -102,7 +102,7 @@ if __name__ == "__main__":
         
         # create a simplified set of requests, consider all requests that start before end_requests
         current_time = 5*3600 + 30*60
-        step = 30*60
+        step = 5*60
         selected_requests = []
         for request in data[PayloadParser.REQUESTS]:
             if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + step:
@@ -142,6 +142,12 @@ if __name__ == "__main__":
             console_logger.info(f"Using settings for optimal solution: MAX_CARDINALITY: {config.MAX_CARDINALITY}, LARGEST_TSP: {config.LARGEST_TSP}, RTV_TIMEOUT: {config.RTV_TIMEOUT}, ILP_TIMEOUT: {config.ILP_TIMEOUT}, SHARE_COST_FACTOR: {config.SHARE_COST_FACTOR}")
             on_solver = OnlineRTVSolver(config)
             updated_driver_runs, _ = on_solver.solve_pdptw_rtv(payload)
+        elif config.MODE == 'hexaly_solution':
+            # gurobi and hexaly have same interface for now
+            # updated_driver_runs, _ = GurobiSolver.solve_pdptw(config.SERVER_URL, payload, time_limit=3600, output_dir=config.OUTPUT_DIR, iteration=0, min_truck=False, dwell_pickup=180, dwell_dropoff=60, tt_matrix=None)
+            data = PayloadParser.load_input_data("/Users/jw/Desktop/master_thesis/mt_sourcecode/rtv-solver/outputs/debug/run_20260226_171939_ef1f99/result_driver_runs.json")
+            updated_driver_runs, _ = HexalySolver.check_solution(payload, config.SERVER_URL, time_limit=3600, output_dir=config.OUTPUT_DIR)
+            # updated_driver_runs, _ = HexalySolver.solve_pdptw(config.SERVER_URL, payload, time_limit=3600, output_dir=config.OUTPUT_DIR, iteration=0, min_truck=False, dwell_pickup=180, dwell_dropoff=60, tt_matrix=None)
         else:
             updated_driver_runs = []
             raise ValueError('No solution as no correct config.MODE provided.')

@@ -22,6 +22,10 @@ class NetworkHandler:
 
     @staticmethod
     def init(server_based, server_url=None, tt_matrix=None, euclidean=False):
+        """
+        For liLim, Euclidean must be True
+        For Sartori, you just need the time matrix as it is part of the dataset.
+        """
         global SERVER_BASED, routing_url, nearest_url, table_url, session
         global travel_time_matrix, no_of_nodes, EUCLIDEAN
 

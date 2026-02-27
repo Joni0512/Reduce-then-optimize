@@ -4,6 +4,7 @@ from rtv_solver.structure.vehicle_stop import VehicleStop
 
 import copy
 import pickle
+import json
 from pathlib import Path
 from typing import Any
 
@@ -69,9 +70,19 @@ class PayloadParser:
     STATS_DROPPED = 'dropped'
 
     @staticmethod
-    def load_input_data(input_file: Path):
-        with open(input_file, 'rb') as f:
-            data = pickle.load(f)
+    def load_input_data(input_file: Path | str):
+        if isinstance(input_file, str):
+            file_type = input_file.split(".")[-1]
+        else:
+            file_type = "pkl"
+        if file_type == "json":
+            with open(input_file, 'r') as f:
+                data = json.load(f)
+        elif file_type == "pkl":
+            with open(input_file, 'rb') as f:
+                data = pickle.load(f)
+        else:
+            raise ValueError(f"Unsupported file type: {file_type}")
         return PayloadParser.normalize_to_canonical(data)
 
     @staticmethod
