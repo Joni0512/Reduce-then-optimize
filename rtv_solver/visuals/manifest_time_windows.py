@@ -291,7 +291,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--result_file",
         type=str,
-        default=str(_project_root / "outputs/storage/comp_v1/run_20260224_142551_rhML_extendedCard/result_driver_runs.json"),
+        default=str(_project_root / "outputs/storage/optimal_solutions/run_20260302_131028_020e69/result_driver_runs.json"), # or _project_root / "outputs/storage/comp_v1/run_20260224_142551_rhML_extendedCard/result_driver_runs.json"),
         help="Path to result_driver_runs.json",
     )
     parser.add_argument(

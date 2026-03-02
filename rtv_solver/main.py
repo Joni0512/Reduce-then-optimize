@@ -35,7 +35,7 @@ if __name__ == "__main__":
     parser.add_argument('--override', action='append',      default=[], help='Override config values when loading from a config file, e.g. key=value (can be repeated)')
     # technical parameters
     parser.add_argument('--output_dir', type=str,           default="debug", help='Output directory')
-    parser.add_argument('--input_file', type=str,           default="wilson_nc_initial.pkl", help='Request input file') # alternative: rtv-solver/inputs/localDB_payload_oct.pkl
+    parser.add_argument('--input_file', type=str,           default="test_nc/test_12r_1v_repeat9.json", help='Request input file') # alternative: rtv-solver/inputs/localDB_payload_oct.pkl
     parser.add_argument('--server_url', type=str,           default="http://127.0.0.1:5001/", help='Backend server URL')
     parser.add_argument('--max_thread_cnt', type=int,       default=16, help='Maximum thread count for parallel processing')
     parser.add_argument('--rtv_timeout', type=int,          default=3600, help='RTV construction timeout in seconds')
@@ -44,12 +44,12 @@ if __name__ == "__main__":
     # experiment parameters
     parser.add_argument('--max_cardinality', type=int,      default=8, help='Maximum trips to be shared when creating trips in one batch_interval') # alt: total trips in same vehicle
     parser.add_argument('--largest_tsp', type=int,          default=16, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
-    parser.add_argument('--share_cost_factor', type=int,    default=5, help='Shareable cost factor in factor of original single cost [???]') # TODO originally the value was 10, that value is extremely high and thus too many trips are considered feasible (ideally we would apply this earlier to reduce the amount of trips / tripCosts generated)
-    parser.add_argument('--rebalancing', type=bool,         default=False, help='(NOT WOKRING 12.02.2026) Vehicles are rebalanced if the need arises based on missed requests and idling vehicles.')
-    parser.add_argument('--keep_active', type=bool,         default=True, help='Active requests from an ILP solution in a prior iteration must be kept.')
-    parser.add_argument('--return_depot', type=bool,        default=True, help="Vehicles must return to the originating depot.")
-    parser.add_argument('--dwell_pickup', type=int,         default=180, help='Dwell time at pickup in seconds')
-    parser.add_argument('--dwell_alight', type=int,         default=60, help='Dwell time at alight (dropoff) in seconds')
+    parser.add_argument('--share_cost_factor', type=int,    default=10, help='Shareable cost factor in factor of original single cost [???]') # TODO originally the value was 10, that value is extremely high and thus too many trips are considered feasible (ideally we would apply this earlier to reduce the amount of trips / tripCosts generated)
+    parser.add_argument('--rebalancing', type=str,         default='False', choices=['True', 'False'], help='(NOT WOKRING 12.02.2026) Vehicles are rebalanced if the need arises based on missed requests and idling vehicles.')
+    parser.add_argument('--keep_active', type=str,         default='True', choices=['True', 'False'], help='Active requests from an ILP solution in a prior iteration must be kept.')
+    parser.add_argument('--return_depot', type=str,        default='True', choices=['True', 'False'], help="Vehicles must return to the originating depot.")
+    parser.add_argument('--dwell_pickup', type=int,         default=60, help='Dwell time at pickup in seconds')
+    parser.add_argument('--dwell_alight', type=int,         default=180, help='Dwell time at alight (dropoff) in seconds')
     parser.add_argument('--walk_distance_cutoff', type=int, default=0, help="Walking distance between dropoff and final destination.")
     parser.add_argument('--step_size', type=int,            default=500, help='Step size in seconds for rolling horizon')
     parser.add_argument('--batch_interval', type=int,       default=2000, help='Batch interval in seconds')
@@ -58,9 +58,9 @@ if __name__ == "__main__":
     # TODO COAML parameters 
     # random_seed, training parameters, NN parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility') 
-    parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'rh-ml', 'plot', 'optimal_solution', 'hexaly_solution'], default='hexaly_solution', help='Mode on how the programme should solve the PDPTW')
-    parser.add_argument('--debug', type=bool, default=True, help='Run in debug mode (# reduces number of vehicles and requests for easier debugging)')
-
+    parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'rh-ml', 'plot', 'optimal_solution', 'hexaly_solution'], default='optimal_solution', help='Mode on how the programme should solve the PDPTW')
+    parser.add_argument('--debug', type= str, default='False', choices=['True', 'False'], help='Run in debug mode (# reduces number of vehicles and requests for easier debugging)')
+    
     # implement configuration
     arguments = parser.parse_args()
     config = Config.from_args(arguments)
@@ -69,6 +69,7 @@ if __name__ == "__main__":
     console_logger = logging.getLogger(BASIC_LOGGER)
     data_logger = logging.getLogger(DATA_LOGGER)
 
+    console_logger.info(f"Input file: {config.INPUT_FILE}")
     console_logger.info(f"Output directory: {config.OUTPUT_DIR}")
     console_logger.info(f' --- Start: RTV simulation --- online > {config.MODE}')
     console_logger.info(f'Arguments: {config}')
@@ -175,11 +176,12 @@ if __name__ == "__main__":
         console_logger.info(f"Run complete. Results can be found @ {Path(config.OUTPUT_DIR)}")
     
     # VISUALISE
-        with open(config.OUTPUT_DIR / "result_driver_runs.json", 'r') as driver_runs_file:
-            loaded_data = json.load(driver_runs_file)
-        mapper = RouteManifestMapper(config)
-        geojson = mapper.manifest_to_geojson(loaded_data, 18)
-        mapper.save_geojson(geojson, config.OUTPUT_DIR / "route_manifest_v2.geojson")
+        if stats.serviced > 0:
+            with open(config.OUTPUT_DIR / "result_driver_runs.json", 'r') as driver_runs_file:
+                loaded_data = json.load(driver_runs_file)
+            mapper = RouteManifestMapper(config)
+            geojson = mapper.manifest_to_geojson(loaded_data, 18)
+            mapper.save_geojson(geojson, config.OUTPUT_DIR / "route_manifest_v2.geojson")
 
     # not required always, can be easily recreated and is not based on the result but rather the initial data
     # plot_requests_operating_area(payload, show=False, save_path=config.OUTPUT_DIR / "request_distribution.png") 

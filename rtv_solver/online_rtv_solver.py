@@ -199,7 +199,7 @@ class OnlineRTVSolver:
             manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
             serviced_locations = state[PayloadParser.DRIVER_STATE_LOC_SERV] # vehicle state condition for active / boarding
             for stop in manifest:
-                stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
+                stop_id = str(stop[PayloadParser.MANIFEST_BOOKING_ID])
                 action = stop[PayloadParser.MANIFEST_ACTION]
                 stop_order = stop[PayloadParser.MANIFEST_ORDER]
                 if action == VehicleStop.ACT_PICKUP:
@@ -221,7 +221,7 @@ class OnlineRTVSolver:
             manifests.append(manifest)
 
             for stop in manifest:
-                stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
+                stop_id = str(stop[PayloadParser.MANIFEST_BOOKING_ID])
                 action = stop[PayloadParser.MANIFEST_ACTION]
                 if action == VehicleStop.ACT_PICKUP:
                     boarded_requests.discard(stop_id)
@@ -234,6 +234,7 @@ class OnlineRTVSolver:
                     depot_requests.append(stop_id) # stop_id should be -(vehicle.id+1) as defined in VehicleHandler.get_manifest()
         # remove all requests that are unserved            
         for req_id in unserved_requests:
+            req_id = str(req_id)
             picked_requests.remove(req_id)
             dropped_requests.remove(req_id)
 

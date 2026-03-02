@@ -1,7 +1,9 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+from matplotlib.lines import Line2D
 
 from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.handlers.request_handler import RequestHandler
 import numpy as np
 
 from typing import Any
@@ -54,7 +56,7 @@ def plot_requests_operating_area(
     else:
         plt.close()
 
-def plot_request_time_windows(
+def plot_request_time_windows_timematrix(
     data: dict[str, Any],
     title="Request Time Windows", 
     figsize=(14, 10), 
@@ -63,6 +65,7 @@ def plot_request_time_windows(
     save_path: str | None = None,
     show: bool = True):
     """
+    # TODO make this work with the wilson format (we do not have the time_matrix in this data)
     Create a horizontal bar plot showing time windows for each request.
     
     Each request shows:
@@ -171,16 +174,138 @@ def plot_request_time_windows(
         plt.close()
     return fig, ax
 
+def plot_request_time_windows_woTimematrix(
+        data: dict[str, Any],
+        save_path: str | None = None,
+        show: bool = True):
+    """
+    Plot the request time windows if the time matrix is not part of the data
+    """
+    # TODO can possible be combined with the function above, but no priority
+    payload = PayloadParser.get_payload_object(data, online = True)
+    request_handler = RequestHandler(payload.requests, 180, 60)
+
+    requests = request_handler.get_all_requests()
+    request_count = len(requests)
+
+    travel_times = []
+    waiting_windows = []
+
+    for req in requests:
+        travel_times.append(req.get_direct_travel_time())
+        waiting_windows.append(req.get_time_window_duration())
+
+    min_travel_time = min(travel_times)
+    max_travel_time = max(travel_times)
+    avg_travel_time = sum(travel_times) / len(travel_times)
+
+    print(f"DEBUG {request_count} requests: min_travel_time: {min_travel_time}, max_travel_time: {max_travel_time}, avg_travel_time: {avg_travel_time}, min_waiting_window: {min(waiting_windows)}, max_waiting_window: {max(waiting_windows)}, avg_waiting_window: {sum(waiting_windows) / len(waiting_windows)}")
+
+    data = {
+        'request_id': [req.id for req in requests],
+        'earliest_pickup_time': [req.earliest_pickup_time for req in requests],
+        'latest_pickup_time': [req.latest_pickup_time for req in requests],
+        'earliest_arrival_time': [req.earliest_arrival_time for req in requests],
+        'latest_arrival_time': [req.latest_arrival_time for req in requests],
+        'travel_time': [req.get_direct_travel_time() for req in requests],
+    }
+
+    df = pd.DataFrame(data)
+    # Convert times to datetime
+    # df['earliest_pickup_time'] = pd.to_datetime(df['earliest_pickup_time'])
+    # df['latest_arrival_time'] = pd.to_datetime(df['latest_arrival_time'])
+
+    df = df.sort_values('earliest_pickup_time').reset_index(drop=True)
+
+    # Define figure with two subplots
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True, gridspec_kw={'height_ratios': [2, 1]})
+
+    # --- Top subplot: Gantt bars ---
+    y_pos = range(len(df))
+    for i, row in df.iterrows():
+        # Green: earliest -> latest_pickup
+        ax1.hlines(y=i, xmin=row['earliest_pickup_time'], xmax=row['latest_pickup_time'], color='green', alpha=0.2)
+        # Red: latest_pickup -> latest_arrival
+        ax1.hlines(y=i, xmin=row['earliest_arrival_time'], xmax=row['latest_arrival_time'], color='red', alpha=0.5)
+        # TODO there seems to be a bug because in some lines there are multiple travel times in the visual
+        ax1.hlines(y=i, xmin=row['latest_pickup_time'], xmax=row['latest_pickup_time'] + row['travel_time'], color='black', linestyle='--', alpha=1.0)
+
+    #ax1.set_yticks(y_pos)
+    #ax1.set_yticklabels(df['request_id'])
+
+    # --- Align x-axis to the first request time ---
+    min_time = df['earliest_pickup_time'].min()
+    max_time = df['latest_arrival_time'].max()
+    min_id = df['request_id'].min()
+    max_id = df['request_id'].max()
+
+    ax1.set_xlim(min_time, max_time)
+    ax1.set_ylim(min_id, max_id)
+
+    ax1.invert_yaxis()
+    ax1.set_ylabel('Request ID')
+    ax1.set_title('Requests Time Windows')
+    # Create custom legend handles
+    legend_elements = [
+        Line2D([0], [0], color='green', lw=8, alpha=0.2, label='Pickup Window'),
+        Line2D([0], [0], color='red', lw=8, alpha=0.5, label='Dropoff Window'),
+        Line2D([0], [0], color='black', lw=2, alpha=1.0, linestyle='--', label='Travel Time'),
+    ]
+
+    # Add legend to the top subplot
+    ax1.legend(handles=legend_elements, loc='upper right', frameon=False)
+
+    # --- Bottom subplot: Active requests count ---
+    # Create a fine grid of time steps
+    time_grid = np.arange(df['earliest_pickup_time'].min(), df['latest_arrival_time'].max(), 300.0)  # step 300 seconds
+    active_counts = []
+
+    for t in time_grid:
+        active = ((df['earliest_pickup_time'] <= t) & (df['latest_arrival_time'] >= t)).sum()
+        active_counts.append(active)
+
+    ax2.bar(time_grid, active_counts, width=300.0, color='skyblue', align='edge')
+    ax2.set_ylabel('Active Requests')
+    ax2.set_xlabel('Time (hours)')
+    ax2.set_xlim(min_time, max_time)
+
+    ax2.set_title('Number of Active Requests Over Time')
+
+    plt.tight_layout()
+
+    if save_path is not None:
+        plt.savefig(save_path, bbox_inches="tight")
+    if show:
+        plt.show()
+    else:
+        plt.close()
+    return fig, ax1, ax2
+
 
 if __name__ == "__main__":
     from rtv_solver.parser.li_lim_parser import LiLimParser
     from rtv_solver.parser.sartori_parser import SartoriParser
 
+    # other data parsers 
     # parser = LiLimParser()       # swap this one line to change parser
     # input_file = 'inputs/li_lim/pdp_100/lc102.txt'
+    # data = parser.parse_file(input_file)
+    # plot_request_time_windows_timematrix(data, save_path=None, show=True)
 
-    parser = SartoriParser()
-    input_file = 'inputs/sartori/n100/bar-n100-2.txt'
+    # parser = SartoriParser()
+    # input_file = 'inputs/sartori/n100/bar-n100-2.txt'
+    # data = parser.parse_file(input_file)
+    # plot_request_time_windows_timematrix(data, save_path=None, show=True)
 
-    data = parser.parse_file(input_file)
-    plot_request_time_windows(data, save_path=None, show=True)
+    # wilson as it does not have the time matrix
+    import argparse
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    
+    parser = argparse.ArgumentParser(description='Arguments for the PayloadParser main script')
+    parser.add_argument('--input_file', type=str, default='inputs/wilson/random_weekeday_2.pkl', help='Path to the input file')
+    args = parser.parse_args()
+
+    data = PayloadParser.load_input_data(args.input_file)
+
+    plot_request_time_windows_woTimematrix(data, save_path=None, show=True)

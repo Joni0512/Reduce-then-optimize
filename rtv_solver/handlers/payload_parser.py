@@ -8,6 +8,12 @@ import json
 from pathlib import Path
 from typing import Any
 
+from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
+import logging
+
+console_logger = logging.getLogger(BASIC_LOGGER)
+data_logger = logging.getLogger(DATA_LOGGER)
+
 class PayloadParser:
     """
     Handles the parsing of the initial payloads in both directions, importing and transforming data. 
@@ -73,8 +79,11 @@ class PayloadParser:
     def load_input_data(input_file: Path | str):
         if isinstance(input_file, str):
             file_type = input_file.split(".")[-1]
+        elif isinstance(input_file, Path):
+            file_type = input_file.suffix[1:].lstrip(".")
         else:
-            file_type = "pkl"
+            raise ValueError(f"Unsupported file type: {input_file}")
+        console_logger.info(f"Loading input data from {input_file} with file type {file_type}")
         if file_type == "json":
             with open(input_file, 'r') as f:
                 data = json.load(f)
@@ -371,7 +380,73 @@ class PayloadParser:
     As all requests have exactly 30 minutes of allowed and combined wait + detour time, which does not seem very realistic if the direct travel_time of the trip is below 5 minutes, the data should be updated before usage. The requests should be updated once and for all before data is used.
      
     This also offers the option to add randomized versions of the same requests to get more training data sets while keeping realism."""
+
+    @staticmethod
+    def build_test_case(
+        data: dict[str, Any],
+        max_requests: int = 12,
+        max_vehicles: int = 1,
+        save_file_path: str = None):
+        """
+        Build a test case with a given number of requests and vehicles.
+        """
+        requests = copy.deepcopy(data.get(PayloadParser.REQUESTS, []))
+
+
+        # remove the first 8 requests
+        requests = requests[9:]
+        new_request = {
+            "booking_id":"1",
+            "am":1,
+            "wc":0,
+            "pickup_time_window_start":20000.0,
+            "pickup_time_window_end":20100.0,
+            "pickup_pt":{
+                "lon":-77.930793762,
+                "lat":35.780387878
+            },
+            "dropoff_time_window_start":20611.9,
+            "dropoff_time_window_end":20711.9,
+            "dropoff_pt":{
+                "lon":-77.893867493,
+                "lat":35.719944
+            }
+        }
+        # NOTE current approach fixes the data instead of the code
+        # insert new request 8 times but increment the booking_id by 1 each time, start with 8 and then increment backwards as we add them to the top of the list
+        pickup_begin, pickup_end = 20000.0, 20100.0
+        dropoff_begin, dropoff_end = 20611.9, 20711.9
+        for i in range(9, 0, -1):
+            c_request = copy.deepcopy(new_request)
+            c_request["booking_id"] = str(i)
+            # times add dwell time to the pickup and dropoff time window 
+            c_request["pickup_time_window_start"] = pickup_begin
+            c_request["pickup_time_window_end"] = pickup_end
+            c_request["dropoff_time_window_start"] = dropoff_begin
+            c_request["dropoff_time_window_end"] = dropoff_end
+            pickup_begin += 60
+            pickup_end += 60
+            dropoff_begin += 60 + 180
+            dropoff_end += 60 + 180
+            requests.insert(0, c_request)
+        # limit number of requests to max_requests
+        requests = requests[:max_requests]
         
+        # limit number of vehicles to max_vehicles
+        vehicles = data[PayloadParser.DRIVERS][:max_vehicles]
+        depot = data[PayloadParser.DEPOT]
+
+        # build a new payload set with certain rules of requests
+        new_payload = {
+            'requests': requests,
+            'driver_runs': vehicles,
+            'depot': depot
+        }
+
+        # save file to json
+        if save_file_path is not None:
+            with open(save_file_path, 'w') as f:
+                json.dump(new_payload, f)
 
 
 if __name__ == "__main__":
@@ -382,101 +457,16 @@ if __name__ == "__main__":
     """
     # TODO move this into a visual function
     import argparse
-    from rtv_solver.handlers.request_handler import RequestHandler
     import pandas as pd
     import matplotlib.pyplot as plt
-    from matplotlib.lines import Line2D
-    import numpy as np
-
+    
     parser = argparse.ArgumentParser(description='Arguments for the PayloadParser main script')
     parser.add_argument('--input_file', type=str, default='inputs/wilson/random_weekeday_2.pkl', help='Path to the input file')
     args = parser.parse_args()
 
     data = PayloadParser.load_input_data(args.input_file)
+
+    PayloadParser.build_test_case(data, max_requests=12, max_vehicles=1, save_file_path='inputs/test_nc/test_12r_1v_repeat9.json')
+
     
-    payload = PayloadParser.get_payload_object(data, online = True)
-    request_handler = RequestHandler(payload.requests, 180, 60)
-
-    requests = request_handler.get_all_requests()
-    request_count = len(requests)
-
-    travel_times = []
-    waiting_windows = []
-
-    for req in requests:
-        travel_times.append(req.get_direct_travel_time())
-        waiting_windows.append(req.get_time_window_duration())
-
-    min_travel_time = min(travel_times)
-    max_travel_time = max(travel_times)
-    avg_travel_time = sum(travel_times) / len(travel_times)
-
-    print(f"DEBUG {request_count} requests: min_travel_time: {min_travel_time}, max_travel_time: {max_travel_time}, avg_travel_time: {avg_travel_time}, min_waiting_window: {min(waiting_windows)}, max_waiting_window: {max(waiting_windows)}, avg_waiting_window: {sum(waiting_windows) / len(waiting_windows)}")
-
-    data = {
-        'request_id': [req.id for req in requests],
-        'earliest_pickup_time': [req.earliest_pickup_time for req in requests],
-        'latest_pickup_time': [req.latest_pickup_time for req in requests],
-        'latest_arrival_time': [req.latest_arrival_time for req in requests],
-    }
-
-    df = pd.DataFrame(data)
-    # Convert times to datetime
-    # df['earliest_pickup_time'] = pd.to_datetime(df['earliest_pickup_time'])
-    # df['latest_arrival_time'] = pd.to_datetime(df['latest_arrival_time'])
-
-    df = df.sort_values('earliest_pickup_time').reset_index(drop=True)
-
-    # Define figure with two subplots
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True, gridspec_kw={'height_ratios': [2, 1]})
-
-    # --- Top subplot: Gantt bars ---
-    y_pos = range(len(df))
-    for i, row in df.iterrows():
-        # Green: earliest -> latest_pickup
-        ax1.hlines(y=i, xmin=row['earliest_pickup_time'], xmax=row['latest_pickup_time'], color='green', linewidth=8)
-        # Red: latest_pickup -> latest_arrival
-        ax1.hlines(y=i, xmin=row['latest_pickup_time'], xmax=row['latest_arrival_time'], color='red', linewidth=8)
-
-    #ax1.set_yticks(y_pos)
-    #ax1.set_yticklabels(df['request_id'])
-
-    # --- Align x-axis to the first request time ---
-    min_time = df['earliest_pickup_time'].min()
-    max_time = df['latest_arrival_time'].max()
-    min_id = df['request_id'].min()
-    max_id = df['request_id'].max()
-
-    ax1.set_xlim(min_time, max_time)
-    ax1.set_ylim(min_id, max_id)
-
-    ax1.invert_yaxis()
-    ax1.set_ylabel('Request ID')
-    ax1.set_title('Requests Time Windows')
-    # Create custom legend handles
-    legend_elements = [
-        Line2D([0], [0], color='green', lw=8, label='Pickup Window'),
-        Line2D([0], [0], color='red', lw=8, label='Remaining Travel Time')
-    ]
-
-    # Add legend to the top subplot
-    ax1.legend(handles=legend_elements, loc='upper right', frameon=False)
-
-    # --- Bottom subplot: Active requests count ---
-    # Create a fine grid of time steps
-    time_grid = np.arange(df['earliest_pickup_time'].min(), df['latest_arrival_time'].max(), 300.0)  # step 300 seconds
-    active_counts = []
-
-    for t in time_grid:
-        active = ((df['earliest_pickup_time'] <= t) & (df['latest_arrival_time'] >= t)).sum()
-        active_counts.append(active)
-
-    ax2.bar(time_grid, active_counts, width=300.0, color='skyblue', align='edge')
-    ax2.set_ylabel('Active Requests')
-    ax2.set_xlabel('Time (hours)')
-    ax2.set_xlim(min_time, max_time)
-
-    ax2.set_title('Number of Active Requests Over Time')
-
-    plt.tight_layout()
-    plt.show()
+    

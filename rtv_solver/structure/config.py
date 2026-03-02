@@ -95,7 +95,7 @@ class Config:
         # add the change for the input_file
         # if a config is missing an item due to additional config items, one can override it by adding it there and still use the same config settings
         config = cls(
-            DEBUG = args.debug,
+            DEBUG = cls.str_to_bool(args.debug),
             CONFIG_FILE = args.config_file,
             OVERRIDE = args.override, 
             OUTPUT_DIR = output_directory,
@@ -109,9 +109,9 @@ class Config:
             MAX_CARDINALITY = args.max_cardinality,
             LARGEST_TSP = args.largest_tsp,
             SHARE_COST_FACTOR = args.share_cost_factor,
-            REBALANCING = args.rebalancing,
-            KEEP_ACTIVE = args.keep_active,
-            RETURN_DEPOT = args.return_depot,
+            REBALANCING = cls.str_to_bool(args.rebalancing),
+            KEEP_ACTIVE = cls.str_to_bool(args.keep_active),
+            RETURN_DEPOT = cls.str_to_bool(args.return_depot),
             DWELL_PICKUP = args.dwell_pickup,
             DWELL_ALIGHT = args.dwell_alight,
             WALK_DISTANCE_CUTOFF = args.walk_distance_cutoff,
@@ -174,3 +174,6 @@ class Config:
         if target_type is bool:
             return str(value).lower() in ("true", "1", "yes")
         return target_type(value)
+
+    def str_to_bool(value: str) -> bool:
+        return value.strip().lower() == "true"

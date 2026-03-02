@@ -1,0 +1,31 @@
+{
+    "config_dict": {
+        "DEBUG": false,
+        "CONFIG_FILE": "",
+        "OVERRIDE": [],
+        "OUTPUT_DIR": "/Users/jw/Desktop/master_thesis/mt_sourcecode/rtv-solver/outputs/debug/run_20260302_131028_020e69",
+        "INPUT_FILE": "test_nc/test_12r_1v_repeat9.json",
+        "SERVER_URL": "http://127.0.0.1:5001/",
+        "MAX_THREAD_CNT": 16,
+        "RTV_TIMEOUT": 3600,
+        "ILP_TIMEOUT": 120,
+        "ILP_PENALTY": 100000,
+        "MODE": "optimal_solution",
+        "MAX_CARDINALITY": 8,
+        "LARGEST_TSP": 16,
+        "SHARE_COST_FACTOR": 10,
+        "REBALANCING": false,
+        "KEEP_ACTIVE": true,
+        "RETURN_DEPOT": true,
+        "WALK_DISTANCE_CUTOFF": 0,
+        "STEP_SIZE": 500,
+        "BATCH_INTERVAL": 2000,
+        "DWELL_PICKUP": 0,
+        "DWELL_ALIGHT": 0,
+        "TRAVEL_TIME_MARGIN": 5,
+        "SEED": 42
+    },
+    "git_commit": "4930782a48300f7204b07daebbc0dd379b189a20",
+    "timestamp": "2026-03-02 13:10:28",
+    "reproduced": false
+}
