@@ -16,8 +16,23 @@ class TripCost:
         return f"TC({self.trip_no}, veh={self.vehicle_id}, cost={self.cost:.1f}, seq={self.sequence.simple_str()})"
 
     def get_request_order_str(self):
+        """get quick string for all requests for easier debugging"""
         return self.sequence.request_str()
-            
+
+    def get_ordered_stop_sequence(self):
+        """get the stop sequence in the order of the sequence"""
+        ordered_stop_sequence = []
+        for stop in self.sequence:
+            # only get the first letter of the type string
+            type = stop.type[0].upper()
+            request_id = stop.get_requestID_stripped_iteration()
+            ordered_stop_sequence.append(f"{type}{request_id}")
+        return ordered_stop_sequence
+
+    def get_ordered_request_ids(self):
+        """get list of request ids in the order of the sequence"""
+        return [stop.get_requestID_stripped_iteration() for stop in self.sequence]
+
     def __str__(self):
         return f"TripCost(t_no={self.trip_no}, v_id={self.vehicle_id}, cost={self.cost}, seq={self.sequence})"
     

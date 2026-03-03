@@ -3,16 +3,19 @@ import sys
 from multiprocessing import Pool
 import numpy as np
 import copy
-from typing import Optional
+from typing import Any, Optional
 import torch
 
 from rtv_solver.handlers.request_handler import RequestHandler
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.vehicle_handler import VehicleHandler
+from rtv_solver.pipeline.imitation_handler import ImitationHandler
 from rtv_solver.handlers.trip_handler import TripHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.online_rtv_solver import OnlineRTVSolver
+
 from rtv_solver.structure.config import Config
+from rtv_solver.structure.trip_cost import TripCost
 
 from rtv_solver.pipeline import CO, CO_ScoreMaximization, CO_TripCostMinimization, CO_RebalancingCoverage, FeatureBuilder
 from rtv_solver.pipeline import FenchelYoungLoss, make_map_oracle, ScoringMLP
@@ -52,6 +55,7 @@ class COAMLPipeline():
         
         self.model = ScoringMLP(feature_dim=66, hidden_dim=32) # TODO update architecture so we do not need the dimension fixed manually and can rather register the model that has this values automatically.
         self.fy_loss = FenchelYoungLoss(num_samples=15, sigma=0.1)
+        self.imitation_handler = ImitationHandler(config)
         self.optimizer = CO_ScoreMaximization(config)
         self.default_optimizer = CO_TripCostMinimization(config)    
         
@@ -184,6 +188,13 @@ class COAMLPipeline():
                 active_requests,
                 penalty=self.config.ILP_PENALTY,
                 keep_active=self.config.KEEP_ACTIVE)
+
+            # NOTE this is for now just experimental
+            print(f"Solution: {self.imitation_handler.get_optimal_request_solution_for_batch(request_batch)}")
+            print(f"Complete solution: {self.imitation_handler.optimal_solution}")
+            for idx, tc in enumerate[TripCost](trip_costs):
+                print(f"x_t: {x_t[idx].X}, tc: {tc.simple_str()}, ordered_stop_sequence: {tc.get_ordered_stop_sequence()}")
+
             # transform solution to assignment, used to update vehicles and manifests
             # THIS result must be used for future comparisons
             result = self.optimizer.transform_solution_to_assignment(
@@ -200,6 +211,10 @@ class COAMLPipeline():
             console_logger.info(f"Default ILP solved in {default_ilp_model.Runtime:.3f} s.")
             default_result = self.default_optimizer.transform_solution_to_assignment(
                 default_ilp_model, default_x_t, default_x_r, request_batch)
+
+            # NOTE this is for now just experimental
+            for idx, (tc, score) in enumerate(zip (trip_costs, trip_obj_scores)):
+                print(f"x_t: {default_x_t[idx].X}, tc: {tc.simple_str()}, ordered_stop_sequence: {tc.get_ordered_stop_sequence()}")
 
             # compute Fenchel-Young loss
             self._compute_fy_loss(

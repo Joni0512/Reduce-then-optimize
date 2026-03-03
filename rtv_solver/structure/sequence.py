@@ -1,13 +1,16 @@
+from collections.abc import Iterable
+
 from rtv_solver.structure.vehicle_stop import VehicleStop
 
-class StopSequence(list):
+class StopSequence(list[VehicleStop]):
     """
     List-like container for a sequence of VehicleStops:
     1. Each trip_id occurs exactly twice.
     2. Each trip_id has one pickup and one dropoff.
-    3. Pickup occurs before dropoff in the list order."""
+    3. Pickup occurs before dropoff in the list order.
+    """
     
-    def __init__(self, stops: list[VehicleStop]):
+    def __init__(self, stops: Iterable[VehicleStop]):
         # initialize directly from the list; so that append works as well
         super().__init__(stops)
         self._validate()
@@ -65,7 +68,7 @@ class StopSequence(list):
 
     def request_str(self):
         """get just the request-IDs once of the sequence"""
-        single_request_ids = dict.fromkeys(stop.get_request_id(stop.trip_id) for stop in self)
+        single_request_ids = dict.fromkeys(stop.get_requestID_stripped_iteration() for stop in self)
         return "-".join(single_request_ids)
 
     def __str__(self):

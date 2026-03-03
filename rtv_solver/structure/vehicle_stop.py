@@ -39,11 +39,10 @@ class VehicleStop:
         # self.time_window_end: int = None    # MANIFEST_TIME_WINDOW_END
 
     # TODO add create method from_dict or something similar that we can get directly from the dictionary and also move it back to the dictionary again (however we could have transitions and conditions that ensure the right changes)
-    @staticmethod
-    def get_request_id(trip_id: str):
-        # TODO should be derived from trip directly? make use of it in the code; anything it should test
-        assert trip_id is not None # for one stop, rid should not just be overwritten
-        return trip_id.split("-")[1]
+
+    def get_requestID_stripped_iteration(self):
+        """normal structure of trip_id is 'iteration-request_id' """
+        return self.trip_id.split("-")[1]
 
     def __str__(self):
         return f"<VehicleStop - Trip {self.trip_id}, node: {self.node}, type: {self.type}, dwell: {self.dwell}>"

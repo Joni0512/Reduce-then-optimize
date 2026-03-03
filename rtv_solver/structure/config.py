@@ -51,6 +51,7 @@ class Config:
     TRAVEL_TIME_MARGIN: int = 5
     # COAML parameters
     SEED: int = 42
+    IMITATION_SOLUTION_FILE: Path | str = 'outputs/test_nc/solution_10r_1v_repeat6_simple/result_driver_runs.json'
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -118,7 +119,8 @@ class Config:
             STEP_SIZE = args.step_size,
             BATCH_INTERVAL = args.batch_interval,
             TRAVEL_TIME_MARGIN = args.travel_time_margin,
-            SEED = args.seed
+            SEED = args.seed,
+            IMITATION_SOLUTION_FILE = args.imitation_solution_file
         )
         # some checks to fail early if the config is not valid
         assert config.STEP_SIZE <= config.BATCH_INTERVAL, f"MUST: Step size {config.STEP_SIZE} <= batch interval {config.BATCH_INTERVAL}"
