@@ -30,8 +30,10 @@ class RequestHandler:
         self.count = self.requests.shape[0]
         self.next_index = 0
 
-        assert len_requests_initial == self.count, f"{len_requests_initial - self.count} requests dropped as duplicates. Where did they come from?"      
-        console_logger.info(f'{self.count} new and already assigned request(s) in payload')
+        assert len_requests_initial == self.count, f"{len_requests_initial - self.count} requests dropped as duplicates. Where did they come from?"
+        # add only the booking ids of all requests to the console output
+        booking_ids = self.requests[PayloadParser.REQ_BOOKING_ID].tolist()
+        console_logger.info(f'{self.count} new and already assigned request(s) in payload - {booking_ids}')
 
     @staticmethod
     def _build_request_dict(req, dwell_pickup, dwell_alight):

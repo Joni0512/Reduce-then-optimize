@@ -293,29 +293,31 @@ class TripHandler:
             self.shared_trips_map[cardinality] = []
             if cardinality == 2:
                 if self.config.DEBUG and False:
-                    no_of_trips = len(self.trips)
-                    # create all possible combinations of trips with cardinality = 2
-                    combinations = itertools.combinations(list(range(no_of_trips)), cardinality)
-                    combinations_list = list(combinations)
-                    console_logger.info(f"Number of combinations: {len(combinations_list)}; combinations: {combinations_list}")
-                    for trip_nos in itertools.combinations(list(range(no_of_trips)), cardinality):
-                        trip1 = self.trips[trip_nos[0]]
-                        trip2 = self.trips[trip_nos[1]]
-                        current_cost = trip1.cost + trip2.cost # get simple cost addition
-                        trips = {}
-                        for trip_no in trip_nos:
-                            trip = self.trips[trip_no]
-                            trips[trip.id] = trip
-                        if self._check_any_vehicles_available(trips.values()):
-                            result =TripHandler.can_share_trips(trip_nos[0], trips, set(trip_nos), trip1, current_cost, [], SHAREABLE_COST_FACTOR,)
-                            TripHandler._process_shared_trip_result(result)
+                    raise ValueError("Debug mode is not activated for shared trip generation")
+                    # # non-parallelized version of the shared trip generation, one can debug the entire process with debug mode
+                    # no_of_trips = len(self.trips)
+                    # # create all possible combinations of trips with cardinality = 2
+                    # combinations = itertools.combinations(list(range(no_of_trips)), cardinality)
+                    # combinations_list = list(combinations)
+                    # console_logger.info(f"Number of combinations: {len(combinations_list)}; combinations: {combinations_list}")
+                    # for trip_nos in itertools.combinations(list(range(no_of_trips)), cardinality):
+                    #     trip1 = self.trips[trip_nos[0]]
+                    #     trip2 = self.trips[trip_nos[1]]
+                    #     current_cost = trip1.cost + trip2.cost # get simple cost addition
+                    #     trips = {}
+                    #     for trip_no in trip_nos:
+                    #         trip = self.trips[trip_no]
+                    #         trips[trip.id] = trip
+                    #     if self._check_any_vehicles_available(trips.values()):
+                    #         result =TripHandler.can_share_trips(trip_nos[0], trips, set(trip_nos), trip1, current_cost, [], SHAREABLE_COST_FACTOR,)
+                    #         TripHandler._process_shared_trip_result(result)
                 else:
                     no_of_trips = len(self.trips)
                     pool = mp.Pool(max_num_thread)
                     # create all possible combinations of trips with cardinality = 2
                     combinations = itertools.combinations(list(range(no_of_trips)), cardinality)
                     combinations_list = list(combinations)
-                    console_logger.info(f"Number of combinations: {len(combinations_list)}; combinations: {combinations_list}")
+                    console_logger.debug(f"Number of combinations: {len(combinations_list)}; combinations: {combinations_list}")
                     for trip_nos in itertools.combinations(list(range(no_of_trips)), cardinality):
                         trip1 = self.trips[trip_nos[0]]
                         trip2 = self.trips[trip_nos[1]]
@@ -332,7 +334,7 @@ class TripHandler:
                                 error_callback=TripHandler._on_worker_error)
                     pool.close()
                     pool.join()
-            else:
+            else: # cardinality > 2
                 tried_combinations = {}
                 shared_trips_to_process = []
                 prev_shared_trips = self.shared_trips_map[cardinality-1]
