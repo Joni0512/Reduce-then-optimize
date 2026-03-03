@@ -468,7 +468,8 @@ class VehicleHandler:
     
     @staticmethod
     def get_exact_stop_sequence(
-            last_node, time_at_last_node, max_am_capacity, max_wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, sequence, cost, tt_matrix, node_indices):   
+            last_node, time_at_last_node, max_am_capacity, max_wc_capacity, trips, trips_to_pick_up, trips_to_drop_off, sequence, cost, tt_matrix, node_indices):
+        console_logger.debug(f"Pickup: {trips_to_pick_up}, Dropoff: {trips_to_drop_off}, time_at_last_node: {time_at_last_node}")       
         if len(trips_to_pick_up) == 0 and len(trips_to_drop_off) == 0:
             return sequence, cost, True, last_node, time_at_last_node
         feasible = False
@@ -482,8 +483,9 @@ class VehicleHandler:
             new_wc_capacity = max_wc_capacity - trip.wc_capacity
             if new_am_capacity < 0 or new_wc_capacity < 0:
                 continue
-            travel_time = NetworkHandler.travel_time_from_matrix(last_node,trip.origin,tt_matrix, node_indices)
+            travel_time = NetworkHandler.travel_time_from_matrix(last_node, trip.origin, tt_matrix, node_indices)
             time_at_pick_up = time_at_last_node + travel_time
+            # if trip is too early, set it to the earliest possible time
             if time_at_pick_up < trip.pick_up_time:
                 time_at_pick_up = trip.pick_up_time
 
@@ -499,8 +501,9 @@ class VehicleHandler:
                                                 trip.origin,
                                                 VehicleStop.ACT_PICKUP,
                                                 trip.dwell_pickup))
-                # NOTE why do we not add the dropoff-stop here?
-                # TODO why is this function calling itself
+                # recursive call to get the exact stop sequence
+                # PICKUP
+                console_logger.debug(f"PICKUP")
                 new_sequence, new_cost, new_feasible, new_last_node, new_time_at_last_node = VehicleHandler.get_exact_stop_sequence(
                     trip.origin,
                     time_at_pick_up,
@@ -540,7 +543,20 @@ class VehicleHandler:
                                                     trip.destination,
                                                     VehicleStop.ACT_DROPOFF,
                                                     trip.dwell_alight))
-                    new_sequence, new_cost, new_feasible, new_last_node,new_time_at_last_node = VehicleHandler.get_exact_stop_sequence(trip.destination,time_at_drop_off,new_am_capacity, new_wc_capacity,trips,trips_to_pick_up,new_trips_to_drop_off,new_sequence,new_cost,tt_matrix, node_indices)
+                    # DROPOFF                      
+                    console_logger.debug(f"DROPOFF")          
+                    new_sequence, new_cost, new_feasible, new_last_node,new_time_at_last_node = VehicleHandler.get_exact_stop_sequence(
+                        trip.destination,
+                        time_at_drop_off,
+                        new_am_capacity, 
+                        new_wc_capacity,
+                        trips,
+                        trips_to_pick_up,
+                        new_trips_to_drop_off,
+                        new_sequence,
+                        new_cost,
+                        tt_matrix, 
+                        node_indices)
                     if new_feasible:
                         if (not feasible) or (current_lowest_cost > new_cost):
                             current_lowest_cost = new_cost
@@ -643,7 +659,7 @@ class VehicleHandler:
 
     @staticmethod
     def can_serve_trips(trips, new_trip, current_sequence):
-        """TODO add docstring"""
+        """calculates the feasibilty and the best sequence for a given set of trips"""
         trips_to_pick_up = []
         trips_to_drop_off = []
         nodes = []
@@ -663,6 +679,20 @@ class VehicleHandler:
             if trips[trip_id].pick_up_time < current_time:
                 current_time = trips[trip_id].pick_up_time
             starting_locations.append(trips[trip_id].origin)
+
+        # reduce starting_locations to unique locations
+        unique_starting_locations = []
+        for s_location in starting_locations:
+            # if empty, add the location
+            if len(unique_starting_locations) == 0:
+                unique_starting_locations.append(s_location)
+                continue
+            # compare location with equality of node
+            for u_location in unique_starting_locations:
+                if s_location == u_location:
+                    continue
+                else:
+                    unique_starting_locations.append(s_location)
         # else:
         #     starting_locations.append(current_sequence[0].node)
         #     starting_locations.append(trips[new_trip].origin)
@@ -698,6 +728,9 @@ class VehicleHandler:
                     feasible = t_feasible
                     best_cost = cost
                     best_sequence = sequence
+        trip_nos = trips.keys()
+        console_logger.debug(f"Internal: trip_nos={trip_nos}, current_sequence={current_sequence}, new_trip={new_trip}")
+        console_logger.debug(f"Result: feasible={feasible}, best_cost={best_cost}, best_sequence={best_sequence}")
         return feasible, best_cost, best_sequence
 
     # BELOW DEPRECATED METHODS - ONLY USED IN SIMULATION APPROACH

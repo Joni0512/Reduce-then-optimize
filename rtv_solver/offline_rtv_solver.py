@@ -38,6 +38,8 @@ class OfflineRTVSolver:
                     request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + interval 
                     ):
                     selected_requests[request[PayloadParser.REQ_BOOKING_ID]] = request
+            requests_to_consider = [int(k) for k in selected_requests.keys()]
+            console_logger.info(f"consideration of requests: {requests_to_consider}")
             
             # remove requests that are already part of vehicles; covered by PayloadParser in OnlineRTVsolver # TODO check
             for dr in driver_runs:
@@ -46,7 +48,7 @@ class OfflineRTVSolver:
                     if stop[PayloadParser.MANIFEST_BOOKING_ID] in selected_requests:
                         del selected_requests[stop[PayloadParser.MANIFEST_BOOKING_ID]]
             selected_requests = list(selected_requests.values())
-
+            
             # create a new payload with the selected requests
             new_payload = {
                 PayloadParser.DEPOT: payload[PayloadParser.DEPOT],

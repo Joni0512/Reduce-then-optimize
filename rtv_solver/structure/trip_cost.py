@@ -14,7 +14,10 @@ class TripCost:
 
     def simple_str(self):
         return f"TC({self.trip_no}, veh={self.vehicle_id}, cost={self.cost:.1f}, seq={self.sequence.simple_str()})"
-    
+
+    def get_request_order_str(self):
+        return self.sequence.request_str()
+            
     def __str__(self):
         return f"TripCost(t_no={self.trip_no}, v_id={self.vehicle_id}, cost={self.cost}, seq={self.sequence})"
     

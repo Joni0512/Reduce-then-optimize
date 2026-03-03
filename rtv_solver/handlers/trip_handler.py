@@ -224,6 +224,7 @@ class TripHandler:
     @staticmethod
     def can_share_trips(prev_trip_no, trips, trip_nos, new_trip, current_cost, current_sequence, SHAREABLE_COST_FACTOR):
         feasible, cost, sequence = VehicleHandler.can_serve_trips(trips, new_trip, current_sequence)
+        console_logger.debug(f"feasible={feasible}, cost={cost}, current_cost={current_cost}, SHAREABLE_COST_FACTOR={SHAREABLE_COST_FACTOR}; trip_nos={trip_nos}")
         if feasible and cost <= SHAREABLE_COST_FACTOR * current_cost:
             return SharedTrip(prev_trip_no, 0, trip_nos, cost, sequence)
         return None
@@ -291,25 +292,46 @@ class TripHandler:
             st = time.time()
             self.shared_trips_map[cardinality] = []
             if cardinality == 2:
-                no_of_trips = len(self.trips)
-                pool = mp.Pool(max_num_thread)
-                # create all possible combinations of trips with cardinality = 2
-                for trip_nos in itertools.combinations(list(range(no_of_trips)), cardinality):
-                    trip1 = self.trips[trip_nos[0]]
-                    trip2 = self.trips[trip_nos[1]]
-                    current_cost = trip1.cost + trip2.cost # get simple cost addition
-                    trips = {}
-                    for trip_no in trip_nos:
-                        trip = self.trips[trip_no]
-                        trips[trip.id] = trip
-                    if self._check_any_vehicles_available(trips.values()):
-                        pool.apply_async(
-                            TripHandler.can_share_trips,
-                            args=(trip_nos[0], trips, set(trip_nos), trip1, current_cost, [], SHAREABLE_COST_FACTOR,), 
-                            callback=TripHandler._process_shared_trip_result,
-                            error_callback=TripHandler._on_worker_error)
-                pool.close()
-                pool.join()
+                if self.config.DEBUG and False:
+                    no_of_trips = len(self.trips)
+                    # create all possible combinations of trips with cardinality = 2
+                    combinations = itertools.combinations(list(range(no_of_trips)), cardinality)
+                    combinations_list = list(combinations)
+                    console_logger.info(f"Number of combinations: {len(combinations_list)}; combinations: {combinations_list}")
+                    for trip_nos in itertools.combinations(list(range(no_of_trips)), cardinality):
+                        trip1 = self.trips[trip_nos[0]]
+                        trip2 = self.trips[trip_nos[1]]
+                        current_cost = trip1.cost + trip2.cost # get simple cost addition
+                        trips = {}
+                        for trip_no in trip_nos:
+                            trip = self.trips[trip_no]
+                            trips[trip.id] = trip
+                        if self._check_any_vehicles_available(trips.values()):
+                            result =TripHandler.can_share_trips(trip_nos[0], trips, set(trip_nos), trip1, current_cost, [], SHAREABLE_COST_FACTOR,)
+                            TripHandler._process_shared_trip_result(result)
+                else:
+                    no_of_trips = len(self.trips)
+                    pool = mp.Pool(max_num_thread)
+                    # create all possible combinations of trips with cardinality = 2
+                    combinations = itertools.combinations(list(range(no_of_trips)), cardinality)
+                    combinations_list = list(combinations)
+                    console_logger.info(f"Number of combinations: {len(combinations_list)}; combinations: {combinations_list}")
+                    for trip_nos in itertools.combinations(list(range(no_of_trips)), cardinality):
+                        trip1 = self.trips[trip_nos[0]]
+                        trip2 = self.trips[trip_nos[1]]
+                        current_cost = trip1.cost + trip2.cost # get simple cost addition
+                        trips = {}
+                        for trip_no in trip_nos:
+                            trip = self.trips[trip_no]
+                            trips[trip.id] = trip
+                        if self._check_any_vehicles_available(trips.values()):
+                            pool.apply_async(
+                                TripHandler.can_share_trips,
+                                args=(trip_nos[0], trips, set(trip_nos), trip1, current_cost, [], SHAREABLE_COST_FACTOR,), 
+                                callback=TripHandler._process_shared_trip_result,
+                                error_callback=TripHandler._on_worker_error)
+                    pool.close()
+                    pool.join()
             else:
                 tried_combinations = {}
                 shared_trips_to_process = []
@@ -382,6 +404,7 @@ class TripHandler:
                                          error_callback=TripHandler._on_worker_error)
                     pool.close()
                     pool.join()
+                console_logger.debug(f"Tried combinations: {tried_combinations.keys()}")
                 console_logger.debug("Time to process shared trips of cardinality {0}: {1}".format(cardinality,time.time()-st))
             
             self._update_shared_trip_numbers(cardinality)

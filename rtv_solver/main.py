@@ -15,7 +15,6 @@ from rtv_solver.structure.config import Config
 from rtv_solver.util.logger import setup_loggers, BASIC_LOGGER, DATA_LOGGER
 from rtv_solver.util.helper import save_json, set_seed
 
-from rtv_solver.visuals.payload_visuals import plot_requests_operating_area
 from rtv_solver.visuals.route_manifest_mapper import RouteManifestMapper
 
 if __name__ == "__main__":
@@ -35,7 +34,8 @@ if __name__ == "__main__":
     parser.add_argument('--override', action='append',      default=[], help='Override config values when loading from a config file, e.g. key=value (can be repeated)')
     # technical parameters
     parser.add_argument('--output_dir', type=str,           default="debug", help='Output directory')
-    parser.add_argument('--input_file', type=str,           default="test_nc/test_12r_1v_repeat9.json", help='Request input file') # alternative: rtv-solver/inputs/localDB_payload_oct.pkl
+    parser.add_argument('--input_file', type=str,           default="test_nc/test_12r_1v_repeat9_simple.pkl", help='Request input file') # alternative: rtv-solver/inputs/localDB_payload_oct.pkl;
+    #parser.add_argument('--input_file', type=str,           default="wilson_nc_initial.pkl", help='Request input file') 
     parser.add_argument('--server_url', type=str,           default="http://127.0.0.1:5001/", help='Backend server URL')
     parser.add_argument('--max_thread_cnt', type=int,       default=16, help='Maximum thread count for parallel processing')
     parser.add_argument('--rtv_timeout', type=int,          default=3600, help='RTV construction timeout in seconds')
@@ -45,21 +45,21 @@ if __name__ == "__main__":
     parser.add_argument('--max_cardinality', type=int,      default=8, help='Maximum trips to be shared when creating trips in one batch_interval') # alt: total trips in same vehicle
     parser.add_argument('--largest_tsp', type=int,          default=16, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
     parser.add_argument('--share_cost_factor', type=int,    default=10, help='Shareable cost factor in factor of original single cost [???]') # TODO originally the value was 10, that value is extremely high and thus too many trips are considered feasible (ideally we would apply this earlier to reduce the amount of trips / tripCosts generated)
-    parser.add_argument('--rebalancing', type=str,         default='False', choices=['True', 'False'], help='(NOT WOKRING 12.02.2026) Vehicles are rebalanced if the need arises based on missed requests and idling vehicles.')
-    parser.add_argument('--keep_active', type=str,         default='True', choices=['True', 'False'], help='Active requests from an ILP solution in a prior iteration must be kept.')
-    parser.add_argument('--return_depot', type=str,        default='True', choices=['True', 'False'], help="Vehicles must return to the originating depot.")
-    parser.add_argument('--dwell_pickup', type=int,         default=60, help='Dwell time at pickup in seconds')
-    parser.add_argument('--dwell_alight', type=int,         default=180, help='Dwell time at alight (dropoff) in seconds')
+    parser.add_argument('--rebalancing', type=str,          default='False', choices=['True', 'False'], help='(NOT WOKRING 12.02.2026) Vehicles are rebalanced if the need arises based on missed requests and idling vehicles.')
+    parser.add_argument('--keep_active', type=str,          default='False', choices=['True', 'False'], help='Active requests from an ILP solution in a prior iteration must be kept.')
+    parser.add_argument('--return_depot', type=str,         default='False', choices=['True', 'False'], help="Vehicles must return to the originating depot.")
+    parser.add_argument('--dwell_pickup', type=int,         default=0, help='Dwell time at pickup in seconds')
+    parser.add_argument('--dwell_alight', type=int,         default=0, help='Dwell time at alight (dropoff) in seconds')
     parser.add_argument('--walk_distance_cutoff', type=int, default=0, help="Walking distance between dropoff and final destination.")
-    parser.add_argument('--step_size', type=int,            default=500, help='Step size in seconds for rolling horizon')
-    parser.add_argument('--batch_interval', type=int,       default=2000, help='Batch interval in seconds')
+    parser.add_argument('--step_size', type=int,            default=300, help='Step size in seconds for rolling horizon')
+    parser.add_argument('--batch_interval', type=int,       default=3600, help='Batch interval in seconds')
     # stats parameters
     parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
     # TODO COAML parameters 
     # random_seed, training parameters, NN parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility') 
-    parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'rh-ml', 'plot', 'optimal_solution', 'hexaly_solution'], default='optimal_solution', help='Mode on how the programme should solve the PDPTW')
-    parser.add_argument('--debug', type= str, default='False', choices=['True', 'False'], help='Run in debug mode (# reduces number of vehicles and requests for easier debugging)')
+    parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'rh-ml', 'plot', 'optimal_solution', 'hexaly_solution'], default='offline', help='Mode on how the programme should solve the PDPTW')
+    parser.add_argument('--debug', type= str, default='True', choices=['True', 'False'], help='Run in debug mode (# reduces number of vehicles and requests for easier debugging)')
     
     # implement configuration
     arguments = parser.parse_args()
@@ -103,7 +103,7 @@ if __name__ == "__main__":
         
         # create a simplified set of requests, consider all requests that start before end_requests
         current_time = 5*3600 + 30*60
-        step = 5*60
+        step = 800*60
         selected_requests = []
         for request in data[PayloadParser.REQUESTS]:
             if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + step:

@@ -63,6 +63,11 @@ class StopSequence(list):
         single_trip_ids = dict.fromkeys(stop.trip_id for stop in self)
         return ", ".join(single_trip_ids)
 
+    def request_str(self):
+        """get just the request-IDs once of the sequence"""
+        single_request_ids = dict.fromkeys(stop.get_request_id(stop.trip_id) for stop in self)
+        return "-".join(single_request_ids)
+
     def __str__(self):
         return str(self.sequence_to_string(self))
 

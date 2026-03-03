@@ -7,6 +7,7 @@ import pickle
 import json
 from pathlib import Path
 from typing import Any
+import numpy as np
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
@@ -342,6 +343,9 @@ class PayloadParser:
         For structural differences, see 'Documentation.md'. The changes are only additions and no prior information is lost.
         """
         if PayloadParser._is_canonical_structure(data):
+            # # turn all request-booking ids into strings
+            # for request in data[PayloadParser.REQUESTS]:
+            #     request[PayloadParser.REQ_BOOKING_ID] = str(request[PayloadParser.REQ_BOOKING_ID])
             return data  # Nothing to do
 
         normalized = copy.deepcopy(data)
@@ -414,39 +418,55 @@ class PayloadParser:
         }
         # NOTE current approach fixes the data instead of the code
         # insert new request 8 times but increment the booking_id by 1 each time, start with 8 and then increment backwards as we add them to the top of the list
-        pickup_begin, pickup_end = 20000.0, 20100.0
-        dropoff_begin, dropoff_end = 20611.9, 20711.9
-        for i in range(9, 0, -1):
+
+        new_requests = []
+
+        travel_time = 611.9
+        pickup_begin = 20000 
+        pickup_end = pickup_begin + 100 # instead of 60 for pickup dwell
+        dropoff_begin = pickup_end + travel_time + 9 * 100
+        dropoff_end = dropoff_begin + 200 # instead of 180 for dropoff dwell
+        for i in range(0, 10):
             c_request = copy.deepcopy(new_request)
-            c_request["booking_id"] = str(i)
+            c_request["booking_id"] = np.float64(i)
             # times add dwell time to the pickup and dropoff time window 
             c_request["pickup_time_window_start"] = pickup_begin
             c_request["pickup_time_window_end"] = pickup_end
             c_request["dropoff_time_window_start"] = dropoff_begin
             c_request["dropoff_time_window_end"] = dropoff_end
-            pickup_begin += 60
+            pickup_begin += 60 # make sure that not every order is possible and we reduce the combinatortics for this case
             pickup_end += 60
-            dropoff_begin += 60 + 180
-            dropoff_end += 60 + 180
-            requests.insert(0, c_request)
+            dropoff_begin += 180
+            dropoff_end += 180
+            new_requests.append(c_request)
         # limit number of requests to max_requests
-        requests = requests[:max_requests]
-        
+        new_requests.append(requests[25])
+        new_requests.append(requests[26])
+        new_requests.append(requests[27])
+
+        updated_requests = []
+        for i in range(0, 13):
+            c_request = copy.deepcopy(new_requests[i])
+            c_request["booking_id"] = np.float64(i)
+            updated_requests.append(c_request)
+
+
         # limit number of vehicles to max_vehicles
         vehicles = data[PayloadParser.DRIVERS][:max_vehicles]
         depot = data[PayloadParser.DEPOT]
 
         # build a new payload set with certain rules of requests
         new_payload = {
-            'requests': requests,
+            'requests': updated_requests,
             'driver_runs': vehicles,
             'depot': depot
         }
 
         # save file to json
         if save_file_path is not None:
-            with open(save_file_path, 'w') as f:
-                json.dump(new_payload, f)
+            with open(save_file_path, 'wb') as f:
+                pickle.dump(new_payload, f)
+                # json.dump(new_payload, f) to read it, but our booking_ids must be np.float64 for the solver to work (thus JSON does not work)
 
 
 if __name__ == "__main__":
@@ -466,7 +486,7 @@ if __name__ == "__main__":
 
     data = PayloadParser.load_input_data(args.input_file)
 
-    PayloadParser.build_test_case(data, max_requests=12, max_vehicles=1, save_file_path='inputs/test_nc/test_12r_1v_repeat9.json')
+    PayloadParser.build_test_case(data, max_requests=12, max_vehicles=1, save_file_path='inputs/test_nc/test_12r_1v_repeat9_simple.pkl')
 
     
     

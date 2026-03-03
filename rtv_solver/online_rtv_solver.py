@@ -120,6 +120,8 @@ class OnlineRTVSolver:
                 iteration,
                 self.config)
             single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
+            for trip_cost in trip_costs:
+                console_logger.info(f"trip cost: {trip_cost.trip_no}, {trip_cost.cost}, {trip_cost.get_request_order_str()}")
         except RTVTimeoutError as e:
             console_logger.error(f"Error in trip generation: {e}")
             raise e
@@ -199,7 +201,7 @@ class OnlineRTVSolver:
             manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
             serviced_locations = state[PayloadParser.DRIVER_STATE_LOC_SERV] # vehicle state condition for active / boarding
             for stop in manifest:
-                stop_id = str(stop[PayloadParser.MANIFEST_BOOKING_ID])
+                stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
                 action = stop[PayloadParser.MANIFEST_ACTION]
                 stop_order = stop[PayloadParser.MANIFEST_ORDER]
                 if action == VehicleStop.ACT_PICKUP:
@@ -221,7 +223,7 @@ class OnlineRTVSolver:
             manifests.append(manifest)
 
             for stop in manifest:
-                stop_id = str(stop[PayloadParser.MANIFEST_BOOKING_ID])
+                stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
                 action = stop[PayloadParser.MANIFEST_ACTION]
                 if action == VehicleStop.ACT_PICKUP:
                     boarded_requests.discard(stop_id)
@@ -234,7 +236,7 @@ class OnlineRTVSolver:
                     depot_requests.append(stop_id) # stop_id should be -(vehicle.id+1) as defined in VehicleHandler.get_manifest()
         # remove all requests that are unserved            
         for req_id in unserved_requests:
-            req_id = str(req_id)
+            req_id = req_id
             picked_requests.remove(req_id)
             dropped_requests.remove(req_id)
 
