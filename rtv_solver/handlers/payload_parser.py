@@ -396,9 +396,11 @@ class PayloadParser:
         """
         requests = copy.deepcopy(data.get(PayloadParser.REQUESTS, []))
 
+        REPEAT_COUNT = 6
+
 
         # remove the first 8 requests
-        requests = requests[9:]
+        requests = requests[REPEAT_COUNT:]
         new_request = {
             "booking_id":"1",
             "am":1,
@@ -424,9 +426,9 @@ class PayloadParser:
         travel_time = 611.9
         pickup_begin = 20000 
         pickup_end = pickup_begin + 100 # instead of 60 for pickup dwell
-        dropoff_begin = pickup_end + travel_time + 9 * 100
+        dropoff_begin = pickup_end + travel_time + REPEAT_COUNT * 100
         dropoff_end = dropoff_begin + 200 # instead of 180 for dropoff dwell
-        for i in range(0, 10):
+        for i in range(0, REPEAT_COUNT+1):
             c_request = copy.deepcopy(new_request)
             c_request["booking_id"] = np.float64(i)
             # times add dwell time to the pickup and dropoff time window 
@@ -445,7 +447,7 @@ class PayloadParser:
         new_requests.append(requests[27])
 
         updated_requests = []
-        for i in range(0, 13):
+        for i in range(0, REPEAT_COUNT+4):
             c_request = copy.deepcopy(new_requests[i])
             c_request["booking_id"] = np.float64(i)
             updated_requests.append(c_request)
@@ -486,7 +488,7 @@ if __name__ == "__main__":
 
     data = PayloadParser.load_input_data(args.input_file)
 
-    PayloadParser.build_test_case(data, max_requests=12, max_vehicles=1, save_file_path='inputs/test_nc/test_12r_1v_repeat9_simple.pkl')
+    PayloadParser.build_test_case(data, max_requests=12, max_vehicles=1, save_file_path='inputs/test_nc/test_12r_1v_repeat6_simple.pkl')
 
     
     
