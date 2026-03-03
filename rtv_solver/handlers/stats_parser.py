@@ -65,6 +65,8 @@ class Stats:
     rebalancing_movements: int = 0  # can only be != 0 when config.rebalance = True
     rebalancing_vmt: float = 0.0    # lower is better
 
+    total_time: float = 0.0
+
     def finalize(self) -> None:
         if self.pmt > 0:
             self.vmt_over_pmt = self.vmt / self.pmt
@@ -129,7 +131,7 @@ class StatsParser:
         self.request_stops.clear()
         self.stats = Stats()
         self.violations = []
-
+        
         for driver_run in driver_runs:
             self._simulate_driver_run(depot, driver_run)
 
@@ -141,6 +143,9 @@ class StatsParser:
 
         return feasible, self.stats, self.violations
     
+    def add_total_time(self, total_time: float) -> None:
+        self.stats.total_time = total_time
+
     def evaluate_development(self, payload: dict):
         requests = payload[PayloadParser.REQUESTS]
         return self._compute_request_development(requests)

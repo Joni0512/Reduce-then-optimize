@@ -34,34 +34,35 @@ if __name__ == "__main__":
     parser.add_argument('--override', action='append',      default=[], help='Override config values when loading from a config file, e.g. key=value (can be repeated)')
     # technical parameters
     parser.add_argument('--output_dir', type=str,           default="debug", help='Output directory')
-    parser.add_argument('--input_file', type=str,           default="test_nc/test_12r_1v_repeat9_simple.pkl", help='Request input file') # alternative: rtv-solver/inputs/localDB_payload_oct.pkl;
+    parser.add_argument('--input_file', type=str,           default="test_nc/test_10r_1v_repeat6_simple.pkl", help='Request input file') # alternative: rtv-solver/inputs/localDB_payload_oct.pkl;
     #parser.add_argument('--input_file', type=str,           default="wilson_nc_initial.pkl", help='Request input file') 
     parser.add_argument('--server_url', type=str,           default="http://127.0.0.1:5001/", help='Backend server URL')
     parser.add_argument('--max_thread_cnt', type=int,       default=16, help='Maximum thread count for parallel processing')
-    parser.add_argument('--rtv_timeout', type=int,          default=3600, help='RTV construction timeout in seconds')
+    parser.add_argument('--rtv_timeout', type=int,          default=120, help='RTV construction timeout in seconds')
     parser.add_argument('--ilp_timeout', type=int,          default=120, help='ILP solver timeout in seconds')
     parser.add_argument('--ilp_penalty', type=int,          default=100_000, help='Penalty for not serving a trip')
     # experiment parameters
     parser.add_argument('--max_cardinality', type=int,      default=8, help='Maximum trips to be shared when creating trips in one batch_interval') # alt: total trips in same vehicle
     parser.add_argument('--largest_tsp', type=int,          default=16, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
-    parser.add_argument('--share_cost_factor', type=int,    default=10, help='Shareable cost factor in factor of original single cost [???]') # TODO originally the value was 10, that value is extremely high and thus too many trips are considered feasible (ideally we would apply this earlier to reduce the amount of trips / tripCosts generated)
+    parser.add_argument('--share_cost_factor', type=int,    default=5, help='Shareable cost factor in factor of original single cost [???]') # TODO originally the value was 10, that value is extremely high and thus too many trips are considered feasible (ideally we would apply this earlier to reduce the amount of trips / tripCosts generated)
     parser.add_argument('--rebalancing', type=str,          default='False', choices=['True', 'False'], help='(NOT WOKRING 12.02.2026) Vehicles are rebalanced if the need arises based on missed requests and idling vehicles.')
     parser.add_argument('--keep_active', type=str,          default='False', choices=['True', 'False'], help='Active requests from an ILP solution in a prior iteration must be kept.')
-    parser.add_argument('--return_depot', type=str,         default='False', choices=['True', 'False'], help="Vehicles must return to the originating depot.")
+    parser.add_argument('--return_depot', type=str,         default='True', choices=['True', 'False'], help="Vehicles must return to the originating depot.")
     parser.add_argument('--dwell_pickup', type=int,         default=0, help='Dwell time at pickup in seconds')
     parser.add_argument('--dwell_alight', type=int,         default=0, help='Dwell time at alight (dropoff) in seconds')
     parser.add_argument('--walk_distance_cutoff', type=int, default=0, help="Walking distance between dropoff and final destination.")
     parser.add_argument('--step_size', type=int,            default=300, help='Step size in seconds for rolling horizon')
-    parser.add_argument('--batch_interval', type=int,       default=3600, help='Batch interval in seconds')
+    parser.add_argument('--batch_interval', type=int,       default=1200, help='Batch interval in seconds') # NOTE if this value is too small, we might miss requests if the vehicle_trip to the pickup is longer than the batch interval size (TODO fix this so this does not have as much impact)
     # stats parameters
     parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
     # TODO COAML parameters 
     # random_seed, training parameters, NN parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility') 
-    parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'rh-ml', 'plot', 'optimal_solution', 'hexaly_solution'], default='offline', help='Mode on how the programme should solve the PDPTW')
-    parser.add_argument('--debug', type= str, default='True', choices=['True', 'False'], help='Run in debug mode (# reduces number of vehicles and requests for easier debugging)')
+    parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'coaml', 'plot', 'optimal_solution', 'hexaly_solution'], default='coaml', help='Mode on how the programme should solve the PDPTW')
+    parser.add_argument('--debug', type= str, default='False', choices=['True', 'False'], help='Run in debug mode (# reduces number of vehicles and requests for easier debugging)')
+    parser.add_argument('--imitation_solution_file', type=str, default='outputs/test_nc/solution_10r_1v_repeat6_simple/result_driver_runs.json', help='Path to the imitation solution file with the complete manifest of all trips for all vehicles')
     
-    # implement configuration
+    # implement configurations
     arguments = parser.parse_args()
     config = Config.from_args(arguments)
 
@@ -94,8 +95,8 @@ if __name__ == "__main__":
         # BUG combination 2 --> iteration keeps running and still tries to optimize despite no active vehicle being left
         # TODO how to set vehicles to inactive, so they are not part of the optimization anymore but are also completed in their manifest (depot return and complete manifest of prior assigned trips)
         # vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 22000 
-        config.RETURN_DEPOT = True
-        config.KEEP_ACTIVE = True
+        #config.RETURN_DEPOT = True
+        #config.KEEP_ACTIVE = True
 
         # combination 3 
         # if trip is not considered in recent trips but is the last dropoff (situation: new trip is injected before that last dropoff in a new iteration)
@@ -103,7 +104,7 @@ if __name__ == "__main__":
         
         # create a simplified set of requests, consider all requests that start before end_requests
         current_time = 5*3600 + 30*60
-        step = 800*60
+        step = 5*60
         selected_requests = []
         for request in data[PayloadParser.REQUESTS]:
             if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + step:
@@ -129,7 +130,7 @@ if __name__ == "__main__":
         elif config.MODE == 'offline':
             off_solver = OfflineRTVSolver(config)
             updated_driver_runs = off_solver.solve_rtv(payload, config.BATCH_INTERVAL, config.STEP_SIZE)
-        elif config.MODE == 'rh-ml':
+        elif config.MODE == 'coaml':
             rh_solver = COAMLPipeline(config)
             updated_driver_runs = rh_solver.solve_pdptw(payload)
         elif config.MODE == 'optimal_solution':
@@ -158,12 +159,14 @@ if __name__ == "__main__":
                         PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
                         PayloadParser.DRIVERS: updated_driver_runs}
         stats_evaluator = StatsParser(config)
+        total_time = time.time() - start_time
         feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
+        stats_evaluator.add_total_time(total_time = total_time)
         assignment_history = stats_evaluator.evaluate_development(stats_payload)
         
         console_logger.info(stats)
         console_logger.info(f'Violations: {violations}')
-        console_logger.info(f"Total time: {time.time() - start_time:.2f}s")
+        console_logger.info(f"Total time: {stats.total_time:.2f}s")
 
         # console_logger.info("Request history analysed.")
         # console_logger.info(assignment_history)
