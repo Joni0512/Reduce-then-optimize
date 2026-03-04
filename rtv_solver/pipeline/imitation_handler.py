@@ -1,17 +1,23 @@
 import json
 import itertools
 import numpy as np
+import torch
 
 from rtv_solver.structure.config import Config
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.request import Request
 from rtv_solver.structure.driver_run import DriverRun, ManifestEntry
+from rtv_solver.structure.trip_cost import TripCost
 
 from rtv_solver.handlers.payload_parser import PayloadParser
 
 class ImitationHandler:
     """
     Handles the generation of the y* list of the correct solution for the CO-layer.
+
+    # TODO add separate solution handling for stop sequences
+    - option 1: take solution with the most fitting requests independent of order
+    - option 2: take solution with the most fitting requests and the correct order (possibly cutting off requests as the order is wrong)
     """
     def __init__(self, config: Config):
         self.config = config
@@ -156,7 +162,7 @@ class ImitationHandler:
     @staticmethod
     def score_combinations_against_solution(
         combinations: list[tuple[int, ...]], optimal_solution: list[int]
-    ) -> list[int]:
+    ) -> torch.Tensor:
         """
         Score each combination against an optimal solution sequence.
 
@@ -206,8 +212,19 @@ class ImitationHandler:
                 continue
 
             scores.append(0)
-        return scores
 
+            score_tensor = torch.tensor(scores)
+        return score_tensor
+
+    @staticmethod
+    def tripCosts_to_request_combinations(tripCosts: list[TripCost]) -> list[tuple[int, ...]]:
+        """
+        Convert a list of trip costs to a list of request combinations.
+        """
+        combinations = []
+        for tripCost in tripCosts:
+            combinations.append(tripCost.get_ordered_request_ids())
+        return combinations
 
 if __name__ == "__main__":
     solution = [1, 3, 2]

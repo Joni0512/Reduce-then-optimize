@@ -31,7 +31,7 @@ class TripCost:
 
     def get_ordered_request_ids(self):
         """get list of request ids in the order of the sequence"""
-        return [stop.get_requestID_stripped_iteration() for stop in self.sequence]
+        return [stop.get_requestID_stripped_iteration() for stop in self.sequence if stop.type == VehicleStop.ACT_PICKUP]
 
     def __str__(self):
         return f"TripCost(t_no={self.trip_no}, v_id={self.vehicle_id}, cost={self.cost}, seq={self.sequence})"

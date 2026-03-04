@@ -40,9 +40,9 @@ class VehicleStop:
 
     # TODO add create method from_dict or something similar that we can get directly from the dictionary and also move it back to the dictionary again (however we could have transitions and conditions that ensure the right changes)
 
-    def get_requestID_stripped_iteration(self):
+    def get_requestID_stripped_iteration(self) -> int:
         """normal structure of trip_id is 'iteration-request_id' """
-        return self.trip_id.split("-")[1]
+        return int(self.trip_id.split("-")[1])
 
     def __str__(self):
         return f"<VehicleStop - Trip {self.trip_id}, node: {self.node}, type: {self.type}, dwell: {self.dwell}>"
