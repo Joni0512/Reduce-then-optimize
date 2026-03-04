@@ -148,3 +148,4 @@ dependencies:
       - rtv-solver==0.1.35
       - tzdata==2025.3
       - urllib3==2.5.0
+prefix: /Users/jw/anaconda3/envs/mthesis
