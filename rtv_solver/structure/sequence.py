@@ -69,7 +69,7 @@ class StopSequence(list[VehicleStop]):
     def request_str(self):
         """get just the request-IDs once of the sequence"""
         single_request_ids = dict.fromkeys(stop.get_requestID_stripped_iteration() for stop in self)
-        return "-".join(single_request_ids)
+        return "-".join(str(request_id) for request_id in single_request_ids)
 
     def __str__(self):
         return str(self.sequence_to_string(self))

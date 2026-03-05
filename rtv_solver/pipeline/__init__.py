@@ -8,6 +8,7 @@ from .model_simpleScoring import ScoringMLP
 # (map_oracle imports CO_ScoreMaximization directly by module path)
 from .loss_FYscoring import FenchelYoungLoss
 from .map_oracle import make_map_oracle
+from .imitation_handler import ImitationHandler, TYPE_BEST_ORDERED_MATCH, TYPE_BEST_UNORDERED_MATCH
 
 __all__ = [
     "FeatureBuilder", 
@@ -20,5 +21,8 @@ __all__ = [
     "CO_RebalancingCoverage",
     "ScoringMLP",
     "FenchelYoungLoss",
-    "make_map_oracle"
+    "make_map_oracle",
+    "ImitationHandler",
+    "TYPE_BEST_ORDERED_MATCH",
+    "TYPE_BEST_UNORDERED_MATCH"
 ]

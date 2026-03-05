@@ -90,6 +90,7 @@ class TripCostFeatures:
 
 
 class FeatureBuilder:
+    FEATURE_SIZE = 66 # TODO update this value if you change the features
     """It builds one feature vector per `TripCost` in order to match the size of new scores to the number of feasible trips associated with costs, combining:
     - vehicle information
     - trip information (single or shared)

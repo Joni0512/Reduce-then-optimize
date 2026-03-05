@@ -9,16 +9,17 @@ import torch
 from rtv_solver.handlers.request_handler import RequestHandler
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.vehicle_handler import VehicleHandler
-from rtv_solver.pipeline.imitation_handler import ImitationHandler
 from rtv_solver.handlers.trip_handler import TripHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.online_rtv_solver import OnlineRTVSolver
 
 from rtv_solver.structure.config import Config
 from rtv_solver.structure.trip_cost import TripCost
+from rtv_solver.structure.assignment_result import AssignmentResult
 
 from rtv_solver.pipeline import CO, CO_ScoreMaximization, CO_TripCostMinimization, CO_RebalancingCoverage, FeatureBuilder
 from rtv_solver.pipeline import FenchelYoungLoss, make_map_oracle, ScoringMLP
+from rtv_solver.pipeline.imitation_handler import ImitationHandler, TYPE_BEST_ORDERED_MATCH, TYPE_BEST_UNORDERED_MATCH
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
@@ -48,18 +49,29 @@ class COAMLPipeline():
     """
     def __init__(
             self,
-            config: Config = None,
+            config: Config,
+            offline_payload: dict
         ):
+        """
+        Initialize the COAML pipeline solver.
+
+        Parameters:
+            - config: Config object
+            - offline_payload: Offline payload object in order to calculate feature normalization values and get structure of feature matrix
+        """
         # TODO add elements to config in order to make it more readable
         self.config = config
-        
-        self.model = ScoringMLP(feature_dim=66, hidden_dim=32) # TODO update architecture so we do not need the dimension fixed manually and can rather register the model that has this values automatically.
+        self.offline_payload = offline_payload
+        self.feature_builder = FeatureBuilder(offline_payload, self.config)
+        self.model = ScoringMLP(feature_dim=FeatureBuilder.FEATURE_SIZE, hidden_dim=32)
         self.fy_loss = FenchelYoungLoss(num_samples=15, sigma=0.1)
         self.imitation_handler = ImitationHandler(config)
-        self.optimizer = CO_ScoreMaximization(config)
+        
+        self.coaml_optimizer = CO_ScoreMaximization(config)
         self.default_optimizer = CO_TripCostMinimization(config)    
         
         self.last_loss: Optional[torch.Tensor] = None
+        self.loss_history: list[Optional[float]] = []
         
         if sys.platform == "darwin": # required to run correctly on MacOS
             try:
@@ -68,14 +80,41 @@ class COAMLPipeline():
             except RuntimeError: # start method was already set somewhere else -> don't crash
                 pass
 
+    # def manage_training(self):
+    #     """
+    #     Manage the training of the pipeline.
+    #     """
+    #     # TODO implement this method
+    #     for epoch in config.epochs:
+    #         for episode in episodes:
+    #             self.train(episode)
+
+    #         if episode % config.VALIDATION_INTERVAL == 0:    
+    #         self.validate(episode)
+    #     pass
+
+    def train(self):
+        """
+        Single training run for the payload.  
+        """
+        # TODO implement this method
+        pass
+
+    def validate(self):
+        """
+        Single validation run for the payload.
+        """
+        # TODO implement this method
+        pass
+
     def solve_pdptw(self, payload: dict):
         """
         Handles payloads across iterations of the rolling horizon
         
         With config.return_depot, this method will not add the final trips to the depot. The user has to call finalize_driverRuns(...) to add the final stops.
         """
-        self.feature_builder = FeatureBuilder(payload, self.config)
         # determine time interval of entire requests set
+        self.loss_history = []
         start_time, end_time = PayloadParser.get_requests_time_interval(payload)
         # start before the initial start_time to catch all requests in the first interval
         current_time = max(0, start_time - self.config.BATCH_INTERVAL)
@@ -171,34 +210,39 @@ class COAMLPipeline():
         except Exception as e:
             raise e
         
+        loss_tracked = False
+
         if len(vehicle_handler.vehicles) != 0:
             single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
             
             # Split run() so we can capture x_t for y_star extraction; result is identical to self.optimizer.run().
-            self.optimizer.reset(single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map)
+            self.coaml_optimizer.reset(single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map)
             self.default_optimizer.reset(single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map)
 
             # calculate solution based on 
             feature_matrix, _ = self.feature_builder.build_matrix_from_trip_handler(trip_handler, payload_object.current_time) 
             feature_tensor = torch.tensor(feature_matrix, dtype=torch.float32)
-            feature_scores = self.model(feature_tensor)
-            ilp_model, x_t, x_r = self.optimizer.solve_ilp(
-                feature_scores,
-                request_batch, 
-                active_requests,
-                penalty=self.config.ILP_PENALTY,
-                keep_active=self.config.KEEP_ACTIVE)
+            if len(feature_tensor) > 0:
+                feature_scores = self.model(feature_tensor)
+                ilp_model, x_t, x_r = self.coaml_optimizer.solve_ilp(
+                    feature_scores,
+                    request_batch, 
+                    active_requests,
+                    penalty=self.config.ILP_PENALTY,
+                    keep_active=self.config.KEEP_ACTIVE)
 
-            # NOTE this is for now just experimental
-            print(f"Solution: {self.imitation_handler.get_optimal_request_solution_for_batch(request_batch)}")
-            print(f"Complete solution: {self.imitation_handler.optimal_solution}")
-            for idx, tc in enumerate[TripCost](trip_costs):
-                print(f"x_t: {x_t[idx].X}, tc: {tc.simple_str()}, ordered_stop_sequence: {tc.get_ordered_stop_sequence()}")
+                # NOTE this is for now just experimental
+                
+                trip_combinations = self.imitation_handler.tripCosts_to_request_combinations(trip_costs)
+                optimal_solution = self.imitation_handler.get_optimal_request_solution_for_batch(request_batch)
+                imitation_scores = self.imitation_handler.score_combinations_against_solution(trip_combinations, optimal_solution) 
 
-            # transform solution to assignment, used to update vehicles and manifests
-            # THIS result must be used for future comparisons
-            result = self.optimizer.transform_solution_to_assignment(
-                ilp_model, x_t, x_r, request_batch)
+                print(f"Complete solution: {self.imitation_handler.optimal_solution}")
+                for idx, (ml_score, tc, imitation_score) in enumerate[TripCost](zip(feature_scores,trip_costs, imitation_scores)):
+                    print(f"x_t: {x_t[idx].X}, score: {ml_score}, imit:{imitation_score.item()}, tc: {tc.simple_str()}, ordered_stop_sequence: {tc.get_ordered_stop_sequence()}")
+
+                # transform solution to assignment, used to update vehicles and manifests
+                # THIS result must be used for future comparisons
             
             # calculate default solution based on the ILP minimizing trip costs (used for FY loss)
             trip_obj_scores = np.fromiter((tc.cost for tc in trip_costs), dtype=float, count=len(trip_costs))
@@ -212,29 +256,49 @@ class COAMLPipeline():
             default_result = self.default_optimizer.transform_solution_to_assignment(
                 default_ilp_model, default_x_t, default_x_r, request_batch)
 
-            # NOTE this is for now just experimental
-            for idx, (tc, score) in enumerate(zip (trip_costs, trip_obj_scores)):
-                print(f"x_t: {default_x_t[idx].X}, tc: {tc.simple_str()}, ordered_stop_sequence: {tc.get_ordered_stop_sequence()}")
+            # train mode, keep on right track - decide which run should move forward
+            result = default_result
 
-            # compute Fenchel-Young loss
-            self._compute_fy_loss(
-                feature_matrix,
-                default_ilp_model, 
-                default_x_t, 
-                len(trip_costs),
-                single_trip_map, 
-                trip_list, 
-                trip_costs,
-                vehicle_to_trips_cost_map, 
-                trip_to_vehicle_cost_map,
-                request_batch, 
-                active_requests)
-            
-            self.last_loss = None
+            # compute Fenchel-Young loss from known optimal solution
+            if True and len(feature_tensor) > 0:
+                self._compute_fy_loss_from_optimal_solution(
+                    feature_matrix,
+                    single_trip_map, 
+                    trip_list, 
+                    trip_costs,
+                    vehicle_to_trips_cost_map, 
+                    trip_to_vehicle_cost_map,
+                    request_batch, 
+                    active_requests)
+                loss_tracked = True
+            else:
+                # compute Fenchel-Young loss from default ILP solution
+                self._compute_fy_loss_from_default_ilp(
+                    feature_matrix,
+                    default_ilp_model,
+                    default_x_t,
+                    single_trip_map,
+                    trip_list,
+                    trip_costs,
+                    vehicle_to_trips_cost_map,
+                    trip_to_vehicle_cost_map,
+                    request_batch,
+                    active_requests)
+                loss_tracked = True
 
             if self.config.REBALANCING:
                 rebalancing_optimizer = CO_RebalancingCoverage(self.config)
                 result = rebalancing_optimizer.run(result, vehicle_handler.vehicles, request_batch)
+
+        if not loss_tracked:
+            self.last_loss = None
+
+        if self.last_loss is not None:
+            current_loss = float(self.last_loss.detach().cpu().item())
+            self.loss_history.append(current_loss)
+            console_logger.info(f"Tracked model loss at time {payload_object.current_time}: {current_loss:.4f}")
+        else:
+            self.loss_history.append(None)
    
         # assign vehicles and add trips / sequence to each vehicle 
         unserved_requests = set([req.id for req in request_batch]) # number of requests that are not already confirmed to be  served
@@ -266,18 +330,14 @@ class COAMLPipeline():
             return_depot=self.config.RETURN_DEPOT)
         
         # collect information on assignment history (especially interesting if config.KEEP_ACTIVE is set to False)
-        assignment_status = {PayloadParser.STATS_ASSIGNED: result.request_assignment, 
-                            PayloadParser.STATS_UNSERVED: list(unserved_requests)}
-        data_logger.info("Status", extra={"timestamp": payload_object.current_time, "status": assignment_status})  
-
+        self._log_assignment_status(result, unserved_requests, payload_object.current_time)
         return updated_driver_runs
 
-    def _compute_fy_loss(
+    def _compute_fy_loss_from_default_ilp(
         self,
         feature_matrix: np.ndarray,
         ilp_model,
         x_t,
-        trip_cost_count: int,
         single_trip_map: dict,
         trip_list: list,
         trip_costs: list,
@@ -298,8 +358,10 @@ class COAMLPipeline():
 
         Side effects:
             Sets self.last_loss.
+
+        # TODO update the y_start calculation from the imitationHandler
         """
-        y_star = CO.extract_y_binary(ilp_model, x_t, trip_cost_count)
+        y_star = CO.extract_y_binary(ilp_model, x_t) # get optimal solution from default ILP model
 
         if y_star.sum().item() == 0:
             console_logger.warning("FY loss skipped: Optimizer did not assign any RTVs.")
@@ -307,10 +369,10 @@ class COAMLPipeline():
             return
 
         feature_tensor = torch.tensor(feature_matrix, dtype=torch.float32)
-        scores = self.model(feature_tensor)     # (n,)
+        scores = self.model(feature_tensor)    
 
         oracle = make_map_oracle(
-            self.optimizer,
+            self.coaml_optimizer,
             single_trip_map,
             trip_list,
             trip_costs,
@@ -322,9 +384,73 @@ class COAMLPipeline():
         )
 
         self.last_loss = self.fy_loss(scores, y_star, oracle)
-        console_logger.info(f"FY loss computed: {self.last_loss.item():.4f}")
+        console_logger.info(f"Default FY loss computed: {self.last_loss.item():.4f}")
 
+    def _compute_fy_loss_from_optimal_solution(
+        self,
+        feature_matrix: np.ndarray,
+        single_trip_map: dict,
+        trip_list: list,
+        trip_costs: list[TripCost],
+        vehicle_to_trips_cost_map: dict,
+        trip_to_vehicle_cost_map: dict,
+        request_batch: list,
+        active_requests: dict,
+    ) -> None:
+        """
+        Compute and store the Fenchel-Young loss for the current iteration.
 
+        Uses the CO_TripCostMinimization solution as y_star (ground truth) and
+        CO_ScoreMaximization as the MAP oracle for perturb-and-MAP.
 
+        The result is stored in self.last_loss.  If the ILP did not yield a
+        feasible solution (y_star is all-zero), the loss is skipped and
+        self.last_loss is set to None.
 
+        Side effects:
+            Sets self.last_loss.
 
+        # TODO update the y_start calculation from the imitationHandler
+        """
+        # TODO this currently handles only a single vehicle
+        trip_combinations = self.imitation_handler.tripCosts_to_request_combinations(trip_costs)
+        optimal_solution_from_batch = self.imitation_handler.get_optimal_request_solution_for_batch(request_batch)
+        imitation_scores = self.imitation_handler.score_combinations_against_solution(trip_combinations, optimal_solution_from_batch) 
+        
+        if self.config.Y_STAR_TYPE == TYPE_BEST_ORDERED_MATCH:
+            y_star = ImitationHandler.get_y_star_best_ordered_match(imitation_scores)
+        elif self.config.Y_STAR_TYPE == ImitationHandler.TYPE_BEST_UNORDERED_MATCH:
+            y_star = ImitationHandler.get_y_star_best_unordered_match(imitation_scores)
+        else:
+            raise ValueError(f"Invalid y_star type: {self.config.Y_STAR_TYPE}")
+
+        for idx, (tc, imitation_score, y_star_value) in enumerate(zip (trip_costs, imitation_scores, y_star)):
+                print(f"y_star: {y_star_value},  score: {imitation_score}, tc: {tc.simple_str()}, order: {tc.get_ordered_stop_sequence()}")
+
+        if y_star.sum().item() == 0:
+            console_logger.warning("FY loss skipped: Optimizer did not assign any RTVs.")
+            self.last_loss = None
+            return
+
+        feature_tensor = torch.tensor(feature_matrix, dtype=torch.float32)
+        scores = self.model(feature_tensor)    
+
+        oracle = make_map_oracle(
+            self.coaml_optimizer,
+            single_trip_map,
+            trip_list,
+            trip_costs,
+            vehicle_to_trips_cost_map,
+            trip_to_vehicle_cost_map,
+            request_batch,
+            active_requests,
+            self.config,
+        )
+
+        self.last_loss = self.fy_loss(scores, y_star, oracle)
+        console_logger.info(f"COAML FY loss computed: {self.last_loss.item():.4f}")
+
+    def _log_assignment_status(self, result: AssignmentResult, unserved_requests: set[int], current_time: float):
+        assignment_status = {PayloadParser.STATS_ASSIGNED: result.request_assignment, 
+                            PayloadParser.STATS_UNSERVED: list(unserved_requests)}
+        data_logger.info("Status", extra={"timestamp": current_time, "status": assignment_status})  

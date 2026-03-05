@@ -247,7 +247,7 @@ def test_integration_COAMLsolver_vehicle1_maxCard3():
     config.BATCH_INTERVAL = 600
     config.MODE = 'rh-ml'
 
-    rh_solver = COAMLPipeline(config)
+    rh_solver = COAMLPipeline(config, payload)
     updated_driver_runs = rh_solver.solve_pdptw(payload)
 
     # compute stats

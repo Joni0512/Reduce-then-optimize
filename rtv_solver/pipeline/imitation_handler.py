@@ -3,6 +3,10 @@ import itertools
 import numpy as np
 import torch
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from rtv_solver.structure.trip_cost import TripCost
+
 from rtv_solver.structure.config import Config
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.request import Request
@@ -11,13 +15,23 @@ from rtv_solver.structure.trip_cost import TripCost
 
 from rtv_solver.handlers.payload_parser import PayloadParser
 
+from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
+import logging
+
+console_logger = logging.getLogger(BASIC_LOGGER)
+data_logger = logging.getLogger(DATA_LOGGER)
+
+TYPE_BEST_ORDERED_MATCH = "best_ordered_match"
+TYPE_BEST_UNORDERED_MATCH = "best_unordered_match"
+
 class ImitationHandler:
     """
     Handles the generation of the y* list of the correct solution for the CO-layer.
 
     # TODO add separate solution handling for stop sequences
-    - option 1: take solution with the most fitting requests independent of order
-    - option 2: take solution with the most fitting requests and the correct order (possibly cutting off requests as the order is wrong)
+    # TODO add handling for multiple vehicles
+    - option 1: take solution with the most fitting requests independent of order (y-star min)
+    - option 2: take solution with the most fitting requests and the correct order (possibly cutting off requests as the order is wrong at some point)
     """
     def __init__(self, config: Config):
         self.config = config
@@ -26,26 +40,31 @@ class ImitationHandler:
     def get_optimal_request_solution_for_batch(self, request_batch: list[Request]) -> list[int]:
         """
         Get the optimal solution for a given batch of requests.
-        """
-        # TODO fix this
-        # find the longest subsequence of requests in the optimal solution that is contained in the request batch
-        len_longest_subsequence = 0
-        longest_subsequence = []
-        best_sequence_driver_id = None
-        
-        if len(request_batch) == 0:
-            return longest_subsequence, best_sequence_driver_id
-        
+        """        
+        # TODO fix this for multiple vehicles
         request_ids = [request.id for request in request_batch]
-        
-        for driver_id, solution in self.optimal_solution.items():
-            subsequence = [x for x in solution if x in request_ids]
-            if len(subsequence) > len_longest_subsequence:
-                len_longest_subsequence = len(subsequence)
-                longest_subsequence = subsequence
-                best_sequence_driver_id = driver_id
-                
-        return longest_subsequence, best_sequence_driver_id
+
+        # Duplicates in the same batch are ambiguous for subsequence matching.
+        assert len(request_ids) == len(set(request_ids)), (
+            f"Duplicate request IDs in batch are not supported: {request_ids}"
+        )
+
+        optimal_sequence = self.optimal_solution[0] # TODO fix this for multiple vehicles
+        request_ids_set = set(request_ids)
+
+        # Keep order by iterating over the full optimal sequence and filtering for active requests.
+        part_optimal_sequence = [
+            request_id for request_id in optimal_sequence if request_id in request_ids_set
+        ]
+
+        # Sanity check: the result must be an ordered subsequence of the optimal sequence.
+        optimal_positions = {request_id: idx for idx, request_id in enumerate(optimal_sequence)}
+        part_positions = [optimal_positions[request_id] for request_id in part_optimal_sequence]
+        assert part_positions == sorted(part_positions), (
+            "Internal error: partial optimal sequence is not ordered as a subsequence "
+            "of the optimal solution."
+        )
+        return part_optimal_sequence
 
     def get_optimal_stop_sequence_for_batch(self, request_batch: list[Request]) -> list[int]:
         pass
@@ -133,8 +152,11 @@ class ImitationHandler:
         trips: list[int], min_cardinality: int = 1, max_cardinality: int | None = None
     ) -> tuple[list[tuple[int, ...]], dict[int, int]]:
         """
-        Get all possible combinations of trips of a given cardinality.
+        Get all possible combinations of trip values of a given cardinality.
         Mostly for testing purposes.
+
+        NOTE: Despite the historical method name, this returns combinations
+        of values from `trips`, not positional indices.
 
         Returns:
             - combinations: list of all possible combinations of trips
@@ -153,7 +175,7 @@ class ImitationHandler:
         combinations: list[tuple[int, ...]] = []
         counts_by_cardinality: dict[int, int] = {}
         for cardinality in range(min_cardinality, max_cardinality + 1):
-            cardinality_combinations = list(itertools.combinations(range(n_trips), cardinality))
+            cardinality_combinations = list(itertools.combinations(trips, cardinality))
             counts_by_cardinality[cardinality] = len(cardinality_combinations)
             combinations.extend(cardinality_combinations)
 
@@ -167,27 +189,30 @@ class ImitationHandler:
         Score each combination against an optimal solution sequence.
 
         Parameters:
-            - combinations: list of combinations of request indices
-            - optimal_solution: list of request indices of the optimal solution sequence
+            - combinations: list of combinations of request IDs
+            - optimal_solution: list of request IDs of the optimal solution sequence
 
         Scoring rules:
             - 1000: perfect full match with the complete optimal solution and same order
             - ordered full match for the combination length:
                 - 100 + 10 * len(combination), if it starts at index 0
-                - -10 * len(combination), if it starts at a later index
-            - unordered full match for the combination length:
-                - -100 - 10 * len(combination)
             - 0: no match
 
         NOTE This could be an interesting experiment, which assignment leads to the best results. We would probably take the the max or min score for further evaluation.
         """
         scores: list[int] = []
         optimal_tuple = tuple(optimal_solution)
+        
+        debug_dict = {}
+        debug_dict_key = -1
 
         for combination in combinations:
+            debug_dict_key += 1
             # Perfect match with the complete optimal solution.
             if combination == optimal_tuple:
-                scores.append(1000)
+                score_full_ordered_exact_match = 1000
+                scores.append(score_full_ordered_exact_match)
+                debug_dict[debug_dict_key] =  score_full_ordered_exact_match, combination
                 continue
 
             combination_list = list(combination)
@@ -201,19 +226,41 @@ class ImitationHandler:
             # Full ordered match for this combination length.
             if ordered_start_index != -1:
                 if ordered_start_index == 0:
-                    scores.append(100 + 10 * len(combination))
+                    score_full_ordered_early_index = 100 + 10 * len(combination)
+                    scores.append(score_full_ordered_early_index)
+                    debug_dict[debug_dict_key] =  score_full_ordered_early_index, combination
                 else:
-                    scores.append(0 - 10 * len(combination)) # - (ordered_start_index * 10 * len(combination))
+                    # Keep vector alignment: each combination must produce exactly one score.
+                    scores.append(0)
+                    debug_dict[debug_dict_key] = 0, combination
+                # else:
+                    # DISCARDED option for score making
+                    # - -10 * len(combination), if it starts at a later index
+                    # score_partial_ordered_late_index = 0 + 10 * len(combination)
+                    # scores.append(score_partial_ordered_late_index)
+                    # debug_dict[debug_dict_key] =  score_partial_ordered_late_index, combination
                 continue
-
+            
+            # DISCARDED option for score making
+            # - unordered full match for the combination length:
+            #    - -100 - 10 * len(combination)
             # Full coverage for this combination length but wrong order.
-            if permuted_start_index is not None:
-                scores.append( - 100 - 10 * len(combination) )
-                continue
+            # if permuted_start_index is not None:
+            #     score_full_unordered = - 100 - 10 * len(combination)
+            #     scores.append(score_full_unordered)
+            #     debug_dict[debug_dict_key] =  score_full_unordered, combination
+            #     continue
 
+            # alternative score for all other cases
             scores.append(0)
+            debug_dict[debug_dict_key] =  0, combination
 
-            score_tensor = torch.tensor(scores)
+        score_tensor = torch.tensor(scores)
+        # print(debug_dict)
+
+        # assert that there is at least one value that is greater than 0 and another test that a value is smaller than 0
+        if not torch.any(score_tensor > 0): 
+            console_logger.info(f"IH: No positive scores found.")
         return score_tensor
 
     @staticmethod
@@ -225,6 +272,34 @@ class ImitationHandler:
         for tripCost in tripCosts:
             combinations.append(tripCost.get_ordered_request_ids())
         return combinations
+
+    @staticmethod
+    def get_y_star_best_ordered_match(imitation_scores: torch.Tensor) -> torch.Tensor:
+        """
+        return a tensor with only 0s and 1s based on the imitation scores, the maximum value is 1 and all other values are considered 0.
+        """
+        max_value = torch.max(imitation_scores)
+        max_indices = torch.where(imitation_scores == max_value)[0]
+        # assert that there is only one maximum value
+        assert len(max_indices) == 1, "There should be only one maximum value."
+        y_star = torch.zeros_like(imitation_scores)
+        y_star[max_indices] = 1
+        return y_star
+
+    @staticmethod
+    def get_y_star_best_unordered_match(imitation_scores: torch.Tensor) -> torch.Tensor:
+        """
+        return a tensor with only 0s and 1s based on the imitation scores, the minimum value is 1 and all other values are considered 0.
+        """
+        min_value = torch.min(imitation_scores)
+        min_indices = torch.where(imitation_scores == min_value)[0]
+        # assert that there is only one minimum value
+        assert len(min_indices) == 1, "There should be only one minimum value."
+        y_star = torch.zeros_like(imitation_scores)
+        y_star[min_indices] = 1
+        return y_star
+
+
 
 if __name__ == "__main__":
     solution = [1, 3, 2]

@@ -5,7 +5,7 @@ import json
 
 from pathlib import Path
 
-from rtv_solver import OnlineRTVSolver, OfflineRTVSolver, COAMLPipeline, HexalySolver, GurobiSolver
+from rtv_solver import OnlineRTVSolver, OfflineRTVSolver, COAMLPipeline, HexalySolver
 
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
@@ -16,6 +16,7 @@ from rtv_solver.util.logger import setup_loggers, BASIC_LOGGER, DATA_LOGGER
 from rtv_solver.util.helper import save_json, set_seed
 
 from rtv_solver.visuals.route_manifest_mapper import RouteManifestMapper
+from rtv_solver.pipeline import TYPE_BEST_ORDERED_MATCH, TYPE_BEST_UNORDERED_MATCH
 
 if __name__ == "__main__":
     """
@@ -55,12 +56,12 @@ if __name__ == "__main__":
     parser.add_argument('--batch_interval', type=int,       default=1200, help='Batch interval in seconds') # NOTE if this value is too small, we might miss requests if the vehicle_trip to the pickup is longer than the batch interval size (TODO fix this so this does not have as much impact)
     # stats parameters
     parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
-    # TODO COAML parameters 
     # random_seed, training parameters, NN parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility') 
     parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'coaml', 'plot', 'optimal_solution', 'hexaly_solution'], default='coaml', help='Mode on how the programme should solve the PDPTW')
     parser.add_argument('--debug', type= str, default='False', choices=['True', 'False'], help='Run in debug mode (# reduces number of vehicles and requests for easier debugging)')
     parser.add_argument('--imitation_solution_file', type=str, default='outputs/test_nc/solution_10r_1v_repeat6_simple/result_driver_runs.json', help='Path to the imitation solution file with the complete manifest of all trips for all vehicles')
+    parser.add_argument('--y_star_type', type=str, choices=[TYPE_BEST_ORDERED_MATCH, TYPE_BEST_UNORDERED_MATCH], default=TYPE_BEST_ORDERED_MATCH, help='Type of y_star to be used for the Fenchel-Young loss during imitation learning')
     
     # implement configurations
     arguments = parser.parse_args()
@@ -131,8 +132,9 @@ if __name__ == "__main__":
             off_solver = OfflineRTVSolver(config)
             updated_driver_runs = off_solver.solve_rtv(payload, config.BATCH_INTERVAL, config.STEP_SIZE)
         elif config.MODE == 'coaml':
-            rh_solver = COAMLPipeline(config)
+            rh_solver = COAMLPipeline(config, payload)
             updated_driver_runs = rh_solver.solve_pdptw(payload)
+            print(rh_solver.loss_history)
         elif config.MODE == 'optimal_solution':
             # change the settings in order for the online solver to find the actual optimal solution (if possible)
             max_cardinality = len(payload[PayloadParser.REQUESTS])

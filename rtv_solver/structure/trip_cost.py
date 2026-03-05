@@ -13,7 +13,7 @@ class TripCost:
         self.plan: Optional[TripInsertionPlan] = plan
 
     def simple_str(self):
-        return f"TC({self.trip_no}, veh={self.vehicle_id}, cost={self.cost:.1f}, seq={self.sequence.simple_str()})"
+        return f"TC({self.trip_no}, veh={self.vehicle_id}, cost={self.cost:.1f}, seq={self.get_ordered_request_ids()})"
 
     def get_request_order_str(self):
         """get quick string for all requests for easier debugging"""
