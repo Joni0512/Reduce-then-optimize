@@ -220,10 +220,35 @@ class COAMLPipeline():
             self.default_optimizer.reset(single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map)
 
             # calculate solution based on 
-            feature_matrix, _ = self.feature_builder.build_matrix_from_trip_handler(trip_handler, payload_object.current_time) 
+            feature_matrix, feature_names = self.feature_builder.build_matrix_from_trip_handler(
+                trip_handler, payload_object.current_time
+            )
+            feature_matrix_with_reject = feature_matrix
+            reject_vehicle_ids: list[int] = []
+            if feature_names:
+                feature_matrix_with_reject, reject_vehicle_ids = self.feature_builder.add_reject_action_entries(
+                    feature_matrix,
+                    feature_names,
+                    vehicle_handler.vehicles,
+                    payload_object.current_time,
+                )
+            # TODO update the CO layer ScoreMaximization in order for it to also handle the reject action (so we can handle it both for the reject action and for real tripCosts)
+            # TODO update the imitationHandler in order for it to also handle the reject action (so we can handle it both for the reject action and for real tripCosts) - - it should just append an extra entry at the end based on a special logic I still have to develop. please leave a dummy and a TODO comment for me to enter it
             feature_tensor = torch.tensor(feature_matrix, dtype=torch.float32)
             if len(feature_tensor) > 0:
-                feature_scores = self.model(feature_tensor)
+                # Include the synthetic reject row for model scoring; keep trip scores
+                # separate until the CO layer supports explicit reject-action variables.
+                feature_tensor_with_reject = torch.tensor(
+                    feature_matrix_with_reject, dtype=torch.float32
+                )
+                feature_scores_with_reject = self.model(feature_tensor_with_reject)
+                num_reject_actions = len(reject_vehicle_ids)
+                if num_reject_actions > 0:
+                    feature_scores = feature_scores_with_reject[:-num_reject_actions]
+                    reject_action_scores = feature_scores_with_reject[-num_reject_actions:]
+                else:
+                    feature_scores = feature_scores_with_reject
+                    reject_action_scores = torch.empty(0, dtype=feature_scores_with_reject.dtype)
                 ilp_model, x_t, x_r = self.coaml_optimizer.solve_ilp(
                     feature_scores,
                     request_batch, 
@@ -240,6 +265,9 @@ class COAMLPipeline():
                 print(f"Complete solution: {self.imitation_handler.optimal_solution}")
                 for idx, (ml_score, tc, imitation_score) in enumerate[TripCost](zip(feature_scores,trip_costs, imitation_scores)):
                     print(f"x_t: {x_t[idx].X}, score: {ml_score}, imit:{imitation_score.item()}, tc: {tc.simple_str()}, ordered_stop_sequence: {tc.get_ordered_stop_sequence()}")
+                if len(reject_vehicle_ids) > 0:
+                    for vehicle_id, reject_score in zip(reject_vehicle_ids, reject_action_scores):
+                        print(f"reject_action_score vehicle {vehicle_id}: {reject_score}")
 
                 # transform solution to assignment, used to update vehicles and manifests
                 # THIS result must be used for future comparisons

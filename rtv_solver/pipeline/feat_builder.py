@@ -90,7 +90,8 @@ class TripCostFeatures:
 
 
 class FeatureBuilder:
-    FEATURE_SIZE = 66 # TODO update this value if you change the features
+    FEATURE_SIZE = 67 # TODO update this value if you change the features
+    REJECT_FLAG_FEATURE_NAME = "action_reject_flag"
     """It builds one feature vector per `TripCost` in order to match the size of new scores to the number of feasible trips associated with costs, combining:
     - vehicle information
     - trip information (single or shared)
@@ -165,8 +166,9 @@ class FeatureBuilder:
             # fv.update(self._trip_cost_features(tc, current_time))               # 17 items
             fv.update(self._future_requests_features(trip_requests, current_time)) # 49 items
             # fv.update(self._request_aggregate_features(trip_requests))
+            fv[self.REJECT_FLAG_FEATURE_NAME] = 0.0
 
-            # current total = 6 + 11 + 49 = 66 items
+            # current total = 6 + 11 + 49 + 1 = 67 items
             # + 11 + 17 + 49 = 83 items
 
             features.append(fv)
@@ -214,6 +216,61 @@ class FeatureBuilder:
         console_logger.info(f"{len(feature_names)} features for {len(trip_costs)} items created in {time.time() - feat_start_time:.3f} s.")
 
         return matrix, feature_names
+    
+    def add_reject_action_entries(
+        self,
+        matrix: np.ndarray,
+        feature_names: List[str],
+        vehicles: Dict[int, Vehicle],
+        current_time: float,
+    ) -> Tuple[np.ndarray, List[int]]:
+        """
+        Append one synthetic reject-action row per vehicle.
+
+        For each vehicle, the added row includes:
+        - current state features
+        - that vehicle's features
+        - empty future-request features
+        - `action_reject_flag` set to 1
+
+        Returns:
+            matrix_with_reject_rows, reject_vehicle_ids
+        """
+        if matrix.ndim != 2:
+            raise ValueError("Feature matrix must be 2-dimensional.")
+        if not feature_names:
+            raise ValueError("Feature names are required to add reject action entries.")
+        if self.REJECT_FLAG_FEATURE_NAME not in feature_names:
+            raise ValueError(
+                f"Missing reject flag feature '{self.REJECT_FLAG_FEATURE_NAME}' in feature names."
+            )
+        if matrix.shape[1] != len(feature_names):
+            raise ValueError("Feature matrix column count does not match feature names.")
+
+        if not vehicles:
+            return matrix, []
+
+        reject_vehicle_ids = sorted(vehicles.keys())
+        state_features = self._state_features(current_time, vehicles)
+        empty_future_features = self._future_requests_features([], current_time)
+        reject_rows: list[list[float]] = []
+
+        for vehicle_id in reject_vehicle_ids:
+            row_features: FeatureVector = {}
+            row_features.update(state_features)
+            row_features.update(self._vehicle_features(vehicles[vehicle_id], vehicles, current_time))
+            row_features.update(empty_future_features)
+            row_features[self.REJECT_FLAG_FEATURE_NAME] = 1.0
+
+            reject_rows.append(
+                [float(row_features.get(name, 0.0)) for name in feature_names]
+            )
+
+        reject_array = np.asarray(
+            reject_rows, dtype=matrix.dtype if matrix.size > 0 else float
+        )
+        matrix_with_reject = np.vstack([matrix, reject_array])
+        return matrix_with_reject, reject_vehicle_ids
         
     
     # INTERNAL HELPERS

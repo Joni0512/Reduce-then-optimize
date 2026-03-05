@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 
 from rtv_solver.pipeline import FeatureBuilder, VehicleFeatures, StateFeatures, TripCostFeatures
 
@@ -235,3 +236,36 @@ def test_future_requests_features(config: Config, payload: dict):
             if (r, c) not in [(0, 0), (6, 6)]:
                 assert fv[f"fr_grid_{r}_{c}"] == pytest.approx(0.0), \
                     f"Expected 0.0 for cell ({r},{c}), got {fv[f'fr_grid_{r}_{c}']}"
+
+
+@pytest.mark.basic
+def test_add_reject_action_entries_per_vehicle(
+    config: Config, payload: dict, vehicles_start: dict[int, Vehicle]
+):
+    fb = FeatureBuilder(payload, config)
+    current_time = 18000
+
+    # update a vehicle that it has different location features - test
+    vehicles_start[3] = Vehicle.from_dict(
+            {'id': 2, 'start_time': 18000, 'end_time': 72000, 'depot': Node(lat=35.723017652422435, lon=-77.90871990823223), 'am_capacity': 8, 'wc_capacity': 3, 'started': True, 'rebalancing': False, 'dwelling': False, 'time_at_last': 17422, 'last_node': Node(lat=35.763017652422435, lon=-77.90771990823223), 'time_at_next': 18000, 'next_immediate_node': Node(lat=35.78017652422435, lon=-77.90872990823223), 'trips': {}, 'picked': [], 'served_trips': [], 'stop_sequence': [], 'final_stop_time': 18000, 'manifest': []}
+        )
+
+    feature_names = [
+        FeatureBuilder.REJECT_FLAG_FEATURE_NAME,
+        "v_norm_lat_next_position",
+        "v_norm_lon_next_position",
+    ]
+    matrix = np.zeros((0, len(feature_names)), dtype=float)
+
+    out, reject_vehicle_ids = fb.add_reject_action_entries(
+        matrix=matrix,
+        feature_names=feature_names,
+        vehicles=vehicles_start,
+        current_time=current_time,
+    )
+
+    assert reject_vehicle_ids == sorted(vehicles_start.keys())
+    assert out.shape == (len(vehicles_start), len(feature_names))
+
+    # At least one vehicle-specific coordinate feature should differ from another.
+    assert len(set(np.round(out[:, 1], 6))) > 1 or len(set(np.round(out[:, 2], 6))) > 1
