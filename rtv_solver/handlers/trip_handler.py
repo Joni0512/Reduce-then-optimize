@@ -111,7 +111,7 @@ class TripHandler:
         try:
             plan: TripInsertionPlan = VehicleHandler.plan_trip_insertions(vehicle, trips, prev_sequence=prev_sequence)
             feasible = plan.sequence_feasible
-            if config.RETURN_DEPOT:
+            if config.RETURN_DEPOT: # add depot check
                 feasible = plan.sequence_feasible and plan.depot_feasible
             if feasible:
                 return TripCost(trip_no, vehicle.id, plan.added_cost, plan.sequence, plan)

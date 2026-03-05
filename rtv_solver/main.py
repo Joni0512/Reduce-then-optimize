@@ -134,7 +134,7 @@ if __name__ == "__main__":
         elif config.MODE == 'coaml':
             rh_solver = COAMLPipeline(config, payload)
             updated_driver_runs = rh_solver.solve_pdptw(payload)
-            print(rh_solver.loss_history)
+            print(f"Loss history: {rh_solver.loss_history}")
         elif config.MODE == 'optimal_solution':
             # change the settings in order for the online solver to find the actual optimal solution (if possible)
             max_cardinality = len(payload[PayloadParser.REQUESTS])

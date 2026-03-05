@@ -78,5 +78,46 @@ def test_score_max_min_values(solution, max_value, min_value):
     assert scores[max_idx] == max_value
     assert scores[min_idx] == min_value
 
-if __name__ == "__main__":
-    test_score_max_min_values([10, 30, 20, 40, 70],torch.tensor(120),torch.tensor(0))
+
+@pytest.mark.basic
+def test_append_reject_action_scores_per_vehicle_penalty_logic():
+    # Trip scores by vehicle:
+    # v0 -> [120, 0] has a positive score => reject score 0
+    # v1 -> [0, 0]   no positive score     => reject score -10
+    imitation_scores = torch.tensor([120.0, 0.0, 0.0, 0.0], dtype=torch.float32)
+    trip_vehicle_ids = [0, 0, 1, 1]
+    reject_vehicle_ids = [0, 1]
+
+    out = ImitationHandler.append_reject_action_scores(
+        imitation_scores,
+        reject_vehicle_ids,
+        trip_vehicle_ids=trip_vehicle_ids,
+    )
+    assert torch.equal(out, torch.tensor([120.0, 0.0, 0.0, 0.0, 0.0, -10.0]))
+
+
+@pytest.mark.basic
+def test_append_reject_action_scores_global_fallback_without_mapping():
+    imitation_scores = torch.tensor([0.0, 0.0], dtype=torch.float32)
+    reject_vehicle_ids = [0, 1]
+
+    out = ImitationHandler.append_reject_action_scores(
+        imitation_scores,
+        reject_vehicle_ids,
+        trip_vehicle_ids=None,
+    )
+    assert torch.equal(out, torch.tensor([0.0, 0.0, -10.0, -10.0]))
+
+
+@pytest.mark.basic
+def test_append_reject_action_scores_raises_on_mapping_length_mismatch():
+    imitation_scores = torch.tensor([1.0, 0.0], dtype=torch.float32)
+    reject_vehicle_ids = [0]
+    trip_vehicle_ids = [0]
+
+    with pytest.raises(ValueError):
+        ImitationHandler.append_reject_action_scores(
+            imitation_scores,
+            reject_vehicle_ids,
+            trip_vehicle_ids=trip_vehicle_ids,
+        )

@@ -274,6 +274,63 @@ class ImitationHandler:
         return combinations
 
     @staticmethod
+    def append_reject_action_scores(
+        imitation_scores: torch.Tensor,
+        reject_vehicle_ids: list[int],
+        trip_vehicle_ids: list[int] | None = None,
+    ) -> torch.Tensor:
+        """
+        Append one imitation score per reject-action (vehicle-specific).
+
+        Logic:
+        - For each vehicle reject action, check all trip scores belonging to
+          that vehicle.
+        - If the vehicle has no positive trip score, append reject score -10.
+        - Otherwise append 0 for that vehicle.
+
+        If `trip_vehicle_ids` is not provided, fallback to global behavior:
+        if no positive score exists at all, assign -10 to all reject actions.
+        """
+        if len(reject_vehicle_ids) == 0:
+            return imitation_scores
+
+        reject_penalty_value = -10.0
+
+        if trip_vehicle_ids is None:
+            has_any_positive = bool(torch.any(imitation_scores > 0).item())
+            reject_value = 0.0 if has_any_positive else reject_penalty_value
+            reject_scores = torch.full(
+                (len(reject_vehicle_ids),),
+                reject_value,
+                dtype=imitation_scores.dtype,
+                device=imitation_scores.device,
+            )
+            return torch.cat([imitation_scores, reject_scores], dim=0)
+
+        if len(trip_vehicle_ids) != imitation_scores.shape[0]:
+            raise ValueError(
+                "trip_vehicle_ids length must match imitation_scores length."
+            )
+
+        has_positive_by_vehicle: dict[int, bool] = {vehicle_id: False for vehicle_id in reject_vehicle_ids}
+        for idx, vehicle_id in enumerate(trip_vehicle_ids):
+            if vehicle_id in has_positive_by_vehicle and float(imitation_scores[idx].item()) > 0.0:
+                has_positive_by_vehicle[vehicle_id] = True
+
+        reject_scores = []
+        for vehicle_id in reject_vehicle_ids:
+            if has_positive_by_vehicle.get(vehicle_id, False):
+                reject_scores.append(0.0)
+            else:
+                reject_scores.append(reject_penalty_value)
+        reject_scores = torch.tensor(
+            reject_scores,
+            dtype=imitation_scores.dtype,
+            device=imitation_scores.device,
+        )
+        return torch.cat([imitation_scores, reject_scores], dim=0)
+
+    @staticmethod
     def get_y_star_best_ordered_match(imitation_scores: torch.Tensor) -> torch.Tensor:
         """
         return a tensor with only 0s and 1s based on the imitation scores, the maximum value is 1 and all other values are considered 0.

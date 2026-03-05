@@ -226,48 +226,65 @@ class COAMLPipeline():
             feature_matrix_with_reject = feature_matrix
             reject_vehicle_ids: list[int] = []
             if feature_names:
+                # Appends one synthetic reject row per vehicle at the end of the matrix.
                 feature_matrix_with_reject, reject_vehicle_ids = self.feature_builder.add_reject_action_entries(
                     feature_matrix,
                     feature_names,
                     vehicle_handler.vehicles,
                     payload_object.current_time,
                 )
-            # TODO update the CO layer ScoreMaximization in order for it to also handle the reject action (so we can handle it both for the reject action and for real tripCosts)
-            # TODO update the imitationHandler in order for it to also handle the reject action (so we can handle it both for the reject action and for real tripCosts) - - it should just append an extra entry at the end based on a special logic I still have to develop. please leave a dummy and a TODO comment for me to enter it
-            feature_tensor = torch.tensor(feature_matrix, dtype=torch.float32)
-            if len(feature_tensor) > 0:
-                # Include the synthetic reject row for model scoring; keep trip scores
-                # separate until the CO layer supports explicit reject-action variables.
-                feature_tensor_with_reject = torch.tensor(
-                    feature_matrix_with_reject, dtype=torch.float32
-                )
+            feature_tensor_with_reject = torch.tensor(
+                feature_matrix_with_reject, dtype=torch.float32
+            )
+            if len(feature_tensor_with_reject) > 0:
                 feature_scores_with_reject = self.model(feature_tensor_with_reject)
                 num_reject_actions = len(reject_vehicle_ids)
                 if num_reject_actions > 0:
+                    # Respect the same ordering as in add_reject_action_entries():
+                    # [trip rows..., reject rows...].
                     feature_scores = feature_scores_with_reject[:-num_reject_actions]
                     reject_action_scores = feature_scores_with_reject[-num_reject_actions:]
                 else:
                     feature_scores = feature_scores_with_reject
                     reject_action_scores = torch.empty(0, dtype=feature_scores_with_reject.dtype)
-                ilp_model, x_t, x_r = self.coaml_optimizer.solve_ilp(
+                ilp_model, x_t, x_r, x_reject = self.coaml_optimizer.solve_ilp(
                     feature_scores,
                     request_batch, 
                     active_requests,
                     penalty=self.config.ILP_PENALTY,
-                    keep_active=self.config.KEEP_ACTIVE)
+                    keep_active=self.config.KEEP_ACTIVE,
+                    reject_action_scores=reject_action_scores.detach().cpu().numpy(),
+                    reject_vehicle_ids=reject_vehicle_ids,
+                )
 
                 # NOTE this is for now just experimental
                 
                 trip_combinations = self.imitation_handler.tripCosts_to_request_combinations(trip_costs)
                 optimal_solution = self.imitation_handler.get_optimal_request_solution_for_batch(request_batch)
-                imitation_scores = self.imitation_handler.score_combinations_against_solution(trip_combinations, optimal_solution) 
+                imitation_scores = self.imitation_handler.score_combinations_against_solution(
+                    trip_combinations, optimal_solution
+                )
+                imitation_scores_with_reject = self.imitation_handler.append_reject_action_scores(
+                    imitation_scores,
+                    reject_vehicle_ids,
+                    trip_vehicle_ids=[tc.vehicle_id for tc in trip_costs],
+                )
 
                 print(f"Complete solution: {self.imitation_handler.optimal_solution}")
                 for idx, (ml_score, tc, imitation_score) in enumerate[TripCost](zip(feature_scores,trip_costs, imitation_scores)):
                     print(f"x_t: {x_t[idx].X}, score: {ml_score}, imit:{imitation_score.item()}, tc: {tc.simple_str()}, ordered_stop_sequence: {tc.get_ordered_stop_sequence()}")
                 if len(reject_vehicle_ids) > 0:
-                    for vehicle_id, reject_score in zip(reject_vehicle_ids, reject_action_scores):
-                        print(f"reject_action_score vehicle {vehicle_id}: {reject_score}")
+                    reject_imitation_scores = imitation_scores_with_reject[-len(reject_vehicle_ids):]
+                    for idx, vehicle_id in enumerate(reject_vehicle_ids):
+                        # Debug print to compare model score vs imitation placeholder
+                        # and selected reject-action variable for each vehicle.
+                        reject_score = reject_action_scores[idx]
+                        reject_imit = reject_imitation_scores[idx]
+                        reject_selected = x_reject[vehicle_id].X if vehicle_id in x_reject else 0.0
+                        print(
+                            f"reject_action vehicle {vehicle_id}: x={reject_selected}, "
+                            f"score={reject_score}, imit={reject_imit}"
+                        )
 
                 # transform solution to assignment, used to update vehicles and manifests
                 # THIS result must be used for future comparisons
@@ -288,16 +305,18 @@ class COAMLPipeline():
             result = default_result
 
             # compute Fenchel-Young loss from known optimal solution
-            if True and len(feature_tensor) > 0:
+            if True and len(feature_tensor_with_reject) > 0:
                 self._compute_fy_loss_from_optimal_solution(
-                    feature_matrix,
+                    feature_matrix_with_reject,
                     single_trip_map, 
                     trip_list, 
                     trip_costs,
                     vehicle_to_trips_cost_map, 
                     trip_to_vehicle_cost_map,
                     request_batch, 
-                    active_requests)
+                    active_requests,
+                    reject_vehicle_ids,
+                )
                 loss_tracked = True
             else:
                 # compute Fenchel-Young loss from default ILP solution
@@ -424,6 +443,7 @@ class COAMLPipeline():
         trip_to_vehicle_cost_map: dict,
         request_batch: list,
         active_requests: dict,
+        reject_vehicle_ids: list[int] | None = None,
     ) -> None:
         """
         Compute and store the Fenchel-Young loss for the current iteration.
@@ -443,7 +463,15 @@ class COAMLPipeline():
         # TODO this currently handles only a single vehicle
         trip_combinations = self.imitation_handler.tripCosts_to_request_combinations(trip_costs)
         optimal_solution_from_batch = self.imitation_handler.get_optimal_request_solution_for_batch(request_batch)
-        imitation_scores = self.imitation_handler.score_combinations_against_solution(trip_combinations, optimal_solution_from_batch) 
+        imitation_scores = self.imitation_handler.score_combinations_against_solution(
+            trip_combinations, optimal_solution_from_batch
+        )
+        reject_vehicle_ids = reject_vehicle_ids or []
+        imitation_scores = self.imitation_handler.append_reject_action_scores(
+            imitation_scores,
+            reject_vehicle_ids,
+            trip_vehicle_ids=[tc.vehicle_id for tc in trip_costs],
+        )
         
         if self.config.Y_STAR_TYPE == TYPE_BEST_ORDERED_MATCH:
             y_star = ImitationHandler.get_y_star_best_ordered_match(imitation_scores)
@@ -454,6 +482,11 @@ class COAMLPipeline():
 
         for idx, (tc, imitation_score, y_star_value) in enumerate(zip (trip_costs, imitation_scores, y_star)):
                 print(f"y_star: {y_star_value},  score: {imitation_score}, tc: {tc.simple_str()}, order: {tc.get_ordered_stop_sequence()}")
+        if len(reject_vehicle_ids) > 0:
+            for vehicle_id, reject_score in zip(
+                reject_vehicle_ids, imitation_scores[-len(reject_vehicle_ids):]
+            ):
+                print(f"y_star reject candidate vehicle {vehicle_id}: score={reject_score}")
 
         if y_star.sum().item() == 0:
             console_logger.warning("FY loss skipped: Optimizer did not assign any RTVs.")
@@ -473,6 +506,7 @@ class COAMLPipeline():
             request_batch,
             active_requests,
             self.config,
+            reject_vehicle_ids=reject_vehicle_ids,
         )
 
         self.last_loss = self.fy_loss(scores, y_star, oracle)

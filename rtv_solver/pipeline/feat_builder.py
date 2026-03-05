@@ -251,6 +251,7 @@ class FeatureBuilder:
             return matrix, []
 
         reject_vehicle_ids = sorted(vehicles.keys())
+        # Keep deterministic vehicle ordering so appended reject rows map consistently to reject variables/scores across components.
         state_features = self._state_features(current_time, vehicles)
         empty_future_features = self._future_requests_features([], current_time)
         reject_rows: list[list[float]] = []
@@ -263,6 +264,7 @@ class FeatureBuilder:
             row_features[self.REJECT_FLAG_FEATURE_NAME] = 1.0
 
             reject_rows.append(
+                # Project by feature_names to guarantee exact column alignment with the existing feature matrix.
                 [float(row_features.get(name, 0.0)) for name in feature_names]
             )
 

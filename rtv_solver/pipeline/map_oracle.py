@@ -38,6 +38,7 @@ def make_map_oracle(
         requests: List[Request],
         active_requests: Dict[int, Request],
         config: Config,
+        reject_vehicle_ids: List[int] | None = None,
     ) -> Callable[[torch.Tensor], torch.Tensor]:
     """
     Build a MAP oracle callable for the current solver iteration.
@@ -73,6 +74,8 @@ def make_map_oracle(
     optimizer.reset(single_trip_map, trips, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map)
 
     trip_cost_count = len(trip_costs)
+    reject_vehicle_ids = reject_vehicle_ids or []
+    reject_action_count = len(reject_vehicle_ids)
 
     def oracle(scores: torch.Tensor) -> torch.Tensor:
         """
@@ -84,14 +87,38 @@ def make_map_oracle(
                All zeros if the ILP did not reach OPTIMAL or SUBOPTIMAL.
         """
         scores_np = scores.detach().cpu().numpy().astype(float)
+        if reject_action_count > 0:
+            # Extended score vector layout:
+            # [trip scores..., reject-action scores...]
+            expected_size = trip_cost_count + reject_action_count
+            if scores_np.shape[0] != expected_size:
+                raise ValueError(
+                    f"Oracle received score vector of size {scores_np.shape[0]}, "
+                    f"expected {expected_size} (= {trip_cost_count} trip + {reject_action_count} reject)."
+                )
+            trip_scores_np = scores_np[:trip_cost_count]
+            reject_scores_np = scores_np[trip_cost_count:]
+        else:
+            trip_scores_np = scores_np
+            reject_scores_np = None
 
-        gurobi_model, x_t, _x_r = optimizer.solve_ilp(
-            scores_np, # TODO make this generic for all COs, add solve_ilp to all COs
+        gurobi_model, x_t, _x_r, x_reject = optimizer.solve_ilp(
+            trip_scores_np, # TODO make this generic for all COs, add solve_ilp to all COs
             requests,
             active_requests,
             keep_active=config.KEEP_ACTIVE,
+            reject_action_scores=reject_scores_np,
+            reject_vehicle_ids=reject_vehicle_ids,
         )
-        # NOTE checkw whether this is correct  (TODO for multiple vehicles)
-        return CO.extract_y_binary(gurobi_model, x_t)
+        y_trip = CO.extract_y_binary(gurobi_model, x_t)
+        if reject_action_count == 0:
+            return y_trip
+
+        # Mirror the same ordering convention used for scores so FY dimensions align.
+        y_reject = torch.zeros(reject_action_count, dtype=torch.float32)
+        if gurobi_model.Status in (GRB.OPTIMAL, GRB.SUBOPTIMAL):
+            for idx, vehicle_id in enumerate(reject_vehicle_ids):
+                y_reject[idx] = float(x_reject[vehicle_id].X)
+        return torch.cat([y_trip, y_reject], dim=0)
 
     return oracle
