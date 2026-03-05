@@ -62,6 +62,16 @@ class VehicleFeatures:
     v_wc_cap: int = 0 
 
 
+@dataclass
+class TripFeatures:
+    """
+    Trip-level composition features that depend on trip structure and the
+    associated vehicle capacity context.
+    """
+    t_num_requests_in_trip: float = 0.0
+    t_norm_num_requests_by_vehicle_max_capacity: float = 0.0
+
+
 @dataclass 
 class TripCostFeatures:
     """1D feature scores for each request-trip-vehicle combination for aggregated information; that also defines the blank defaults if nothing can be calculated"""
@@ -90,7 +100,12 @@ class TripCostFeatures:
 
 
 class FeatureBuilder:
-    FEATURE_SIZE = 67 # TODO update this value if you change the features
+    ENABLE_TRIP_COMPOSITION_FEATURES = True # NOTE this already seems to help in our very simple setting
+    _BASE_FEATURE_SIZE = 67
+    _TRIP_COMPOSITION_FEATURE_SIZE = 2
+    FEATURE_SIZE = _BASE_FEATURE_SIZE + (
+        _TRIP_COMPOSITION_FEATURE_SIZE if ENABLE_TRIP_COMPOSITION_FEATURES else 0
+    )  # TODO update this value if you change the features
     REJECT_FLAG_FEATURE_NAME = "action_reject_flag"
     """It builds one feature vector per `TripCost` in order to match the size of new scores to the number of feasible trips associated with costs, combining:
     - vehicle information
@@ -161,14 +176,15 @@ class FeatureBuilder:
 
             fv: FeatureVector = {}
             fv.update(self._state_features(current_time, vehicles))             # 6 items
-            # fv.update(self._trip_features(trip))
+            if self.ENABLE_TRIP_COMPOSITION_FEATURES:
+                fv.update(self._trip_features(trip, vehicle))                   # 2 items
             fv.update(self._vehicle_features(vehicle, vehicles, current_time))  # 11 items
             # fv.update(self._trip_cost_features(tc, current_time))               # 17 items
             fv.update(self._future_requests_features(trip_requests, current_time)) # 49 items
             # fv.update(self._request_aggregate_features(trip_requests))
             fv[self.REJECT_FLAG_FEATURE_NAME] = 0.0
 
-            # current total = 6 + 11 + 49 + 1 = 67 items
+            # current total = 67 items (or 69 if trip composition features are enabled)
             # + 11 + 17 + 49 = 83 items
 
             features.append(fv)
@@ -333,19 +349,32 @@ class FeatureBuilder:
 
         return asdict(sf)
 
-    def _trip_features(self, trip: Union[Trip, SharedTrip]) -> FeatureVector:
-        """Basic trip-level features independent of vehicle or request details."""
-        if isinstance(trip, Trip):
-            cardinality = 1
-            base_cost = float(trip.cost) if trip.cost is not None else 0.0
-        else: # SharedTrip
-            cardinality = trip.cardinality
-            base_cost = float(trip.cost)
+    def _trip_features(
+        self, trip: Union[Trip, SharedTrip], vehicle: Union[Vehicle, None]
+    ) -> FeatureVector:
+        """
+        Trip-level features including normalized request count by vehicle max capacity.
+        """
+        # TODO fix this as the capacities must be considered separately for am and wc
+        features = TripFeatures()
 
-        return {
-            "trip_cardinality": cardinality,
-            "trip_base_cost": base_cost,
-        }
+        if isinstance(trip, Trip):
+            num_requests_in_trip = 1.0
+        else:  # SharedTrip
+            num_requests_in_trip = float(trip.cardinality)
+
+        if vehicle is None:
+            vehicle_max_capacity = 1.0
+        else:
+            full_am = float(getattr(vehicle, "full_am_capacity", vehicle.am_capacity))
+            full_wc = float(getattr(vehicle, "full_wc_capacity", vehicle.wc_capacity))
+            vehicle_max_capacity = max(full_am + full_wc, 1.0)
+
+        features.t_num_requests_in_trip = num_requests_in_trip
+        features.t_norm_num_requests_by_vehicle_max_capacity = (
+            num_requests_in_trip / vehicle_max_capacity
+        )
+        return asdict(features)
 
     def _vehicle_features(self, vehicle: Union[Vehicle, None], vehicles: dict[int, Vehicle], current_time: float) -> FeatureVector:
         """Vehicle-related features; returns defaults if vehicle is missing."""

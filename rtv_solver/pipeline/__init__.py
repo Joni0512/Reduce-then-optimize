@@ -1,4 +1,4 @@
-from .feat_builder import FeatureBuilder, VehicleFeatures, StateFeatures, TripCostFeatures
+from .feat_builder import FeatureBuilder, VehicleFeatures, StateFeatures, TripFeatures, TripCostFeatures
 from .co_base import CO
 from .co_tripCostMinimization import CO_TripCostMinimization
 from .co_scoreMaximization import CO_ScoreMaximization
@@ -14,6 +14,7 @@ __all__ = [
     "FeatureBuilder", 
     "VehicleFeatures",
     "StateFeatures",
+    "TripFeatures",
     "TripCostFeatures",
     "CO", 
     "CO_TripCostMinimization", 
