@@ -52,12 +52,19 @@ class CO(ABC):
     def run() -> AssignmentResult:
         raise NotImplementedError
 
-    def transform_solution_to_assignment(self, model, x_t, x_r, requests: list[Request]) -> 'AssignmentResult':
+    def transform_solution_to_assignment(
+        self,
+        model,
+        x_t,
+        x_r,
+        requests: list[Request],
+        x_reject: dict[int, gp.Var] | None = None,
+        reject_vehicle_ids: list[int] | None = None,
+    ) -> 'AssignmentResult':
         """
         Decode and extract assignment solution from Gurobi solution
         
         If we keep the constraints and the basic structure the same, this function should always be able to work even when we use a different objective.
-        TODO move to a separate decoder, but no priority.
         """
         vehicle_assignment = {}
         request_assignment = {}
@@ -67,6 +74,8 @@ class CO(ABC):
         added_distance = 0
 
         request_count = len(requests)
+        reject_vehicle_ids = reject_vehicle_ids or []
+        x_reject = x_reject or {}
 
         if model.Status == GRB.OPTIMAL or model.Status == GRB.SUBOPTIMAL:
             console_logger.info(f"ILP solved in {model.Runtime:.3f} s.")
@@ -88,6 +97,13 @@ class CO(ABC):
                         vehicle_assignment[vehicle_id] = (trips, trip_cost.sequence)
                         console_logger.debug(f"Assignment: {trip_cost}")
                         console_logger.info(f"Assignment: {trip_cost.simple_str()}")
+
+                # Optional reject-action sanity check for CO variants that expose x_reject.
+                if vehicle_id in reject_vehicle_ids and vehicle_id in x_reject:
+                    if x_reject[vehicle_id].X == 1 and vehicle_id in vehicle_assignment:
+                        raise ValueError(
+                            f"Inconsistent solution for vehicle {vehicle_id}: reject and trip selected."
+                        )
 
             for request in requests:
                 found_assignment = False
@@ -121,7 +137,135 @@ class CO(ABC):
             model.Status,
             model.Runtime
         )
-    
+
+    def transform_optimal_solution_to_assignment(
+        self,
+        y_star: torch.Tensor,
+        requests: list[Request],
+        reject_vehicle_ids: list[int] | None = None,
+    ) -> 'AssignmentResult':
+        """
+        Decode an externally provided binary assignment vector `y_star`.
+
+        Expected layout:
+        - first `len(self.trip_costs)` entries correspond to trip-cost choices
+        - optional tail entries correspond to reject actions in the order of `reject_vehicle_ids`
+
+        Preconditions (strict):
+        - y_star is 1D and binary {0,1}
+        - if reject actions are provided: one action per vehicle (selected trip OR selected reject), therefore total selected actions equals number of vehicles.
+        """
+        reject_vehicle_ids = reject_vehicle_ids or []
+        trip_cost_count = len(self.trip_costs)
+        vehicle_ids = list(self.vehicle_to_trips_cost_map.keys())
+        vehicle_id_set = set(vehicle_ids)
+
+        if y_star.ndim != 1:
+            raise ValueError(f"y_star must be 1D, got shape {tuple(y_star.shape)}")
+
+        expected_size = trip_cost_count + len(reject_vehicle_ids)
+        if y_star.shape[0] != expected_size:
+            raise ValueError(
+                f"y_star has length {y_star.shape[0]}, expected {expected_size} "
+                f"(trip_costs={trip_cost_count} + reject_actions={len(reject_vehicle_ids)})."
+            )
+
+        y = y_star.detach().cpu().to(torch.float32)
+        if not torch.all((y == 0) | (y == 1)):
+            raise ValueError("y_star must be binary (0/1).")
+
+        y_trip = y[:trip_cost_count] # similar to x_t in the transform_solution_to_assignment method
+        y_reject = y[trip_cost_count:]
+
+        if reject_vehicle_ids:
+            unknown_vehicles = set(reject_vehicle_ids) - vehicle_id_set
+            if unknown_vehicles:
+                raise ValueError(
+                    f"reject_vehicle_ids contains unknown vehicle IDs: {sorted(unknown_vehicles)}"
+                )
+
+        selected_trip_indices = [i for i in range(trip_cost_count) if y_trip[i].item() == 1.0]
+        selected_reject_by_vehicle = {
+            vehicle_id: int(y_reject[idx].item())
+            for idx, vehicle_id in enumerate(reject_vehicle_ids)
+        }
+
+        # Per-vehicle action consistency.
+        for vehicle_id in vehicle_ids:
+            selected_trip_count = sum(
+                1
+                for tc_idx in self.vehicle_to_trips_cost_map[vehicle_id]
+                if y_trip[tc_idx].item() == 1.0
+            )
+            selected_reject = selected_reject_by_vehicle.get(vehicle_id, 0)
+            total_actions = selected_trip_count + selected_reject
+
+            if reject_vehicle_ids:
+                if total_actions != 1:
+                    raise ValueError(
+                        f"Vehicle {vehicle_id} has {total_actions} selected actions; expected exactly 1."
+                    )
+            else:
+                if total_actions > 1:
+                    raise ValueError(
+                        f"Vehicle {vehicle_id} has {total_actions} selected trip actions; expected at most 1."
+                    )
+
+        if reject_vehicle_ids:
+            total_selected_actions = int(y_trip.sum().item() + y_reject.sum().item())
+            if total_selected_actions != len(vehicle_ids):
+                raise ValueError(
+                    f"Selected actions {total_selected_actions} must equal vehicle count {len(vehicle_ids)}."
+                )
+
+        vehicle_assignment: dict[int, tuple[list[Trip], list[int]]] = {}
+        request_assignment: dict[int, int] = {}
+        trip_sizes: list[int] = []
+        added_distance = 0.0
+
+        for idx in selected_trip_indices:
+            trip_cost = self.trip_costs[idx]
+            trip_vehicle_id = trip_cost.vehicle_id
+            trip = self.trips[trip_cost.trip_no]
+
+            trips = []
+            if isinstance(trip, Trip):
+                trips.append(trip)
+            else:  # SharedTrip
+                for sub_trip_no in trip.trips:
+                    trips.append(self.trips[sub_trip_no])
+
+            vehicle_assignment[trip_vehicle_id] = (trips, trip_cost.sequence)
+            trip_sizes.append(len(trips))
+            added_distance += float(trip_cost.cost)
+
+            for assigned_trip in trips:
+                if assigned_trip.request_id in request_assignment:
+                    raise ValueError(
+                        f"Request {assigned_trip.request_id} assigned multiple times in y_star."
+                    )
+                request_assignment[assigned_trip.request_id] = trip_vehicle_id
+
+        request_count = len(requests)
+        trip_count = len(request_assignment)
+        unassigned_trip_count = request_count - trip_count
+
+        console_logger.info(
+            f'Optimal assignment: new requests / unassigned / assigned: '
+            f'{request_count} / {unassigned_trip_count} / {trip_count}'
+        )
+        return AssignmentResult(
+            vehicle_assignment,
+            request_assignment,
+            {},
+            unassigned_trip_count,
+            trip_count,
+            added_distance,
+            trip_sizes,
+            GRB.OPTIMAL,
+            None,
+        )
+
     def _handle_infeasibility(self, model):
         # Compute IIS (conflicting constraints)
         model.Params.OutputFlag = 1

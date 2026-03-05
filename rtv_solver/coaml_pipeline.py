@@ -380,7 +380,13 @@ class COAMLPipeline():
                 keep_active=self.config.KEEP_ACTIVE)
             console_logger.info(f"Default ILP solved in {default_ilp_model.Runtime:.3f} s.")
             default_result = self.default_optimizer.transform_solution_to_assignment(
-                default_ilp_model, default_x_t, default_x_r, request_batch)
+                default_ilp_model,
+                default_x_t,
+                default_x_r,
+                request_batch,
+                x_reject=None,
+                reject_vehicle_ids=[],
+            )
 
             # train mode, keep on right track - decide which run should move forward
             # FIXME we do not want to move on the old track; we want to move on the optimal path (for training we need a special solution to get the vehicle assignment from the y_star)
@@ -539,8 +545,6 @@ class COAMLPipeline():
 
         Side effects:
             Sets self.last_loss.
-
-        # TODO update the y_start calculation from the imitationHandler
         """
         reject_vehicle_ids = reject_vehicle_ids or []
         imitation_scores = self._build_imitation_scores_with_reject(

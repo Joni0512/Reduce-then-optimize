@@ -20,11 +20,30 @@ class CO_ScoreMaximization(CO):
     def __init__(self, config: Config):
         super().__init__(config)    
     
-    def run(self, feature_scores, requests: list[Request], active_requests: dict[int, Request]) -> AssignmentResult:
-        model, x_t, x_r, _x_reject = self.solve_ilp(
-            feature_scores, requests, active_requests, keep_active=self.config.KEEP_ACTIVE
+    def run(
+        self,
+        feature_scores,
+        requests: list[Request],
+        active_requests: dict[int, Request],
+        reject_action_scores: np.ndarray | None = None,
+        reject_vehicle_ids: list[int] | None = None,
+    ) -> AssignmentResult:
+        model, x_t, x_r, x_reject = self.solve_ilp(
+            feature_scores,
+            requests,
+            active_requests,
+            keep_active=self.config.KEEP_ACTIVE,
+            reject_action_scores=reject_action_scores,
+            reject_vehicle_ids=reject_vehicle_ids,
         )
-        assignment_result = self.transform_solution_to_assignment(model, x_t, x_r, requests)
+        assignment_result = self.transform_solution_to_assignment(
+            model,
+            x_t,
+            x_r,
+            requests,
+            x_reject=x_reject,
+            reject_vehicle_ids=reject_vehicle_ids or [],
+        )
         return assignment_result
         
     def solve_ilp(
