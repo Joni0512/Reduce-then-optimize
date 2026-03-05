@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from rtv_solver import OnlineRTVSolver, OfflineRTVSolver, COAMLPipeline, HexalySolver
+from rtv_solver.training_loop import COAMLTrainingLoop
 
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
@@ -16,6 +17,7 @@ from rtv_solver.util.logger import setup_loggers, BASIC_LOGGER, DATA_LOGGER
 from rtv_solver.util.helper import save_json, set_seed
 
 from rtv_solver.visuals.route_manifest_mapper import RouteManifestMapper
+
 from rtv_solver.pipeline import TYPE_BEST_ORDERED_MATCH, TYPE_BEST_UNORDERED_MATCH
 
 if __name__ == "__main__":
@@ -52,8 +54,8 @@ if __name__ == "__main__":
     parser.add_argument('--dwell_pickup', type=int,         default=0, help='Dwell time at pickup in seconds')
     parser.add_argument('--dwell_alight', type=int,         default=0, help='Dwell time at alight (dropoff) in seconds')
     parser.add_argument('--walk_distance_cutoff', type=int, default=0, help="Walking distance between dropoff and final destination.")
-    parser.add_argument('--step_size', type=int,            default=300, help='Step size in seconds for rolling horizon')
-    parser.add_argument('--batch_interval', type=int,       default=1200, help='Batch interval in seconds') # NOTE if this value is too small, we might miss requests if the vehicle_trip to the pickup is longer than the batch interval size (TODO fix this so this does not have as much impact)
+    parser.add_argument('--step_size', type=int,            default=500, help='Step size in seconds for rolling horizon')
+    parser.add_argument('--batch_interval', type=int,       default=800, help='Batch interval in seconds') # NOTE if this value is too small, we might miss requests if the vehicle_trip to the pickup is longer than the batch interval size (TODO fix this so this does not have as much impact)
     # stats parameters
     parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
     # random_seed, training parameters, NN parameters
@@ -62,6 +64,7 @@ if __name__ == "__main__":
     parser.add_argument('--debug', type= str, default='False', choices=['True', 'False'], help='Run in debug mode (# reduces number of vehicles and requests for easier debugging)')
     parser.add_argument('--imitation_solution_file', type=str, default='outputs/test_nc/solution_10r_1v_repeat6_simple/result_driver_runs.json', help='Path to the imitation solution file with the complete manifest of all trips for all vehicles')
     parser.add_argument('--y_star_type', type=str, choices=[TYPE_BEST_ORDERED_MATCH, TYPE_BEST_UNORDERED_MATCH], default=TYPE_BEST_ORDERED_MATCH, help='Type of y_star to be used for the Fenchel-Young loss during imitation learning')
+    parser.add_argument('--iterations', type=int, default=5, help='Number of training epochs over the same payload for COAML mode')
     
     # implement configurations
     arguments = parser.parse_args()
@@ -132,9 +135,16 @@ if __name__ == "__main__":
             off_solver = OfflineRTVSolver(config)
             updated_driver_runs = off_solver.solve_rtv(payload, config.BATCH_INTERVAL, config.STEP_SIZE)
         elif config.MODE == 'coaml':
-            rh_solver = COAMLPipeline(config, payload)
-            updated_driver_runs = rh_solver.solve_pdptw(payload)
-            print(f"Loss history: {rh_solver.loss_history}")
+            if config.ITERATIONS > 1:
+                training_loop = COAMLTrainingLoop(config, payload)
+                training_result = training_loop.run()
+                updated_driver_runs = training_result.updated_driver_runs
+                print(f"Epoch iteration losses: {training_result.epoch_iteration_losses}")
+                print(f"All iteration losses: {training_result.all_iteration_losses}")
+            else:
+                rh_solver = COAMLPipeline(config, payload)
+                updated_driver_runs = rh_solver.solve_pdptw(payload)
+                print(f"Loss history: {rh_solver.loss_history}")
         elif config.MODE == 'optimal_solution':
             # change the settings in order for the online solver to find the actual optimal solution (if possible)
             max_cardinality = len(payload[PayloadParser.REQUESTS])

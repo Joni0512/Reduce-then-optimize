@@ -22,8 +22,6 @@ from rtv_solver.pipeline import CO, CO_ScoreMaximization, CO_TripCostMinimizatio
 from rtv_solver.pipeline import FenchelYoungLoss, make_map_oracle, ScoringMLP
 from rtv_solver.pipeline.imitation_handler import ImitationHandler, TYPE_BEST_ORDERED_MATCH, TYPE_BEST_UNORDERED_MATCH
 
-from rtv_solver.visuals.training_loss import plot_loss
-
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
 
@@ -53,7 +51,8 @@ class COAMLPipeline():
     def __init__(
             self,
             config: Config,
-            offline_payload: dict
+            offline_payload: dict,
+            model: ScoringMLP | None = None,
         ):
         """
         Initialize the COAML pipeline solver.
@@ -66,8 +65,10 @@ class COAMLPipeline():
         self.config = config
         self.offline_payload = offline_payload
         self.feature_builder = FeatureBuilder(offline_payload, self.config)
-        self.model = ScoringMLP(feature_dim=FeatureBuilder.FEATURE_SIZE, hidden_dim=32)
-        self.fy_loss = FenchelYoungLoss(num_samples=15, sigma=0.1)
+        self.model = model if model is not None else ScoringMLP(
+            feature_dim=FeatureBuilder.FEATURE_SIZE, hidden_dim=32
+        )
+        self.fy_loss = FenchelYoungLoss(num_samples=1, sigma=0.1)
         self.imitation_handler = ImitationHandler(config)
         
         self.coaml_optimizer = CO_ScoreMaximization(config)
@@ -110,7 +111,12 @@ class COAMLPipeline():
         # TODO implement this method
         pass
 
-    def solve_pdptw(self, payload: dict):
+    def solve_pdptw(
+        self,
+        payload: dict,
+        mode: str = "train",
+        optimizer: Optional[torch.optim.Optimizer] = None,
+    ):
         """
         Handles payloads across iterations of the rolling horizon
         
@@ -158,7 +164,11 @@ class COAMLPipeline():
             if len(selected_requests) == 0:
                 new_driver_runs = driver_runs
             else:    
-                new_driver_runs = self.solve_iteration(new_payload, iteration)
+                new_driver_runs = self.solve_iteration(new_payload, iteration, mode = mode)
+                if mode == "train" and optimizer is not None and self.last_loss is not None:
+                    optimizer.zero_grad(set_to_none=True)
+                    self.last_loss.backward()
+                    optimizer.step()
                           
             # increment time (might not be the size of the batch) and iteration
             current_time += self.config.STEP_SIZE 
@@ -171,7 +181,6 @@ class COAMLPipeline():
         final_driver_runs = OnlineRTVSolver.finalize_driverRuns(
             self.config, driver_runs, payload[PayloadParser.DEPOT]
         )
-        plot_loss(self.loss_history)
         self.save_model_weights()
         return final_driver_runs
 
@@ -253,7 +262,7 @@ class COAMLPipeline():
             return ImitationHandler.get_y_star_best_unordered_match(imitation_scores)
         raise ValueError(f"Invalid y_star type: {self.config.Y_STAR_TYPE}")
     
-    def solve_iteration(self, subset_payload, iteration = 0):
+    def solve_iteration(self, subset_payload, iteration = 0, mode: str = "train"):
         """
         Solver for the entire payload that is given, based on the onlineRTVSolver but adapted to COAML pipeline.
         """
@@ -332,6 +341,7 @@ class COAMLPipeline():
                 else:
                     feature_scores = feature_scores_with_reject
                     reject_action_scores = torch.empty(0, dtype=feature_scores_with_reject.dtype)
+                
                 ilp_model, x_t, x_r, x_reject = self.coaml_optimizer.solve_ilp(
                     feature_scores,
                     request_batch, 
@@ -341,7 +351,6 @@ class COAMLPipeline():
                     reject_action_scores=reject_action_scores.detach().cpu().numpy(),
                     reject_vehicle_ids=reject_vehicle_ids,
                 )
-
                 score_result = self.default_optimizer.transform_solution_to_assignment(
                     ilp_model,
                     x_t,
@@ -350,10 +359,6 @@ class COAMLPipeline():
                     x_reject=x_reject,
                     reject_vehicle_ids=reject_vehicle_ids,
                 )
-                
-
-                # NOTE this is for now just experimental
-                
                 imitation_scores_with_reject = self._build_imitation_scores_with_reject(
                     trip_costs=trip_costs,
                     request_batch=request_batch,
@@ -361,29 +366,29 @@ class COAMLPipeline():
                 )
                 y_star = self._build_y_star_from_imitation_scores(imitation_scores_with_reject)
 
+                # calculate the true optimal solution based on the imitation scores
                 optimal_result = self.coaml_optimizer.transform_optimal_solution_to_assignment(
                     y_star,
                     request_batch,
                     reject_vehicle_ids=reject_vehicle_ids,
                 )
 
-                # for idx, (ml_score, tc, imitation_score) in enumerate[TripCost](
-                #     zip(feature_scores, trip_costs, imitation_scores_with_reject[:len(trip_costs)])
-                # ):
-                #     print(f"x_t: {x_t[idx].X}, score: {ml_score}, imit:{imitation_score.item()}, tc: {tc.simple_str()}, ordered_stop_sequence: {tc.get_ordered_stop_sequence()}")
-                # if len(reject_vehicle_ids) > 0:
-                #     reject_imitation_scores = imitation_scores_with_reject[-len(reject_vehicle_ids):]
-                #     for idx, vehicle_id in enumerate(reject_vehicle_ids):
-                #         # Debug print to compare model score vs imitation placeholder
-                #         # and selected reject-action variable for each vehicle.
-                #         reject_score = reject_action_scores[idx]
-                #         reject_imit = reject_imitation_scores[idx]
-                #         reject_selected = x_reject[vehicle_id].X if vehicle_id in x_reject else 0.0
-                #         print(
-                #             f"reject_action vehicle {vehicle_id}: x={reject_selected}, "
-                #             f"score={reject_score}, imit={reject_imit}"
-                #         )
-
+                for idx, (ml_score, tc, imitation_score) in enumerate[TripCost](
+                    zip(feature_scores, trip_costs, imitation_scores_with_reject[:len(trip_costs)])
+                ):
+                    print(f"{tc.trip_no}: x_t {x_t[idx].X}, score: {ml_score:3.3f}, imit:{imitation_score.item()}, tc: {tc.get_ordered_request_ids()}")
+                if len(reject_vehicle_ids) > 0:
+                    reject_imitation_scores = imitation_scores_with_reject[-len(reject_vehicle_ids):]
+                    for idx, vehicle_id in enumerate(reject_vehicle_ids):
+                        # Debug print to compare model score vs imitation placeholder
+                        # and selected reject-action variable for each vehicle.
+                        reject_score = reject_action_scores[idx]
+                        reject_imit = reject_imitation_scores[idx]
+                        reject_selected = x_reject[vehicle_id].X if vehicle_id in x_reject else 0.0
+                        print(f"r{vehicle_id}: x_r {reject_selected}, score: {reject_score}, imit {reject_imit}")
+                console_logger.info(f"Score result: {score_result.request_assignment}, cost: {score_result.added_distance}, rejected: {score_result.unassigned_trip_count}")
+                console_logger.info(f"Optimal result: {optimal_result.request_assignment}, cost: {optimal_result.added_distance}, rejected: {optimal_result.unassigned_trip_count}")
+            
                 # transform solution to assignment, used to update vehicles and manifests
                 # THIS result must be used for future comparisons
             
@@ -404,8 +409,6 @@ class COAMLPipeline():
                 x_reject=None,
                 reject_vehicle_ids=[],
             )
-            console_logger.info(f"Score result: {score_result.request_assignment}, cost: {score_result.added_distance}, rejected: {score_result.unassigned_trip_count}")
-            console_logger.info(f"Optimal result: {optimal_result.request_assignment}, cost: {optimal_result.added_distance}, rejected: {optimal_result.unassigned_trip_count}")
             console_logger.info(f"Default result: {default_result.request_assignment}, cost: {default_result.added_distance}, rejected: {default_result.unassigned_trip_count}")
             console_logger.info(f"Complete solution: {self.imitation_handler.optimal_solution}")
             
@@ -440,6 +443,9 @@ class COAMLPipeline():
                     request_batch,
                     active_requests)
                 loss_tracked = True
+            # TODO we still need to turn off the learning signal and validate runs with the score by itself
+            # else: # run the course of what our scores would suggest
+            #     result = score_result
 
             if self.config.REBALANCING:
                 rebalancing_optimizer = CO_RebalancingCoverage(self.config)
@@ -451,7 +457,6 @@ class COAMLPipeline():
         if self.last_loss is not None:
             current_loss = float(self.last_loss.detach().cpu().item())
             self.loss_history.append(current_loss)
-            console_logger.info(f"Tracked model loss at time {payload_object.current_time}: {current_loss:.4f}")
         else:
             self.loss_history.append(None)
    
@@ -573,14 +578,6 @@ class COAMLPipeline():
             reject_vehicle_ids=reject_vehicle_ids,
         )
         y_star = self._build_y_star_from_imitation_scores(imitation_scores)
-
-        # for idx, (tc, imitation_score, y_star_value) in enumerate(zip (trip_costs, imitation_scores, y_star)):
-        #         print(f"y_star: {y_star_value},  score: {imitation_score}, tc: {tc.simple_str()}, order: {tc.get_ordered_stop_sequence()}")
-        if len(reject_vehicle_ids) > 0:
-            for vehicle_id, reject_score in zip(
-                reject_vehicle_ids, imitation_scores[-len(reject_vehicle_ids):]
-            ):
-                print(f"y_star reject candidate vehicle {vehicle_id}: score={reject_score}")
 
         if y_star.sum().item() == 0:
             console_logger.warning("FY loss skipped: Optimizer did not assign any RTVs.")

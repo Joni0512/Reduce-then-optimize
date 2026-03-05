@@ -53,6 +53,7 @@ class Config:
     SEED: int = 42
     IMITATION_SOLUTION_FILE: Path | str = 'outputs/test_nc/solution_10r_1v_repeat6_simple/result_driver_runs.json'
     Y_STAR_TYPE: str = "best_ordered_match" # TODO somehow we have circular imports if we imported this from the pipeline module
+    ITERATIONS: int = 1
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -122,10 +123,12 @@ class Config:
             TRAVEL_TIME_MARGIN = args.travel_time_margin,
             SEED = args.seed,
             IMITATION_SOLUTION_FILE = args.imitation_solution_file,
-            Y_STAR_TYPE = args.y_star_type
+            Y_STAR_TYPE = args.y_star_type,
+            ITERATIONS = getattr(args, "iterations", 1),
         )
         # some checks to fail early if the config is not valid
         assert config.STEP_SIZE <= config.BATCH_INTERVAL, f"MUST: Step size {config.STEP_SIZE} <= batch interval {config.BATCH_INTERVAL}"
+        assert config.ITERATIONS >= 1, f"MUST: ITERATIONS >= 1, got {config.ITERATIONS}"
 
         save_json({"config_dict": config.to_dict(),
                 "git_commit": os.popen("git rev-parse HEAD").read().strip(),
@@ -140,6 +143,16 @@ class Config:
     def from_dict(cls, cfg_dict: dict) -> "Config":
         """Create a Config instance directly from a dictionary."""
         return cls(**cfg_dict)
+
+    @classmethod
+    def from_run_dir(cls, run_dir: Path | str, output_dir: Path | str) -> "Config":
+        """
+        Rebuild a Config from a previous run's config.json while overriding OUTPUT_DIR.
+        """
+        config_json = load_json(Path(run_dir) / "config.json")
+        config_dict = dict(config_json["config_dict"])
+        config_dict["OUTPUT_DIR"] = Path(output_dir)
+        return cls.from_dict(config_dict)
 
     @staticmethod
     def create_output_dir(base_dir: Path, experiment_dir: Path | str) -> Path:
