@@ -1,5 +1,6 @@
 import pytest
 import numpy as np
+import torch
 
 from rtv_solver.pipeline import CO_TripCostMinimization, CO_ScoreMaximization
 from rtv_solver.structure.assignment_result import AssignmentResult
@@ -217,22 +218,110 @@ def test_co_run_score_maximization(single_trip_map_neworder, trip_list_neworder,
     assert trips == [0]
 
 
+@pytest.mark.basic
+def test_transform_optimal_solution_to_assignment_handles_reject_action(
+    single_trip_map_neworder,
+    trip_list_neworder,
+    trip_costs_neworder,
+    vehicle_to_trips_cost_map_neworder,
+    trip_to_vehicle_cost_map_neworder,
+    request_batch,
+    config,
+):
+    """
+    Decode-only test: no model scoring and no ILP solve.
+    Ensure a selected reject action for a vehicle yields no trip assignment.
+    """
+    optimizer = CO_ScoreMaximization(config)
+    optimizer.reset(
+        single_trip_map_neworder,
+        trip_list_neworder,
+        trip_costs_neworder,
+        vehicle_to_trips_cost_map_neworder,
+        trip_to_vehicle_cost_map_neworder,
+    )
+
+    # 9 trip entries + 1 reject entry for vehicle 0.
+    y_star = torch.zeros(len(trip_costs_neworder) + 1, dtype=torch.float32)
+    y_star[-1] = 1.0
+
+    result = optimizer.transform_optimal_solution_to_assignment(
+        y_star=y_star,
+        requests=request_batch,
+        reject_vehicle_ids=[0],
+    )
+
+    assert isinstance(result, AssignmentResult)
+    assert result.vehicle_assignment == {}
+    assert result.request_assignment == {}
+    assert result.unassigned_trip_count == len(request_batch)
+    assert result.taxi_only_trip_count == 0
+    assert result.added_distance == pytest.approx(0.0)
+    assert result.trip_sizes == []
+    assert result.status == 2
+
+
+@pytest.mark.basic
+def test_co_run_score_maximization_prefers_reject_action(
+    single_trip_map_neworder,
+    trip_list_neworder,
+    trip_costs_neworder,
+    vehicle_to_trips_cost_map_neworder,
+    trip_to_vehicle_cost_map_neworder,
+    request_batch,
+    active_requests,
+    config,
+):
+    """
+    Optimization-level reject test with fake scores:
+    all trip scores are negative while reject score is neutral, so reject should
+    be selected for the vehicle.
+    """
+    optimizer = CO_ScoreMaximization(config)
+    optimizer.reset(
+        single_trip_map_neworder,
+        trip_list_neworder,
+        trip_costs_neworder,
+        vehicle_to_trips_cost_map_neworder,
+        trip_to_vehicle_cost_map_neworder,
+    )
+
+    feature_scores = np.full(len(trip_costs_neworder), -1.0, dtype=float)
+    reject_action_scores = np.array([0.0], dtype=float)
+    reject_vehicle_ids = [0]
+
+    result = optimizer.run(
+        feature_scores,
+        request_batch,
+        active_requests,
+        reject_action_scores=reject_action_scores,
+        reject_vehicle_ids=reject_vehicle_ids,
+    )
+
+    assert isinstance(result, AssignmentResult)
+    assert result.status == 2
+    assert result.vehicle_assignment == {}
+    assert result.request_assignment == {}
+    assert result.unassigned_trip_count == len(request_batch)
+    assert result.taxi_only_trip_count == 0
+    assert result.added_distance == pytest.approx(0.0)
+    assert result.trip_sizes == []
+
+
+@pytest.mark.basic
 @pytest.mark.parametrize(
     "feature_scores,expected_trip_indices",
     [   
         pytest.param(
             np.array([1, 0, 0, 0, 0, 0, 0, 0, 0]), [0],
-            marks=[pytest.mark.basic],
             id = "co_score-1"
         ),
         pytest.param(
             np.array([0, 1, 0, 0, 0, 0, 0, 0, 0]), [1],
-            marks=[pytest.mark.basic],
             id = "co_score-2"
         ),
         pytest.param(
             np.array([0, 0, 0, 0, 0, 1, 0, 0, 0]), [0, 3],
-            marks=[pytest.mark.basic],
             id = "co_score-combined"
         ),
     ]

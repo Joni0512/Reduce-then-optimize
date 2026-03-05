@@ -348,6 +348,11 @@ class COAMLPipeline():
                 )
                 y_star = self._build_y_star_from_imitation_scores(imitation_scores_with_reject)
 
+                optimal_result = self.coaml_optimizer.transform_optimal_solution_to_assignment(
+                    y_star,
+                    request_batch,
+                    reject_vehicle_ids=reject_vehicle_ids,
+                )
 
                 print(f"Complete solution: {self.imitation_handler.optimal_solution}")
                 for idx, (ml_score, tc, imitation_score) in enumerate[TripCost](
