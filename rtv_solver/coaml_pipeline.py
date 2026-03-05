@@ -22,6 +22,8 @@ from rtv_solver.pipeline import CO, CO_ScoreMaximization, CO_TripCostMinimizatio
 from rtv_solver.pipeline import FenchelYoungLoss, make_map_oracle, ScoringMLP
 from rtv_solver.pipeline.imitation_handler import ImitationHandler, TYPE_BEST_ORDERED_MATCH, TYPE_BEST_UNORDERED_MATCH
 
+from rtv_solver.visuals.training_loss import plot_loss
+
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
 
@@ -169,6 +171,7 @@ class COAMLPipeline():
         final_driver_runs = OnlineRTVSolver.finalize_driverRuns(
             self.config, driver_runs, payload[PayloadParser.DEPOT]
         )
+        plot_loss(self.loss_history)
         self.save_model_weights()
         return final_driver_runs
 
