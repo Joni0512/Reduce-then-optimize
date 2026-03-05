@@ -4,6 +4,7 @@ from multiprocessing import Pool
 import numpy as np
 import copy
 from typing import Any, Optional
+from pathlib import Path
 import torch
 
 from rtv_solver.handlers.request_handler import RequestHandler
@@ -165,8 +166,89 @@ class COAMLPipeline():
             simulated_driver_runs = OnlineRTVSolver.simulate_manifest(self.config, current_time, new_driver_runs,   intermediate_location=True) # TODO check if intermediate_location is correct
             driver_runs = simulated_driver_runs
 
-        final_driver_runs = OnlineRTVSolver.finalize_driverRuns(self.config, driver_runs, payload[PayloadParser.DEPOT])
+        final_driver_runs = OnlineRTVSolver.finalize_driverRuns(
+            self.config, driver_runs, payload[PayloadParser.DEPOT]
+        )
+        self.save_model_weights()
         return final_driver_runs
+
+    def _default_model_weights_path(self) -> Path:
+        """
+        Default checkpoint path for this run.
+        """
+        return Path(self.config.OUTPUT_DIR) / "coaml_model_weights.pt"
+
+    def save_model_weights(self, path: str | Path | None = None) -> Path:
+        """
+        Save neural-network weights so training can be resumed later.
+
+        The checkpoint contains the model state dict and lightweight metadata
+        about model dimensions/features used during this run.
+        """
+        checkpoint_path = Path(path) if path is not None else self._default_model_weights_path()
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+
+        checkpoint = {
+            "model_state_dict": self.model.state_dict(),
+            "feature_dim": self.model.feature_dim,
+            "hidden_dim": self.model.hidden_dim,
+            "feature_size": FeatureBuilder.FEATURE_SIZE,
+        }
+        torch.save(checkpoint, checkpoint_path)
+        console_logger.info(f"Saved COAML model weights to {checkpoint_path}")
+        return checkpoint_path
+
+    def load_model_weights(
+        self,
+        path: str | Path,
+        map_location: str | torch.device | None = None,
+        strict: bool = True,
+    ) -> None:
+        """
+        Load neural-network weights from a checkpoint file.
+
+        Use this to continue training on new data in later runs.
+        """
+        checkpoint_path = Path(path)
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"Model weights file not found: {checkpoint_path}")
+
+        checkpoint = torch.load(checkpoint_path, map_location=map_location)
+        state_dict = checkpoint.get("model_state_dict", checkpoint)
+        self.model.load_state_dict(state_dict, strict=strict)
+        console_logger.info(f"Loaded COAML model weights from {checkpoint_path}")
+
+    def _build_imitation_scores_with_reject(
+        self,
+        trip_costs: list[TripCost],
+        request_batch: list,
+        reject_vehicle_ids: list[int] | None = None,
+    ) -> torch.Tensor:
+        """
+        Build imitation scores for current trip options and append reject-action
+        entries in a single, shared place.
+        """
+        trip_combinations = self.imitation_handler.tripCosts_to_request_combinations(trip_costs)
+        optimal_solution = self.imitation_handler.get_optimal_request_solution_for_batch(request_batch)
+        imitation_scores = self.imitation_handler.score_combinations_against_solution(
+            trip_combinations, optimal_solution
+        )
+        imitation_scores_with_reject = self.imitation_handler.append_reject_action_scores(
+            imitation_scores,
+            reject_vehicle_ids or [],
+            trip_vehicle_ids=[tc.vehicle_id for tc in trip_costs],
+        )
+        return imitation_scores_with_reject
+
+    def _build_y_star_from_imitation_scores(self, imitation_scores: torch.Tensor) -> torch.Tensor:
+        """
+        Convert imitation scores into binary y* according to configured strategy.
+        """
+        if self.config.Y_STAR_TYPE == TYPE_BEST_ORDERED_MATCH:
+            return ImitationHandler.get_y_star_best_ordered_match(imitation_scores)
+        if self.config.Y_STAR_TYPE == TYPE_BEST_UNORDERED_MATCH:
+            return ImitationHandler.get_y_star_best_unordered_match(imitation_scores)
+        raise ValueError(f"Invalid y_star type: {self.config.Y_STAR_TYPE}")
     
     def solve_iteration(self, subset_payload, iteration = 0):
         """
@@ -259,19 +341,18 @@ class COAMLPipeline():
 
                 # NOTE this is for now just experimental
                 
-                trip_combinations = self.imitation_handler.tripCosts_to_request_combinations(trip_costs)
-                optimal_solution = self.imitation_handler.get_optimal_request_solution_for_batch(request_batch)
-                imitation_scores = self.imitation_handler.score_combinations_against_solution(
-                    trip_combinations, optimal_solution
+                imitation_scores_with_reject = self._build_imitation_scores_with_reject(
+                    trip_costs=trip_costs,
+                    request_batch=request_batch,
+                    reject_vehicle_ids=reject_vehicle_ids,
                 )
-                imitation_scores_with_reject = self.imitation_handler.append_reject_action_scores(
-                    imitation_scores,
-                    reject_vehicle_ids,
-                    trip_vehicle_ids=[tc.vehicle_id for tc in trip_costs],
-                )
+                y_star = self._build_y_star_from_imitation_scores(imitation_scores_with_reject)
+
 
                 print(f"Complete solution: {self.imitation_handler.optimal_solution}")
-                for idx, (ml_score, tc, imitation_score) in enumerate[TripCost](zip(feature_scores,trip_costs, imitation_scores)):
+                for idx, (ml_score, tc, imitation_score) in enumerate[TripCost](
+                    zip(feature_scores, trip_costs, imitation_scores_with_reject[:len(trip_costs)])
+                ):
                     print(f"x_t: {x_t[idx].X}, score: {ml_score}, imit:{imitation_score.item()}, tc: {tc.simple_str()}, ordered_stop_sequence: {tc.get_ordered_stop_sequence()}")
                 if len(reject_vehicle_ids) > 0:
                     reject_imitation_scores = imitation_scores_with_reject[-len(reject_vehicle_ids):]
@@ -302,6 +383,7 @@ class COAMLPipeline():
                 default_ilp_model, default_x_t, default_x_r, request_batch)
 
             # train mode, keep on right track - decide which run should move forward
+            # FIXME we do not want to move on the old track; we want to move on the optimal path (for training we need a special solution to get the vehicle assignment from the y_star)
             result = default_result
 
             # compute Fenchel-Young loss from known optimal solution
@@ -460,25 +542,13 @@ class COAMLPipeline():
 
         # TODO update the y_start calculation from the imitationHandler
         """
-        # TODO this currently handles only a single vehicle
-        trip_combinations = self.imitation_handler.tripCosts_to_request_combinations(trip_costs)
-        optimal_solution_from_batch = self.imitation_handler.get_optimal_request_solution_for_batch(request_batch)
-        imitation_scores = self.imitation_handler.score_combinations_against_solution(
-            trip_combinations, optimal_solution_from_batch
-        )
         reject_vehicle_ids = reject_vehicle_ids or []
-        imitation_scores = self.imitation_handler.append_reject_action_scores(
-            imitation_scores,
-            reject_vehicle_ids,
-            trip_vehicle_ids=[tc.vehicle_id for tc in trip_costs],
+        imitation_scores = self._build_imitation_scores_with_reject(
+            trip_costs=trip_costs,
+            request_batch=request_batch,
+            reject_vehicle_ids=reject_vehicle_ids,
         )
-        
-        if self.config.Y_STAR_TYPE == TYPE_BEST_ORDERED_MATCH:
-            y_star = ImitationHandler.get_y_star_best_ordered_match(imitation_scores)
-        elif self.config.Y_STAR_TYPE == ImitationHandler.TYPE_BEST_UNORDERED_MATCH:
-            y_star = ImitationHandler.get_y_star_best_unordered_match(imitation_scores)
-        else:
-            raise ValueError(f"Invalid y_star type: {self.config.Y_STAR_TYPE}")
+        y_star = self._build_y_star_from_imitation_scores(imitation_scores)
 
         for idx, (tc, imitation_score, y_star_value) in enumerate(zip (trip_costs, imitation_scores, y_star)):
                 print(f"y_star: {y_star_value},  score: {imitation_score}, tc: {tc.simple_str()}, order: {tc.get_ordered_stop_sequence()}")

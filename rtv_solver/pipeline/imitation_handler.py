@@ -348,6 +348,7 @@ class ImitationHandler:
         """
         return a tensor with only 0s and 1s based on the imitation scores, the minimum value is 1 and all other values are considered 0.
         """
+        raise NotImplementedError("This function is not implemented yet as the score calculation does not support unordered matches.")
         min_value = torch.min(imitation_scores)
         min_indices = torch.where(imitation_scores == min_value)[0]
         # assert that there is only one minimum value
