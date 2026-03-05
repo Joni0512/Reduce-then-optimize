@@ -91,6 +91,7 @@ def make_map_oracle(
             active_requests,
             keep_active=config.KEEP_ACTIVE,
         )
-        return CO.extract_y_binary(gurobi_model, x_t, trip_cost_count)
+        # NOTE checkw whether this is correct  (TODO for multiple vehicles)
+        return CO.extract_y_binary(gurobi_model, x_t)
 
     return oracle

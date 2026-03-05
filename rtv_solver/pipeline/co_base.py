@@ -140,8 +140,7 @@ class CO(ABC):
     @staticmethod
     def extract_y_binary(
             gurobi_model,
-            x_t,
-            trip_cost_count: int,
+            x_t: dict[int, gp.Var],
         ) -> torch.Tensor:
         """
         Convert the solved Gurobi trip-selection variables into a binary tensor.
@@ -159,6 +158,7 @@ class CO(ABC):
             y: float32 Tensor of shape (trip_cost_count,) with values in {0.0, 1.0}.
             Returns a zero vector if the model status is not OPTIMAL or SUBOPTIMAL.
         """
+        trip_cost_count = len(x_t)
         y = torch.zeros(trip_cost_count, dtype=torch.float32)
         if gurobi_model.Status in (GRB.OPTIMAL, GRB.SUBOPTIMAL):
             for i in range(trip_cost_count):

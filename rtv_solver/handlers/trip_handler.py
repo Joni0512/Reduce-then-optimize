@@ -1,12 +1,8 @@
-import numpy as np
 import itertools
 import multiprocessing as mp
-import gurobipy as gp
 import time
 import traceback
 from dataclasses import dataclass
-
-from gurobipy import GRB
 
 from rtv_solver.structure.trip_insertion_plan import TripInsertionPlan
 from rtv_solver.structure.trip import Trip
@@ -15,7 +11,6 @@ from rtv_solver.structure.trip_cost import TripCost
 from rtv_solver.structure.request import Request
 from rtv_solver.structure.config import Config
 from rtv_solver.structure.vehicle import Vehicle
-from rtv_solver.structure.assignment_result import AssignmentResult
 
 from rtv_solver.handlers.vehicle_handler import VehicleHandler
 from rtv_solver.handlers.network_handler import NetworkHandler
@@ -46,7 +41,7 @@ class TripHandler:
                  requests: list[Request],
                  active_requests: dict[float, Request],
                  iteration: int,
-                 config: Config):
+                 config: 'Config'):
         self.config = config
         self.vehicles = vehicles
         self.requests = requests
@@ -60,7 +55,7 @@ class TripHandler:
         self.vehicle_to_trips_cost_map = {} # {vehicle_id: [trip_cost_index]}
         self.trip_to_vehicle_cost_map = {}  # {trip_id: [trip_cost_index]}
         
-    def run(self):
+    def run(self) -> tuple[dict, list[Trip], list[TripCost], dict, dict]:
         """
         Run trip generation: on-demand trips, trip costs, shared trips,
         Logs time spent on RTV generation.
@@ -112,7 +107,7 @@ class TripHandler:
 
     # TRIP COST GENERATION
     @staticmethod
-    def create_trip_cost(vehicle: Vehicle, trip_no, trips, prev_sequence, config: Config):
+    def create_trip_cost(vehicle: Vehicle, trip_no, trips, prev_sequence, config: 'Config'):
         try:
             plan: TripInsertionPlan = VehicleHandler.plan_trip_insertions(vehicle, trips, prev_sequence=prev_sequence)
             feasible = plan.sequence_feasible

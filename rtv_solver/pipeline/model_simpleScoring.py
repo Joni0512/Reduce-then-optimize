@@ -6,9 +6,7 @@ class ScoringMLP(nn.Module):
     """
     Item-wise scoring network for structured prediction.
 
-    A shared MLP is applied independently to each item's feature vector,
-    producing one raw score per item. The number of items is variable;
-    the feature dimension is fixed for the lifetime of the model.
+    A shared MLP is applied independently to each item's feature vector, producing one raw score per item. The number of items is variable; the feature dimension is fixed for the lifetime of the model.
 
     Input:
         x : Tensor of shape (num_items, feature_dim)
