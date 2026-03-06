@@ -237,6 +237,7 @@ The structure used in Chattanooga is different to the one used in `wilson`'.
 ```
 pip install rtv-solver
 ```
+Gurobi-License is required for local runtime.
 
 If one wants to debug the codebase or develop new features, one needs to make sure that the user runs the python package not from the lastest version of the online package, but rather from their local version. Caution on the difference between rtv-solver as the online package and rtv_solver as the packaging in the repository. If it has already been installed, update with the following commands for editable runs that incorporate one's changes.
 ```
@@ -269,6 +270,21 @@ pytest -q
 # alternative with marks in order to filter only certain tests (e.g. integration)
 pytest -q -m integration
 ```
+
+## Runtime on CPU cluster
+
+The following commands help to set up the codebase on a CPU cluster.
+1. Get access to cluster via Ticketing system (approval by supervisor), e.g. [Cornell Unicorn cluster](https://it.coecis.cornell.edu/researchit/using-the-unicorn-cluster/)
+2. Besides local Gurobi license for your local machine, one needs a Academic WLS License. 
+3. wget https://packages.gurobi.com/13.0/gurobi13.0.1_linux64.tar.gz 
+4. (cd to gurobi folder) `tar -xvzf 'gurobi-file'`
+5. drop gurobi licenes file into default location
+5. (cd into gurobi > bin) `./grgetkey 'license file'`
+6. initialize conda for other package management
+
+Attention: it is not possible to run the entire software based on the OSRM backend server, thus the local files need to be appended with the travel_time_matrix in order to run properly.
+
+
 
 # Future Development
 
