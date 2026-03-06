@@ -45,8 +45,8 @@ class COAMLTrainingLoop:
         updated_driver_runs = []
         epoch_iteration_losses: list[list[Optional[float]]] = []
         all_iteration_losses: list[Optional[float]] = []
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-4)
-        total_epochs = self.config.ITERATIONS
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.LEARNING_RATE)
+        total_epochs = self.config.EPOCHS
         max_checkpoints = min(10, total_epochs)
         checkpoint_epochs = sorted(
             {
@@ -82,7 +82,7 @@ class COAMLTrainingLoop:
                 )
 
         # Plot once at the end of the loop (instead of every solve_pdptw call).
-        plot_loss(all_iteration_losses, self.config.ITERATIONS)
+        plot_loss(all_iteration_losses, self.config.EPOCHS)
         return TrainingLoopResult(
             updated_driver_runs=updated_driver_runs,
             epoch_iteration_losses=epoch_iteration_losses,

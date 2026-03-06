@@ -53,7 +53,8 @@ class Config:
     SEED: int = 42
     IMITATION_SOLUTION_FILE: Path | str = 'outputs/test_nc/solution_10r_1v_repeat6_simple/result_driver_runs.json'
     Y_STAR_TYPE: str = "best_ordered_match" # TODO somehow we have circular imports if we imported this from the pipeline module
-    ITERATIONS: int = 1
+    EPOCHS: int = 1
+    LEARNING_RATE: float = 1e-3
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -124,11 +125,12 @@ class Config:
             SEED = args.seed,
             IMITATION_SOLUTION_FILE = args.imitation_solution_file,
             Y_STAR_TYPE = args.y_star_type,
-            ITERATIONS = getattr(args, "iterations", 1),
+            EPOCHS = getattr(args, "epochs", 1),
+            LEARNING_RATE = getattr(args, "learning_rate", 1e-3)
         )
         # some checks to fail early if the config is not valid
         assert config.STEP_SIZE <= config.BATCH_INTERVAL, f"MUST: Step size {config.STEP_SIZE} <= batch interval {config.BATCH_INTERVAL}"
-        assert config.ITERATIONS >= 1, f"MUST: ITERATIONS >= 1, got {config.ITERATIONS}"
+        assert config.EPOCHS >= 1, f"MUST: EPOCHS >= 1, got {config.EPOCHS}"
 
         save_json({"config_dict": config.to_dict(),
                 "git_commit": os.popen("git rev-parse HEAD").read().strip(),
