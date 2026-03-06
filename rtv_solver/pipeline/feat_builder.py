@@ -75,8 +75,8 @@ class TripFeatures:
 @dataclass 
 class TripCostFeatures:
     """1D feature scores for each request-trip-vehicle combination for aggregated information; that also defines the blank defaults if nothing can be calculated"""
-    tc_cost: float = 0.0
-    tc_added_cost: float = 0.0
+    # tc_cost: float = 0.0
+    # tc_added_cost: float = 0.0
     tc_sequence_len: int = 0
     tc_num_trips: int = 0
 
@@ -100,8 +100,8 @@ class TripCostFeatures:
 
 
 class FeatureBuilder:
-    ENABLE_TRIP_COMPOSITION_FEATURES = True # NOTE this already seems to help in our very simple setting
-    _BASE_FEATURE_SIZE = 67
+    ENABLE_TRIP_COMPOSITION_FEATURES = True # include explicit trip-composition signal
+    _BASE_FEATURE_SIZE = 82
     _TRIP_COMPOSITION_FEATURE_SIZE = 2
     FEATURE_SIZE = _BASE_FEATURE_SIZE + (
         _TRIP_COMPOSITION_FEATURE_SIZE if ENABLE_TRIP_COMPOSITION_FEATURES else 0
@@ -179,13 +179,12 @@ class FeatureBuilder:
             if self.ENABLE_TRIP_COMPOSITION_FEATURES:
                 fv.update(self._trip_features(trip, vehicle))                   # 2 items
             fv.update(self._vehicle_features(vehicle, vehicles, current_time))  # 11 items
-            # fv.update(self._trip_cost_features(tc, current_time))               # 17 items
+            fv.update(self._trip_cost_features(tc, current_time))               # 17 items
             fv.update(self._future_requests_features(trip_requests, current_time)) # 49 items
             # fv.update(self._request_aggregate_features(trip_requests))
             fv[self.REJECT_FLAG_FEATURE_NAME] = 0.0
 
-            # current total = 67 items (or 69 if trip composition features are enabled)
-            # + 11 + 17 + 49 = 83 items
+            # current total = 82 items (or 84 if trip composition features are enabled)
 
             features.append(fv)
 
@@ -296,7 +295,9 @@ class FeatureBuilder:
         vehicles = trip_handler.vehicles
         requests = trip_handler.requests
         trips: List[Union[Trip, SharedTrip]] = trip_handler.trips
-        trip_costs: Iterable[TripCost] = getattr(TripHandler, "trip_costs", [])
+        trip_costs: Iterable[TripCost] = getattr(
+            trip_handler, "trip_costs", getattr(TripHandler, "trip_costs", [])
+        )
 
         return trip_costs, trips, vehicles, requests
 
@@ -459,11 +460,11 @@ class FeatureBuilder:
         features: TripCostFeatures = TripCostFeatures()
         
         # COST
-        features.tc_cost = float(trip_cost.cost)
+        # features.tc_cost = float(trip_cost.cost)
         features.tc_sequence_len = len(plan.sequence)
         features.tc_num_trips = len(plan.trips)
-        if plan.added_cost >= 0:
-            features.tc_added_cost = float(plan.added_cost)
+        # if plan.added_cost >= 0:
+        #     features.tc_added_cost = float(plan.added_cost)
 
         # TRAVEL TIME TO FIRST PICKUP
         # Use veh_travel_time which is pre-calculated in vehicle_handler, meaning for current time to get to the next stop
@@ -527,10 +528,10 @@ class FeatureBuilder:
         temporal decay.
 
         The operating area (defined by min/max lat and lon) is divided into a 7x7 grid.
-        For each request whose earliest pickup time is in the future, the pickup origin is
-        mapped to a grid cell and a decay score is accumulated:
+        For each request, the pickup origin is mapped to a grid cell and a decay
+        score is accumulated based on pickup-time proximity:
 
-          - Interval 1  [current_time,                current_time + 1*BATCH_INTERVAL): score = 1.0
+          - Interval 1  pickup_time <= current_time + 1*BATCH_INTERVAL: score = 1.0
           - Interval 2  [current_time + BATCH_INTERVAL,  current_time + 2*BATCH_INTERVAL): score = 0.5
           - Interval 3  [current_time + 2*BATCH_INTERVAL, current_time + 3*BATCH_INTERVAL): score = 0.25
           - Interval 4  [current_time + 3*BATCH_INTERVAL, current_time + 4*BATCH_INTERVAL): score = 0.125
@@ -545,8 +546,8 @@ class FeatureBuilder:
         Parameters
         ----------
         requests : List[Request]
-            Candidate future requests (not yet dispatched). Only requests with
-            earliest_pickup_time strictly after current_time are considered.
+            Candidate requests. Requests already due (earliest_pickup_time <= current_time)
+            are treated as immediate demand (interval 1).
         current_time : float
             Current simulation time.
 
@@ -566,12 +567,13 @@ class FeatureBuilder:
 
         for request in requests:
             pickup_time = request.earliest_pickup_time
-            if pickup_time <= current_time:
-                continue
 
             # Which 1-indexed interval does this pickup fall into?
             offset = pickup_time - current_time
-            interval_index = int(offset // self.config.BATCH_INTERVAL) + 1
+            if offset <= 0:
+                interval_index = 1
+            else:
+                interval_index = int(offset // self.config.BATCH_INTERVAL) + 1
 
             if interval_index > NUM_INTERVALS:
                 continue

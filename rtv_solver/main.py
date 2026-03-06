@@ -65,7 +65,7 @@ if __name__ == "__main__":
     parser.add_argument('--imitation_solution_file', type=str, default='outputs/test_nc/solution_10r_1v_repeat6_simple/result_driver_runs.json', help='Path to the imitation solution file with the complete manifest of all trips for all vehicles')
     parser.add_argument('--y_star_type', type=str, choices=[TYPE_BEST_ORDERED_MATCH, TYPE_BEST_UNORDERED_MATCH], default=TYPE_BEST_ORDERED_MATCH, help='Type of y_star to be used for the Fenchel-Young loss during imitation learning')
     parser.add_argument('--epochs', type=int, default=5, help='Number of training epochs over the same payload for COAML mode')
-    parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate for the ML model')
+    parser.add_argument('--learning_rate', type=float, default=5e-4, help='Learning rate for the ML model')
     
     # implement configurations
     arguments = parser.parse_args()

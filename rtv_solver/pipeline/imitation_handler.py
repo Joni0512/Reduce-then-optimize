@@ -338,7 +338,7 @@ class ImitationHandler:
         max_value = torch.max(imitation_scores)
         max_indices = torch.where(imitation_scores == max_value)[0]
         # assert that there is only one maximum value
-        assert len(max_indices) == 1, "There should be only one maximum value."
+        assert len(max_indices) == 1, f"There should be only one maximum value. {imitation_scores}" 
         y_star = torch.zeros_like(imitation_scores)
         y_star[max_indices] = 1
         return y_star
