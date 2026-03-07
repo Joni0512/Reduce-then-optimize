@@ -242,7 +242,7 @@ Gurobi-License is required for local runtime.
 If one wants to debug the codebase or develop new features, one needs to make sure that the user runs the python package not from the lastest version of the online package, but rather from their local version. Caution on the difference between rtv-solver as the online package and rtv_solver as the packaging in the repository. If it has already been installed, update with the following commands for editable runs that incorporate one's changes.
 ```
 pip uninstall rtv-solver
-pip install -e ~/rtv_solver
+pip install -e . (from rtv-solver directory)
 ```
 
 ## Set up OSRM backend server
@@ -253,6 +253,7 @@ Depending on the input data, you are using and the main operating area, you have
 
 `chattanooga` is located in Tennessee, USA (center: 35.065958°N 85.248386°W)
 
+### Preprocessing
 ```bash
 wget https://download.geofabrik.de/north-america/us/north-carolina-latest.osm.pbf
 docker run -t -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend osrm-extract -p /opt/car.lua /data/north-carolina-latest.osm.pbf || echo "osrm-extract failed"
@@ -260,6 +261,20 @@ docker run -t -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend osrm-partition
 docker run -t -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend osrm-customize /data/north-carolina-latest.osrm || echo "osrm-customize failed"
 docker run -t -i -p 5000:5000 -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend osrm-routed --algorithm mld /data/north-carolina-latest.osrm
 ```
+
+### Starting up server
+
+The last command must be called from the directory where the unpacked data is located. This initializes the Docker container and starts it.
+```bash
+docker run -d -p 5001:5000 \
+  -v "${PWD}:/data" \
+  ghcr.io/project-osrm/osrm-backend \
+  osrm-routed --algorithm mld /data/north-carolina-latest.osrm
+```
+In order to test the working OSRM backend server, you can put the following information into your lcoal browser and it should work immediately giving you some value for the routing request
+
+[Click for local test](http://localhost:5001/route/v1/driving/-77.90871990823223,35.723017652422435;-77.90,35.75)
+
 
 ## Testing
 In order to check that the basic functionality of the different solvers works including certain config combinations, one must install `pytest` and it can run all available tests from `../tests` automatically with the following command in your folder structure. It is important that each method and each files are named with `test_` as a prefix to the specific functions. The project uses `pytest.mark` to filter tests. The marks can be viewed in the `pyproject.toml`.
@@ -275,19 +290,34 @@ pytest -q -m integration
 
 The following commands help to set up the codebase on a CPU cluster.
 1. Get access to cluster via Ticketing system (approval by supervisor), e.g. [Cornell Unicorn cluster](https://it.coecis.cornell.edu/researchit/using-the-unicorn-cluster/)
-2. Besides local Gurobi license for your local machine, one needs a Academic WLS License. 
-3. wget https://packages.gurobi.com/13.0/gurobi13.0.1_linux64.tar.gz 
-4. (cd to gurobi folder) unpack installation file `tar -xvzf 'gurobi-file'`
-5. (cd into gurobi > bin) `./grgetkey 'license file'`
+2. Install gurobi and hexaly optimizers with the respective licenses.
 6. initialize conda for other package management with `conda env create -f rtv-solver/environment.yml -n coaml`
-7. set PATH variables for Gurobi installation
-8. run script again with `source ~/.bashrc` to update shell environment
-9. Command `gurobi_cl --license` should confirm the successful installation of Gurobi Optimizer WSL.
 10. Install rtv-solver package as editable from `rtv-solver` with `pip install -e .`
 11. If `gurobipy` or `hexalypy` fails, install them again through pip with the right version from the 
 12. The files that you use for the runtime on the server need to have the time matrix as part of the payload file. This needs to be prepared offline during the creation of the files. For most clusters, it is not allowed to have a OSRM backend server running. This is explained in a different section <ADD_LINK_HERE>. You can make sure that it will work by turning off the backend server and running a payload.
 
 Attention: it is not possible to run the entire software based on the OSRM backend server, thus the local files need to be appended with the travel_time_matrix in order to run properly.
+
+### Installation of Gurobi
+
+Besides local Gurobi license for your local machine, one needs a Academic WLS License. 
+1. wget https://packages.gurobi.com/13.0/gurobi13.0.1_linux64.tar.gz 
+4. (cd to gurobi folder) unpack installation file `tar -xvzf 'gurobi-file'`
+5. (cd into gurobi > bin) `./grgetkey 'license file'`
+set PATH variables for Gurobi installation
+8. run script again with `source ~/.bashrc` to update shell environment
+9. Command `gurobi_cl --license` should confirm the successful installation of Gurobi Optimizer WSL.
+
+### Installation of Hexaly
+
+Request Server License from hexaly
+1. `wget https://www.hexaly.com/downloads/14_5_20260220/Hexaly_14_5_20260220_Linux64.run`
+2. `bash Hexaly_14_5_20260220_Linux64.run --nointeractive --noroot`
+3. `pip install hexaly -i https://pip.hexaly.com`
+4. Download the license.dat file from Hexaly website and add it to the hexaly installation. (hexaly_14_5 folder)
+5. Open PATH editor `nano ~/.bashrc`
+6. Add the following line to the end of the file. `export HX_LICENSE_PATH="$HOME/hexaly_14_5/license.dat"`
+7. Update PATH variables with `source ~/.bashrc`
 
 
 
