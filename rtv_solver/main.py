@@ -54,13 +54,13 @@ if __name__ == "__main__":
     parser.add_argument('--dwell_pickup', type=int,         default=0, help='Dwell time at pickup in seconds')
     parser.add_argument('--dwell_alight', type=int,         default=0, help='Dwell time at alight (dropoff) in seconds')
     parser.add_argument('--walk_distance_cutoff', type=int, default=0, help="Walking distance between dropoff and final destination.")
-    parser.add_argument('--step_size', type=int,            default=500, help='Step size in seconds for rolling horizon')
-    parser.add_argument('--batch_interval', type=int,       default=800, help='Batch interval in seconds') # NOTE if this value is too small, we might miss requests if the vehicle_trip to the pickup is longer than the batch interval size (TODO fix this so this does not have as much impact)
+    parser.add_argument('--step_size', type=int,            default=400, help='Step size in seconds for rolling horizon')
+    parser.add_argument('--batch_interval', type=int,       default=1600, help='Batch interval in seconds') # NOTE if this value is too small, we might miss requests if the vehicle_trip to the pickup is longer than the batch interval size (TODO fix this so this does not have as much impact)
     # stats parameters
     parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
     # random_seed, training parameters, NN parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility') 
-    parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'coaml', 'plot', 'optimal_solution', 'hexaly_solution'], default='coaml', help='Mode on how the programme should solve the PDPTW')
+    parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'coaml', 'plot', 'optimal_solution', 'hexaly_solution'], default='offline', help='Mode on how the programme should solve the PDPTW')
     parser.add_argument('--debug', type= str, default='False', choices=['True', 'False'], help='Run in debug mode (# reduces number of vehicles and requests for easier debugging)')
     parser.add_argument('--imitation_solution_file', type=str, default='outputs/test_nc/solution_10r_1v_repeat6_simple/result_driver_runs.json', help='Path to the imitation solution file with the complete manifest of all trips for all vehicles')
     parser.add_argument('--y_star_type', type=str, choices=[TYPE_BEST_ORDERED_MATCH, TYPE_BEST_UNORDERED_MATCH], default=TYPE_BEST_ORDERED_MATCH, help='Type of y_star to be used for the Fenchel-Young loss during imitation learning')
