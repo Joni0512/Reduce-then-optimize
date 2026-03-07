@@ -26,6 +26,12 @@ class NetworkHandler:
     node_data = []
 
     @staticmethod
+    def init_from_source(server_url=None, tt_matrix=None, euclidean=False):
+        if tt_matrix is not None:
+            return NetworkHandler.init(False, tt_matrix=tt_matrix, euclidean=euclidean)
+        return NetworkHandler.init(True, server_url=server_url, euclidean=euclidean)
+
+    @staticmethod
     def init(server_based, server_url=None, tt_matrix=None, euclidean=False):
         """
         For liLim, Euclidean must be True

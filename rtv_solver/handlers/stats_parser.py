@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import numpy as np
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from collections import defaultdict
@@ -98,11 +99,10 @@ class StatsParser:
     """
     Evaluate final feasibility + compute KPIs for a complete payload (incl. filled manifests) and unserved requests
     """
-    def __init__(self, config: Config | None = None):
+    def __init__(self, config: Config | None = None, tt_matrix: Optional[np.ndarray] = None):
         self.config = config
-        self.server_url = self.config.SERVER_URL
         self._network_initialized = False
-        self._init_network()
+        self._init_network(tt_matrix)
 
         # request booking_id -> StopPair(pickup=..., dropoff=...)
         self.request_stops: Dict[int, StopPair] = {}
@@ -150,10 +150,10 @@ class StatsParser:
         requests = payload[PayloadParser.REQUESTS]
         return self._compute_request_development(requests)
 
-    def _init_network(self) -> None:
+    def _init_network(self, tt_matrix: Optional[np.ndarray] = None) -> None:
         if self._network_initialized:
             return
-        NetworkHandler.init(True, self.server_url)
+        NetworkHandler.init_from_source(server_url=self.config.SERVER_URL, tt_matrix=tt_matrix)
         self._network_initialized = True
 
     def _simulate_driver_run(self, depot: dict, driver_run: dict) -> None:
@@ -371,8 +371,9 @@ class StatsParser:
         )
 
     def _node_from_depot(self, depot: dict) -> Node:
-        return Node(depot["pt"]["lat"], depot["pt"]["lon"])
+        return Node(depot["pt"]["lat"], depot["pt"]["lon"], depot["pt"].get("node_id", None))
 
     def _node_from_stop(self, stop: dict) -> Node:
+        # TODO align the string for stops and depots (id vs node_id)
         loc = stop[PayloadParser.MANIFEST_LOC]
-        return Node(loc["lat"], loc["lon"])
+        return Node(loc["lat"], loc["lon"], loc.get("node_id", None))

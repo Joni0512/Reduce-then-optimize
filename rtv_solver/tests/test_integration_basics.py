@@ -64,6 +64,7 @@ def test_integration_offlineRTVsolver_vehicle1_maxCard3():
     config.STEP_SIZE = 600
     config.BATCH_INTERVAL = 600
     config.MODE = 'offline'
+    config.SERVER_URL = "http://127.0.0.1:5001/" # tests work only with active server
     # run solver
     off_solver = OfflineRTVSolver(config)
     updated_driver_runs = off_solver.solve_rtv(
@@ -107,6 +108,7 @@ def test_integration_offlineRTVsolver_vehicle2_maxCard2():
     config.STEP_SIZE = 600
     config.BATCH_INTERVAL = 600
     config.MODE = 'offline'
+    config.SERVER_URL = "http://127.0.0.1:5001/" # tests work only with active server
     # run solver
     off_solver = OfflineRTVSolver(config)
     updated_driver_runs = off_solver.solve_rtv(
@@ -152,6 +154,7 @@ def test_integration_onlineRTVsolver_vehicle3_maxCard3():
     config.STEP_SIZE = 600
     config.BATCH_INTERVAL = 600
     config.MODE = 'online'
+    config.SERVER_URL = "http://127.0.0.1:5001/" # tests work only with active server
     # run solver
     on_solver = OnlineRTVSolver(config)
     updated_driver_runs, _ = on_solver.solve_pdptw_rtv(payload)
@@ -198,6 +201,7 @@ def test_integration_RHsolver_vehicleDeactivation_keepActiveTrue():
     config.KEEP_ACTIVE = True
     config.RETURN_DEPOT = True
     config.MODE = 'offline'
+    config.SERVER_URL = "http://127.0.0.1:5001/" # tests work only with active server
     # run solver
     off_solver = OfflineRTVSolver(config)
     updated_driver_runs = off_solver.solve_rtv(
@@ -246,6 +250,7 @@ def test_integration_COAMLsolver_vehicle1_maxCard3():
     config.STEP_SIZE = 600
     config.BATCH_INTERVAL = 600
     config.MODE = 'rh-ml'
+    config.SERVER_URL = "http://127.0.0.1:5001/" # tests work only with active server
 
     rh_solver = COAMLPipeline(config, payload)
     updated_driver_runs = rh_solver.solve_pdptw(payload)
@@ -261,6 +266,8 @@ def test_integration_COAMLsolver_vehicle1_maxCard3():
     # Simplest test to check whether it runs at all correctly
     assert feasible is True
     assert violations == []
+
+# TODO add a test that runs without the server on default based on the right input file
 
 # if __name__ == '__main__':
     # if we require a test of the results here, just add it to the main loop and start a debug run

@@ -21,7 +21,7 @@ class PayloadParser:
     """
     # keys for payload dictionary that can be used globally
     DATE = "date"
-    TIME_MATRIX = "time_matrix"
+    TIME_MATRIX = "travel_time_matrix"
     CURRENT_TIME = "current_time"
 
     DEPOT = "depot"

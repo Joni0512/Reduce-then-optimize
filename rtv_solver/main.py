@@ -171,7 +171,8 @@ if __name__ == "__main__":
         stats_payload = {PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
                         PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
                         PayloadParser.DRIVERS: updated_driver_runs}
-        stats_evaluator = StatsParser(config)
+        tt_matrix = payload.get(PayloadParser.TIME_MATRIX, None)
+        stats_evaluator = StatsParser(config, tt_matrix = tt_matrix)
         total_time = time.time() - start_time
         feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
         stats_evaluator.add_total_time(total_time = total_time)
@@ -191,13 +192,18 @@ if __name__ == "__main__":
 
         console_logger.info(f"Run complete. Results can be found @ {Path(config.OUTPUT_DIR)}")
     
-    # VISUALISE
+        # VISUALISE
         if stats.serviced > 0:
             with open(config.OUTPUT_DIR / "result_driver_runs.json", 'r') as driver_runs_file:
                 loaded_data = json.load(driver_runs_file)
-            mapper = RouteManifestMapper(config)
-            geojson = mapper.manifest_to_geojson(loaded_data, 18)
-            mapper.save_geojson(geojson, config.OUTPUT_DIR / "route_manifest_v2.geojson")
+
+            if config.SERVER_URL is not None:
+                mapper = RouteManifestMapper(config, tt_matrix = tt_matrix)
+                geojson = mapper.manifest_to_geojson(loaded_data, 18)
+                mapper.save_geojson(geojson, config.OUTPUT_DIR / "route_manifest_v2.geojson")
+            else:
+                pass # visualisation only possible with server
+            
 
     # not required always, can be easily recreated and is not based on the result but rather the initial data
     # plot_requests_operating_area(payload, show=False, save_path=config.OUTPUT_DIR / "request_distribution.png") 

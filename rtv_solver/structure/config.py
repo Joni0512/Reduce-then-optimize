@@ -28,7 +28,7 @@ class Config:
     OVERRIDE: List[str] = field(default_factory=list)
     OUTPUT_DIR: Path = Path("outputs") / "debug"
     INPUT_FILE: str = "rtv-solver/inputs/wilson_nc_initial.pkl"
-    SERVER_URL: str = "http://127.0.0.1:5001/"
+    SERVER_URL: str = None # "http://127.0.0.1:5001/"
     MAX_THREAD_CNT: int = 16
     RTV_TIMEOUT: int = 120
     ILP_TIMEOUT: int = 120
@@ -104,7 +104,7 @@ class Config:
             OVERRIDE = args.override, 
             OUTPUT_DIR = output_directory,
             INPUT_FILE = args.input_file,
-            SERVER_URL = args.server_url,
+            SERVER_URL = getattr(args, "server_url", None), # args.server_url,
             MODE = args.mode,
             MAX_THREAD_CNT = args.max_thread_cnt,
             RTV_TIMEOUT = args.rtv_timeout,

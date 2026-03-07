@@ -21,6 +21,7 @@ def test_visual_geoJsonCreation():
         loaded_data = json.load(json_file)
 
     config = Config()
+    config.SERVER_URL = "http://127.0.0.1:5001/" # tests work only with active server
 
     mapper = RouteManifestMapper(config)
     result = mapper.manifest_to_geojson(loaded_data)

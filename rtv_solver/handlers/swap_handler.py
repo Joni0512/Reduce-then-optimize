@@ -27,7 +27,7 @@ class SwapHandler:
         self.MAX_NUM_THREAD = config.MAX_THREAD_CNT
         self.DWELL_PICKUP = config.DWELL_PICKUP
         self.DWELL_ALIGHT = config.DWELL_ALIGHT
-        NetworkHandler.init(True, server_url)
+        NetworkHandler.init_from_source(server_url)
         payload_object = PayloadParser.get_payload_object({
             PayloadParser.DRIVERS: driver_runs,
             PayloadParser.DEPOT: depot, 

@@ -41,7 +41,7 @@ class OnlineRTVSolver:
 
     def check_feasibility(self, payload):
         # NOTE for what do we need this method?
-        NetworkHandler.init(True, self.config.SERVER_URL)
+        NetworkHandler.init_from_source(server_url=self.config.SERVER_URL)
         feasible_time_slots = []
 
         request = payload[PayloadParser.REQUESTS][0]
@@ -74,7 +74,7 @@ class OnlineRTVSolver:
         With conifg.return_depot, this method will not add the final trips to the depot. The user has to call finalize_driverRuns(...) to add those final stops. 
         """
         # initalize network and payload
-        NetworkHandler.init(True, self.config.SERVER_URL)
+        NetworkHandler.init_from_source(server_url=self.config.SERVER_URL)
         payload_object = PayloadParser.get_payload_object(payload)
         # get all requests of payload, add 
         request_handler = RequestHandler(payload_object.requests, self.config.DWELL_PICKUP, self.config.DWELL_ALIGHT)
@@ -258,11 +258,11 @@ class OnlineRTVSolver:
         return True
 
     @staticmethod
-    def simulate_manifest(config: Config, current_time, driver_runs, intermediate_location=True):
+    def simulate_manifest(config: Config, current_time, driver_runs, intermediate_location=True, tt_matrix: np.ndarray = None):
         """
         Update the driver_run for the offlineSolver so that the last results fits the time that we have used for it.
         """
-        NetworkHandler.init(True, config.SERVER_URL)
+        NetworkHandler.init_from_source(server_url=config.SERVER_URL, tt_matrix=tt_matrix)
         new_driver_runs = []
         # TODO longterm: turn driver_run into an object that handles all the conditions and changes based on validated calls
         for driver_run in driver_runs:
@@ -300,7 +300,8 @@ class OnlineRTVSolver:
                 next_immediate_time, next_immediate_node = NetworkHandler.get_current_location_time(
                     next_immediate_node, target_node, next_immediate_time, current_time)
                 next_immediate_loc = {"lat":next_immediate_node.lat,
-                                      "lon":next_immediate_node.lon}
+                                      "lon":next_immediate_node.lon,
+                                      "node_id":next_immediate_node.id}
 
             state[PayloadParser.DRIVER_STATE_DT_SEC] = next_immediate_time
             state[PayloadParser.DRIVER_STATE_LOC] = next_immediate_loc
@@ -435,7 +436,7 @@ class OnlineRTVSolver:
         return cost, new_manifest
 
     def _insert_request_to_driver_run(self, depot, driver_run, request, objective="vmt"):
-        NetworkHandler.init(True, self.config.SERVER_URL)
+        NetworkHandler.init_from_source(server_url=self.config.SERVER_URL)
         driver_run_c = copy.deepcopy(driver_run)
         depot_pt = depot[PayloadParser.DEPOT_PT]
         depot_node_id = NetworkHandler.get_next_node_id(depot_pt["lat"], depot_pt["lon"])

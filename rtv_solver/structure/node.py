@@ -15,10 +15,13 @@ class Node:
     
     @classmethod
     def from_dict(cls, loc_dict) -> Node:
-        return cls(loc_dict['lat'], loc_dict['lon'])
+        return cls(loc_dict["lat"], loc_dict["lon"], loc_dict.get("node_id"))
     
     def to_dict(self) -> dict:
-        return asdict(self)
+        node_dict = asdict(self)
+        if self.id is not None:
+            node_dict["node_id"] = self.id
+        return node_dict
     
     def __str__(self):
         return f"<Node: lat: {self.lat}, lon: {self.lon}, id: {self.id}>"

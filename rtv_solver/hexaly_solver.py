@@ -36,10 +36,7 @@ class HexalySolver:
         console_logger.info(f"Solving PDPTW with Hexaly solver")
         
         time_matrix, no_of_nodes = None, None
-        if tt_matrix == None:           
-            NetworkHandler.init(True, server_url)
-        else:
-            time_matrix, no_of_nodes, _, _ = NetworkHandler.init(False, server_url, tt_matrix)
+        NetworkHandler.init_from_source(server_url=server_url, tt_matrix=tt_matrix)
 
         depot = payload["depot"]
         if tt_matrix == None:

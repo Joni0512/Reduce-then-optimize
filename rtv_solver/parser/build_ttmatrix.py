@@ -8,10 +8,12 @@ from rtv_solver.handlers.network_handler import NetworkHandler
 input_directory = 'inputs/test_nc'
 output_dir = "inputs/test_nc/ttm"
 
-files_to_process = ["test_12r_1v_repeat9.json"]
+files_to_process = ["test_10r_1v_repeat6_simple.pkl"]
 
 for filename in files_to_process:
     input_path = os.path.join(input_directory, filename)
+    base_name, extension = os.path.splitext(filename)
+    extension = extension.lower()
 
     # Skip if the file doesn't exist
     if not os.path.isfile(input_path):
@@ -19,10 +21,17 @@ for filename in files_to_process:
         continue
     
     print("Processing file: ", filename)
-    with open(input_path, 'rb') as file:
-        payload_wilson_initial = json.load(file)
+    if extension == ".json":
+        with open(input_path, "r") as file:
+            payload_wilson_initial = json.load(file)
+    elif extension in {".pkl", ".pickle"}:
+        with open(input_path, "rb") as file:
+            payload_wilson_initial = pickle.load(file)
+    else:
+        print(f"Skipping {filename}, unsupported extension: {extension}")
+        continue
 
-    NetworkHandler.init(True, "http://127.0.0.1:5001/", euclidean=False)
+    NetworkHandler.init_from_source(server_url="http://127.0.0.1:5001/", euclidean=False)
     depot = payload_wilson_initial["depot"]
     depot_node_id = NetworkHandler.get_next_node_id(depot["pt"]["lat"],depot["pt"]["lon"])
     depot["pt"]["node_id"] = depot_node_id
@@ -50,8 +59,8 @@ for filename in files_to_process:
     
     os.makedirs(output_dir, exist_ok=True)
     # Define the full paths for the new files
-    json_path = os.path.join(output_dir, filename)
-    pkl_path = os.path.join(output_dir, filename.replace('.json', '.pkl'))
+    json_path = os.path.join(output_dir, f"{base_name}.json")
+    pkl_path = os.path.join(output_dir, f"{base_name}.pkl")
     
     # Write JSON file
     with open(json_path, 'w') as f:

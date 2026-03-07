@@ -158,13 +158,14 @@ class COAMLPipeline():
                 PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
                 PayloadParser.REQUESTS: selected_requests,
                 PayloadParser.DRIVERS: driver_runs,
-                PayloadParser.CURRENT_TIME: current_time}
+                PayloadParser.CURRENT_TIME: current_time,
+                PayloadParser.TIME_MATRIX: payload.get(PayloadParser.TIME_MATRIX, None)}
 
             # solve the RTV problem and update manifests
             if len(selected_requests) == 0:
                 new_driver_runs = driver_runs
             else:    
-                new_driver_runs = self.solve_iteration(new_payload, iteration, mode = mode)
+                new_driver_runs = self.solve_iteration(new_payload, iteration, mode = mode, tt_matrix=new_payload[PayloadParser.TIME_MATRIX])
                 if mode == "train" and optimizer is not None and self.last_loss is not None:
                     optimizer.zero_grad(set_to_none=True)
                     self.last_loss.backward()
@@ -175,7 +176,8 @@ class COAMLPipeline():
             iteration += 1
 
             # update vehicles based on decisions in the previous step until current time (might not be the entire interval)
-            simulated_driver_runs = OnlineRTVSolver.simulate_manifest(self.config, current_time, new_driver_runs,   intermediate_location=True) # TODO check if intermediate_location is correct
+            # TODO if the networkHandler is not used from server, we cannot handle intermediate locations here, so we need to set intermediate_location to False
+            simulated_driver_runs = OnlineRTVSolver.simulate_manifest(self.config, current_time, new_driver_runs, intermediate_location=False, tt_matrix=new_payload[PayloadParser.TIME_MATRIX]) # TODO check if intermediate_location is correct
             driver_runs = simulated_driver_runs
 
         final_driver_runs = OnlineRTVSolver.finalize_driverRuns(
@@ -262,14 +264,15 @@ class COAMLPipeline():
             return ImitationHandler.get_y_star_best_unordered_match(imitation_scores)
         raise ValueError(f"Invalid y_star type: {self.config.Y_STAR_TYPE}")
     
-    def solve_iteration(self, subset_payload, iteration = 0, mode: str = "train"):
+    def solve_iteration(self, subset_payload, iteration = 0, mode: str = "train", tt_matrix: Optional[np.ndarray] = None):
         """
         Solver for the entire payload that is given, based on the onlineRTVSolver but adapted to COAML pipeline.
         """
         # TODO (major effort) improve code quality as we currently have a lot of repetition that should not be required as we need similar information in online, offline and COAML
         
         # initalize network and payload
-        NetworkHandler.init(True, self.config.SERVER_URL)
+        NetworkHandler.init_from_source(server_url=self.config.SERVER_URL, tt_matrix=tt_matrix)
+        
         payload_object = PayloadParser.get_payload_object(subset_payload, False)
         request_handler = RequestHandler(payload_object.requests, 
                                          self.config.DWELL_PICKUP, 
@@ -289,8 +292,8 @@ class COAMLPipeline():
                                                  boarded_trips, 
                                                  self.config.DWELL_ALIGHT, 
                                                  self.config.DWELL_PICKUP)
-        
-        NetworkHandler.initialize_travel_time_matrix()
+        if tt_matrix is None:
+            NetworkHandler.initialize_travel_time_matrix()
         iteration += 1  # increase iteration as the prior step was just rebuilding from the last iteration (if there was a prior step)
         
         try:

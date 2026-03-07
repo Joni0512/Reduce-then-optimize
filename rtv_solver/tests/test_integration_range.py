@@ -103,6 +103,7 @@ def test_integration_solver_parametrized(
     config.BATCH_INTERVAL = batch_interval
     config.KEEP_ACTIVE = keep_active
     config.RETURN_DEPOT = return_depot
+    config.SERVER_URL = "http://127.0.0.1:5001/" # tests work only with active server
 
     expected_depot_movements = 0
     if return_depot:
