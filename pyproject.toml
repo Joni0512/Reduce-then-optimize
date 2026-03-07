@@ -24,12 +24,7 @@ dependencies = [
 [tool.setuptools.packages.find]
 include = [
     "rtv_solver",
-    "rtv_solver.handlers",
-    "rtv_solver.structure",
-    "rtv_solver.util",
-    "rtv_solver.visuals",
-    "rtv_solver.pipeline",
-    "rtv_solver.tests"
+    "rtv_solver.*"
 ]
 
 [tool.pytest.ini_options]
