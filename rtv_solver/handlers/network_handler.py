@@ -99,7 +99,7 @@ class NetworkHandler:
                 url = f"{table_url}{';'.join(origins + destinations)}" \
                       f"?sources={';'.join(origin_indices)}" \
                       f"&destinations={';'.join(destination_indices)}"
-                data = NetworkHandler._response(url)
+                data = NetworkHandler.get_response(url)
                 matrix = np.array(data['durations'])
                 travel_time_matrix[
                     i * MAX_NUM_COORD:(i + 1) * MAX_NUM_COORD,
@@ -115,7 +115,7 @@ class NetworkHandler:
         return travel_time_matrix, no_of_nodes, SERVER_BASED, EUCLIDEAN
 
     @staticmethod
-    def _response(url: str) -> dict:
+    def get_response(url):
         global session
         try_count = 0
         while True:
@@ -131,13 +131,13 @@ class NetworkHandler:
     @staticmethod
     def get_simple_route_reponse(source: Node, dest: Node) -> dict:
         url = f"{routing_url}{source.lon},{source.lat};{dest.lon},{dest.lat}"
-        return NetworkHandler._response(url)
+        return NetworkHandler.get_response(url)
 
     @staticmethod
     def get_detailed_route_reponse(source: Node, dest: Node) -> dict:
         url = f"{routing_url}{source.lon},{source.lat};{dest.lon},{dest.lat}" \
               "?steps=true&geometries=geojson"
-        return NetworkHandler._response(url)
+        return NetworkHandler.get_response(url)
 
     @staticmethod
     def get_location(source: Node, destination: Node) -> int:
@@ -173,7 +173,9 @@ class NetworkHandler:
         :return int: time that the location is reached
         :return Node: location somewhere on the route
         """
-        # NOTE new version code is not optimal, but currently behavior suffices, alternative behind comments (can be tested later)
+        # TODO check how to use this code when the server is not available
+
+        # NOTE NEW VERSION (has not been tested yet, but seems cleaner)
         # response = NetworkHandler.get_detailed_route_reponse(source, destination)
         # if current_time <= starting_time:
         #     return starting_time, source
@@ -193,7 +195,7 @@ class NetworkHandler:
         #         return t, current_location  
         # return t, current_location
         
-        # OLD VERSION (behavior above seems cleaner and more reasonable)
+        # OLD VERSION (it works, so keep if for now)
         response = NetworkHandler.get_detailed_route_reponse(source, destination)
         current_location = None
         for step in response['routes'][0]['legs'][0]['steps']:
@@ -209,7 +211,7 @@ class NetworkHandler:
     @staticmethod
     def get_nearest_node(lat: float, lon: float) -> tuple[float, float]:
         url = f"{nearest_url}{lon},{lat}"
-        data = NetworkHandler._response(url)
+        data = NetworkHandler.get_response(url)
         nearest_node = data['waypoints'][0]['location']
         return nearest_node[1], nearest_node[0]
 
@@ -228,7 +230,7 @@ class NetworkHandler:
                 node_indices[(node.lon, node.lat)] = index
                 index += 1
             url = f"{table_url}{';'.join(coordinates)}"
-            data = NetworkHandler._response(url)
+            data = NetworkHandler.get_response(url)
             return np.array(data['durations']), node_indices
         return None, None
 
