@@ -24,7 +24,7 @@ class Node:
         return f"<Node: lat: {self.lat}, lon: {self.lon}, id: {self.id}>"
     
     def __repr__(self):
-        return f"Node(lat={self.lat}, lon={self.lon})"
+        return f"Node(lat={self.lat}, lon={self.lon}, id={self.id})"
 
     def copy(self) -> Node:
         return Node(self.lat, self.lon, self.id)

@@ -64,7 +64,7 @@ class NetworkHandler:
     @staticmethod
     def initialize_travel_time_matrix():
         """
-        calculates all possible travel times between all nodes available nodes
+        calculates all possible travel times between all nodes available nodes from the `table_url` API and stores them in a shared memory matrix for fast access during the optimization.
 
         Whenever we call this, we have considered all request nodes and vehicles, so we can calculate all possible travel times between all nodes and do not have to call the backend server for each calculation.
         """
