@@ -277,10 +277,15 @@ The following commands help to set up the codebase on a CPU cluster.
 1. Get access to cluster via Ticketing system (approval by supervisor), e.g. [Cornell Unicorn cluster](https://it.coecis.cornell.edu/researchit/using-the-unicorn-cluster/)
 2. Besides local Gurobi license for your local machine, one needs a Academic WLS License. 
 3. wget https://packages.gurobi.com/13.0/gurobi13.0.1_linux64.tar.gz 
-4. (cd to gurobi folder) `tar -xvzf 'gurobi-file'`
-5. drop gurobi licenes file into default location
+4. (cd to gurobi folder) unpack installation file `tar -xvzf 'gurobi-file'`
 5. (cd into gurobi > bin) `./grgetkey 'license file'`
-6. initialize conda for other package management
+6. initialize conda for other package management with `conda env create -f rtv-solver/environment.yml -n coaml`
+7. set PATH variables for Gurobi installation
+8. run script again with `source ~/.bashrc` to update shell environment
+9. Command `gurobi_cl --license` should confirm the successful installation of Gurobi Optimizer WSL.
+10. Install rtv-solver package as editable from `rtv-solver` with `pip install -e .`
+11. If `gurobipy` or `hexalypy` fails, install them again through pip with the right version from the 
+12. The files that you use for the runtime on the server need to have the time matrix as part of the payload file. This needs to be prepared offline during the creation of the files. For most clusters, it is not allowed to have a OSRM backend server running. This is explained in a different section <ADD_LINK_HERE>. You can make sure that it will work by turning off the backend server and running a payload.
 
 Attention: it is not possible to run the entire software based on the OSRM backend server, thus the local files need to be appended with the travel_time_matrix in order to run properly.
 
