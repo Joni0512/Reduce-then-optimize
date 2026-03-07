@@ -6,6 +6,11 @@ from multiprocessing.sharedctypes import RawArray, RawValue
 import ctypes
 import math
 
+from rtv_solver.util.logger import BASIC_LOGGER
+import logging
+
+console_logger = logging.getLogger(BASIC_LOGGER)
+
 # ---- Globals predeclared to avoid NameError in worker processes ----
 SERVER_BASED = None
 EUCLIDEAN = None
@@ -117,16 +122,49 @@ class NetworkHandler:
     @staticmethod
     def get_response(url):
         global session
-        try_count = 0
-        while True:
-            try_count += 1
+        max_retries = 5
+        retry_delay_s = 1
+        timeout_s = 10
+
+        if session is None:
+            raise RuntimeError(
+                "NetworkHandler session is not initialized. Call NetworkHandler.init() first."
+            )
+
+        last_exception = None
+        for try_count in range(1, max_retries + 1):
             try:
-                resp = session.get(url)
+                resp = session.get(url, timeout=timeout_s)
+                resp.raise_for_status()
                 return resp.json()
             except requests.exceptions.RequestException as e:
-                if try_count > 5:
-                    raise e
-                time.sleep(1)
+                last_exception = e
+                console_logger.warning(
+                    "Request failed (%s/%s) for URL %s: %s",
+                    try_count,
+                    max_retries,
+                    url,
+                    e,
+                )
+            except ValueError as e:
+                last_exception = e
+                body_preview = ""
+                if "resp" in locals():
+                    body_preview = resp.text[:300]
+                console_logger.warning(
+                    "Invalid JSON (%s/%s) for URL %s. Response preview: %r",
+                    try_count,
+                    max_retries,
+                    url,
+                    body_preview,
+                )
+
+            if try_count < max_retries:
+                time.sleep(retry_delay_s)
+
+        raise RuntimeError(
+            f"Failed to get valid response from {url} after {max_retries} attempts. "
+            f"Last error: {last_exception}"        ) from last_exception
 
     @staticmethod
     def get_simple_route_reponse(source: Node, dest: Node) -> dict:
