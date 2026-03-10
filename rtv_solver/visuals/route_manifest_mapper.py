@@ -48,23 +48,23 @@ class RouteManifestMapper():
 
         :param int veh_count: default 18 as we use that many vehicles normally with the standard file
         """
-        driver_runs = payload.get(PayloadParser.DRIVERS, [])
-        depot = payload.get(PayloadParser.DEPOT)
+        driver_runs = payload.get(PayloadKeys.DRIVERS, [])
+        depot = payload.get(PayloadKeys.DEPOT)
         self.vehicle_colors = self._get_route_colors(vehicle_count)
 
         features: List[Dict[str, Any]] = []
         features.append(self._build_depot_feature(depot))
         for run in driver_runs:
             route = []
-            state = run[PayloadParser.DRIVER_STATE]
-            manifest = run[PayloadParser.DRIVER_MANIFEST]
+            state = run[PayloadKeys.DRIVER_STATE]
+            manifest = run[PayloadKeys.IVER_MANIFEST]
 
-            last_loc = Node.from_dict(depot[PayloadParser.DEPOT_PT]) # assumes all vehicles start in depot
+            last_loc = Node.from_dict(depot[PayloadKeys.DEPOT_PT]) # assumes all vehicles start in depot
             for stop in manifest:
                 stop_feature = self._build_stop_feature(stop)
                 features.append(stop_feature)
 
-                next_loc = Node.from_dict(stop[PayloadParser.MANIFEST_LOC])
+                next_loc = Node.from_dict(stop[PayloadKeys.NIFEST_LOC])
                 route_part = self._build_simple_route_feature(last_loc, next_loc)
                 route.append(route_part)
 
@@ -72,19 +72,19 @@ class RouteManifestMapper():
                 last_loc = next_loc
 
             # add depot stop if it has not been added yet as final stop (applies to online routing)
-            if stop.get(PayloadParser.MANIFEST_ACTION) != VehicleStop.ACT_DEPOT:
+            if stop.get(PayloadKeys.MANIFEST_ACTION) != VehicleStop.ACT_DEPOT:
                 new_stop = {
-                    PayloadParser.MANIFEST_ACTION: VehicleStop.ACT_DEPOT, 
-                    PayloadParser.MANIFEST_LOC: depot[PayloadParser.DEPOT_PT],
-                    PayloadParser.MANIFEST_ORDER: len(manifest) + 1}
+                    PayloadKeys.MANIFEST_ACTION: VehicleStop.ACT_DEPOT, 
+                    PayloadKeys.MANIFEST_LOC: depot[PayloadKeys.DEPOT_PT],
+                    PayloadKeys.MANIFEST_ORDER: len(manifest) + 1}
                 stop_feature = self._build_stop_feature(new_stop)
                 features.append(stop_feature)
-                next_loc = Node.from_dict(depot[PayloadParser.DEPOT_PT])
+                next_loc = Node.from_dict(depot[PayloadKeys.DEPOT_PT])
             
                 route_part = self._build_simple_route_feature(last_loc, next_loc)
                 route.append(route_part)
 
-            route_feature = self._merge_routeparts_features(state[PayloadParser.DRIVER_STATE_RUN_ID], route)
+            route_feature = self._merge_routeparts_features(state[PayloadKeys.DRIVER_STATE_RUN_ID], route)
             features.append(route_feature)
 
         return self._feature_collection(features)
@@ -96,7 +96,7 @@ class RouteManifestMapper():
 
     def _build_stop_feature(self, stop: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Build a Point feature for a stop action."""
-        loc = stop.get(PayloadParser.MANIFEST_LOC, {})
+        loc = stop.get(PayloadKeys.MANIFEST_LOC, {})
         lon = loc.get("lon")
         lat = loc.get("lat")
         if lon is None or lat is None:
@@ -111,9 +111,9 @@ class RouteManifestMapper():
     
     @staticmethod
     def _build_stop_design_properties(stop: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        action = stop.get(PayloadParser.MANIFEST_ACTION, "n/a")
-        run_id = stop.get(PayloadParser.MANIFEST_RUN_ID, "n/a")
-        order = stop.get(PayloadParser.MANIFEST_ORDER, "n/a")
+        action = stop.get(PayloadKeys.MANIFEST_ACTION, "n/a")
+        run_id = stop.get(PayloadKeys.MANIFEST_RUN_ID, "n/a")
+        order = stop.get(PayloadKeys.MANIFEST_ORDER, "n/a")
         color, icon = "#000000", MakiIcon.CIRCLE
         if action == VehicleStop.ACT_PICKUP:
             color = "#7d8aff"
@@ -130,7 +130,7 @@ class RouteManifestMapper():
     
     def _build_depot_feature(self, depot: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Build a Point feature for a stop action."""
-        loc = depot.get(PayloadParser.DEPOT_PT, {})
+        loc = depot.get(PayloadKeys.DEPOT_PT, {})
         lon = loc.get("lon")
         lat = loc.get("lat")
         if lon is None or lat is None:

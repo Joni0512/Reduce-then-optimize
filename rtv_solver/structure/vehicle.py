@@ -258,38 +258,38 @@ class Vehicle:
         TODO interim solution: add manifest to vehicle in order to retrieve actual features from the vehicle; we need something like this as we currently always initialize a new object only from the basic information instead of the full set, including current_location, next_location etc.
         restore current state of the vehicle based on the current boarded requests and the already finished manifest
         """        
-        state = driver_run[PayloadParser.DRIVER_STATE]
-        current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
+        state = driver_run[PayloadKeys.DRIVER_STATE]
+        current_order = state[PayloadKeys.DRIVER_STATE_LOC_SERV]
         self.started = True
-        time_at_next_immediate_node = state[PayloadParser.DRIVER_STATE_DT_SEC]
-        location = state[PayloadParser.DRIVER_STATE_LOC]
+        time_at_next_immediate_node = state[PayloadKeys.DRIVER_STATE_DT_SEC]
+        location = state[PayloadKeys.DRIVER_STATE_LOC]
         next_immediate_node = NetworkHandler.get_node_from_manifest_location(
             location, 
             node_id = NetworkHandler.get_next_node_id(location['lat'], location['lon']))
 
-        manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
+        manifest = driver_run[PayloadKeys.DRIVER_MANIFEST]
         if len(manifest) > 0:
             for stop in manifest:
-                if stop[PayloadParser.MANIFEST_ORDER] > current_order:
+                if stop[PayloadKeys.MANIFEST_ORDER] > current_order:
                     break
-                if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
-                    self.am_capacity -= stop[PayloadParser.MANIFEST_AMBULATORY]
-                    self.wc_capacity -= stop[PayloadParser.MANIFEST_WHEELCHAIR]
+                if stop[PayloadKeys.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
+                    self.am_capacity -= stop[PayloadKeys.MANIFEST_AMBULATORY]
+                    self.wc_capacity -= stop[PayloadKeys.FEST_WHEELCHAIR]
                 else: # dropoff
-                    self.am_capacity += stop[PayloadParser.MANIFEST_AMBULATORY]
-                    self.wc_capacity += stop[PayloadParser.MANIFEST_WHEELCHAIR]
+                    self.am_capacity += stop[PayloadKeys.MANIFEST_AMBULATORY]
+                    self.wc_capacity += stop[PayloadKeys.MANIFEST_WHEELCHAIR]
             
             # Adding existing route to the vehicle
             filtered_manifest = []
             for stop in manifest:
-                booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
-                if booking_id in boarded_requests and stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_DROPOFF:
+                booking_id = stop[PayloadKeys.MANIFEST_BOOKING_ID]
+                if booking_id in boarded_requests and stop[PayloadKeys.MANIFEST_ACTION] == VehicleStop.ACT_DROPOFF:
                     filtered_manifest.append(stop)
 
             for stop in filtered_manifest:
                 trip_of_stop = None
                 for trip in boarded_trips:
-                    if trip.request_id == stop[PayloadParser.MANIFEST_BOOKING_ID]:
+                    if trip.request_id == stop[PayloadKeys.MANIFEST_BOOKING_ID]:
                         trip_of_stop = trip
                         break
                 self.trips[trip_of_stop.id] = trip_of_stop

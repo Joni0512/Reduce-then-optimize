@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 import numpy as np
 
+from rtv_solver.schema.payload_keys import PayloadKeys
+
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
 
@@ -19,62 +21,6 @@ class PayloadParser:
     """
     Handles the parsing of the initial payloads in both directions, importing and transforming data. 
     """
-    # keys for payload dictionary that can be used globally
-    DATE = "date"
-    TIME_MATRIX = "travel_time_matrix"
-    CURRENT_TIME = "current_time"
-
-    DEPOT = "depot"
-    DEPOT_PT = 'pt'
-
-    REQUESTS = "requests"
-    REQ_BOOKING_ID = "booking_id" # translate all to Booking_ID
-    REQ_PICKUP_PT = "pickup_pt"
-    REQ_PICKUP_LAT = 'pickup_latitude'
-    REQ_PICKUP_LON = 'pickup_longitude'
-    REQ_PICKUP_NODE_ID = 'pickup_node_id'
-    REQ_DROPOFF_PT = "dropoff_pt"
-    REQ_DROPOFF_NODE_ID = 'dropoff_node_id'
-    REQ_DROPOFF_LAT = 'dropoff_latitude'
-    REQ_DROPOFF_LON = 'dropoff_longitude'
-    REQ_PICKUP_WINDOW_START = 'pickup_time_window_start'
-    REQ_PICKUP_WINDOW_END = 'pickup_time_window_end'
-    REQ_DROPOFF_WINDOW_START = 'dropoff_time_window_start'
-    REQ_DROPOFF_WINDOW_END = 'dropoff_time_window_end'
-    REQ_AMBULATORY = 'am'
-    REQ_WHEELCHAIR = 'wc'
-    REQ_DWELL_PICKUP = 'dwell_pickup'
-    REQ_DWELL_ALIGHT = 'dwell_alight'
-
-    DRIVERS = "driver_runs"
-    DRIVER_STATE = "state"
-    DRIVER_STATE_RUN_ID = "run_id"
-    DRIVER_STATE_START_TIME = "start_time"
-    DRIVER_STATE_END_TIME = "end_time"
-    DRIVER_STATE_AM_CAP = "am_capacity"
-    DRIVER_STATE_WC_CAP = "wc_capacity"
-    DRIVER_STATE_T_LOCS = "total_locations"
-    DRIVER_STATE_LOC = "loc"
-    DRIVER_STATE_DT_SEC = "location_dt_seconds"
-    DRIVER_STATE_LOC_SERV = "locations_already_serviced"
-
-    DRIVER_MANIFEST = "manifest"
-    MANIFEST_RUN_ID = "run_id"
-    MANIFEST_ORDER = "order"
-    MANIFEST_ACTION = "action"
-    MANIFEST_BOOKING_ID = "booking_id"
-    MANIFEST_LOC = "loc"
-    MANIFEST_AMBULATORY = "am"
-    MANIFEST_WHEELCHAIR = "wc"
-    MANIFEST_SCHED_TIME = "scheduled_time"
-    MANIFEST_TIME_WINDOW_START = "time_window_start"
-    MANIFEST_TIME_WINDOW_END = "time_window_end"
-
-    STATS_ASSIGNMENT_DEVELOPMENT = "stats_assign_dev"   
-    STATS_ASSIGNED = 'assigned_requests'
-    STATS_UNSERVED = 'unserved_requests'
-    STATS_BOARDED = 'boarded'
-    STATS_DROPPED = 'dropped'
 
     @staticmethod
     def load_input_data(input_file: Path | str):
@@ -101,8 +47,8 @@ class PayloadParser:
         Based on the inserted payload data, a new payload is created.
         Specific attention to requests as these are combined from new requests and still active or boarded requests stored in the vehicleManifests."""
         # initialize time-matrix if available
-        travel_time_matrix = payload.get(PayloadParser.TIME_MATRIX)
-        driver_runs = payload[PayloadParser.DRIVERS]
+        travel_time_matrix = payload.get(PayloadKeys.TIME_MATRIX)
+        driver_runs = payload[PayloadKeys.DRIVERS]
         
         # for OfflineSolver, get current_time from simulation
         # for OnlineSolver, get current_time from all vehicles (prefer already progressed vehicles, fallback to earliest start time vehicles)
@@ -113,9 +59,9 @@ class PayloadParser:
             start_times = []
             progressed_times = []
             for driver_run in driver_runs:
-                state = driver_run[PayloadParser.DRIVER_STATE]
-                start_time = state[PayloadParser.DRIVER_STATE_START_TIME]
-                last_time = state[PayloadParser.DRIVER_STATE_DT_SEC]
+                state = driver_run[PayloadKeys.DRIVER_STATE]
+                start_time = state[PayloadKeys.DRIVER_STATE_START_TIME]
+                last_time = state[PayloadKeys.DRIVER_STATE_DT_SEC]
                 start_times.append(start_time)
                 if last_time > start_time:
                     progressed_times.append(last_time)
@@ -124,34 +70,34 @@ class PayloadParser:
                 online_current_time = min(progressed_times)
             else:
                 online_current_time = min(start_times)
-        current_time = payload.get(PayloadParser.CURRENT_TIME, online_current_time)
+        current_time = payload.get(PayloadKeys.CURRENT_TIME, online_current_time)
         
         # build list of active and boarded requests from vehicle manifests
         active_requests_data = {}
         boarded_requests_data = {}
         for driver_run in driver_runs:
-            if PayloadParser.DRIVER_MANIFEST in driver_run:
-                driver_state = driver_run[PayloadParser.DRIVER_STATE]
-                driver_manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
+            if PayloadKeys.DRIVER_MANIFEST in driver_run:
+                driver_state = driver_run[PayloadKeys.DRIVER_STATE]
+                driver_manifest = driver_run[PayloadKeys.DRIVER_MANIFEST]
                 # iterate over all manifest stops
                 for index, stop in enumerate(driver_manifest):
-                    stop_order = stop[PayloadParser.MANIFEST_ORDER]
-                    booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
-                    if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
+                    stop_order = stop[PayloadKeys.MANIFEST_ORDER]
+                    booking_id = stop[PayloadKeys.MANIFEST_BOOKING_ID]
+                    if stop[PayloadKeys.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                         request = PayloadParser._build_request_from_manifest_index(driver_manifest, index)
-                        if stop_order <= driver_state[PayloadParser.DRIVER_STATE_LOC_SERV]:
+                        if stop_order <= driver_state[PayloadKeys.DRIVER_STATE_LOC_SERV]:
                             # request is picked up as the vehicleState has already picked up the location
                             boarded_requests_data[booking_id] = request
                         else:
                             # request is assigned but not yet picked up
                             active_requests_data[booking_id] = request
                     else: # VehicleStop.ACT_DROPOFF
-                        if stop_order <= driver_state[PayloadParser.DRIVER_STATE_LOC_SERV] and booking_id in boarded_requests_data:
+                        if stop_order <= driver_state[PayloadKeys.DRIVER_STATE_LOC_SERV] and booking_id in boarded_requests_data:
                             # vehicle has already been dropped off and it has previously been boarded
                             del boarded_requests_data[booking_id]
         
         # combine requests from new payload and add active and boarded requests from manifests (see preparation above)
-        raw_requests = payload.get(PayloadParser.REQUESTS, [])
+        raw_requests = payload.get(PayloadKeys.REQUESTS, [])
         requests = [PayloadParser._build_request(request) for request in raw_requests]
         for req_id in active_requests_data: # request must be handled as they were already accepted
             requests.append(active_requests_data[req_id])
@@ -161,7 +107,7 @@ class PayloadParser:
         boarded_requests_keys = list(boarded_requests_data.keys())
 
         # get depot location
-        depot_data = payload[PayloadParser.DEPOT]
+        depot_data = payload[PayloadKeys.DEPOT]
         depot_location = depot_data.get("loc") or depot_data.get("pt") # depends on payload input
         node_id = NetworkHandler.get_next_node_id(depot_location["lat"], depot_location["lon"])
         depot = NetworkHandler.get_node_from_manifest_location(depot_location, node_id)
@@ -170,7 +116,7 @@ class PayloadParser:
 
     @staticmethod
     def get_request_count(payload) -> int:
-        return (len(payload[PayloadParser.REQUESTS]))
+        return (len(payload[PayloadKeys.REQUESTS]))
     
     @staticmethod
     def get_requests_time_interval(payload) -> tuple[int, int]:
@@ -178,11 +124,11 @@ class PayloadParser:
         start_time = 24*3600
         end_time = 0
 
-        for request in payload[PayloadParser.REQUESTS]:
-            if request[PayloadParser.REQ_PICKUP_WINDOW_START] < start_time:
-                start_time = request[PayloadParser.REQ_PICKUP_WINDOW_START]
-            if request[PayloadParser.REQ_DROPOFF_WINDOW_END] > end_time:
-                end_time = request[PayloadParser.REQ_DROPOFF_WINDOW_END]
+        for request in payload[PayloadKeys.REQUESTS]:
+            if request[PayloadKeys.REQ_PICKUP_WINDOW_START] < start_time:
+                start_time = request[PayloadKeys.REQ_PICKUP_WINDOW_START]
+            if request[PayloadKeys.REQ_DROPOFF_WINDOW_END] > end_time:
+                end_time = request[PayloadKeys.REQ_DROPOFF_WINDOW_END]
         return start_time, end_time
 
     @staticmethod
@@ -201,36 +147,36 @@ class PayloadParser:
         dropoff_lons: list[float] = []
 
         # collect request coordinates
-        for request in payload.get(PayloadParser.REQUESTS, []):
+        for request in payload.get(PayloadKeys.REQUESTS, []):
             # pickup
-            pickup_pt = request.get(PayloadParser.REQ_PICKUP_PT)
+            pickup_pt = request.get(PayloadKeys.REQ_PICKUP_PT)
             if pickup_pt is not None:
                 p_lat = pickup_pt.get("lat")
                 p_lon = pickup_pt.get("lon")
             else:
-                p_lat = request.get(PayloadParser.REQ_PICKUP_LAT)
-                p_lon = request.get(PayloadParser.REQ_PICKUP_LON)
+                p_lat = request.get(PayloadKeys.REQ_PICKUP_LAT)
+                p_lon = request.get(PayloadKeys.REQ_PICKUP_LON)
             if p_lat is not None and p_lon is not None:
                 pickup_lats.append(p_lat)
                 pickup_lons.append(p_lon)
 
             # dropoff
-            dropoff_pt = request.get(PayloadParser.REQ_DROPOFF_PT)
+            dropoff_pt = request.get(PayloadKeys.REQ_DROPOFF_PT)
             if dropoff_pt is not None:
                 d_lat = dropoff_pt.get("lat")
                 d_lon = dropoff_pt.get("lon")
             else:
-                d_lat = request.get(PayloadParser.REQ_DROPOFF_LAT)
-                d_lon = request.get(PayloadParser.REQ_DROPOFF_LON)
+                d_lat = request.get(PayloadKeys.REQ_DROPOFF_LAT)
+                d_lon = request.get(PayloadKeys.REQ_DROPOFF_LON)
             if d_lat is not None and d_lon is not None:
                 dropoff_lats.append(d_lat)
                 dropoff_lons.append(d_lon)
 
         # depot location (if available)
         depot_lat = depot_lon = None
-        if PayloadParser.DEPOT in payload:
-            depot_data = payload[PayloadParser.DEPOT]
-            depot_loc = depot_data.get("loc") or depot_data.get(PayloadParser.DEPOT_PT)
+        if PayloadKeys.DEPOT in payload:
+            depot_data = payload[PayloadKeys.DEPOT]
+            depot_loc = depot_data.get("loc") or depot_data.get(PayloadKeys.DEPOT_PT)
             if depot_loc is not None:
                 depot_lat = depot_loc.get("lat")
                 depot_lon = depot_loc.get("lon")
@@ -273,39 +219,39 @@ class PayloadParser:
         """
         intervals: list[tuple[int, int]] = []
 
-        for driver_run in payload[PayloadParser.DRIVERS]:
-            state = driver_run[PayloadParser.DRIVER_STATE]
-            start_time = state[PayloadParser.DRIVER_STATE_START_TIME]
-            end_time = state[PayloadParser.DRIVER_STATE_END_TIME]
+        for driver_run in payload[PayloadKeys.DRIVERS]:
+            state = driver_run[PayloadKeys.DRIVER_STATE]
+            start_time = state[PayloadKeys.DRIVER_STATE_START_TIME]
+            end_time = state[PayloadKeys.DRIVER_STATE_END_TIME]
             intervals.append((start_time, end_time))
 
         return intervals
     
     @staticmethod
     def get_vehicle_count(payload) -> int:
-        return (len(payload[PayloadParser.DRIVERS]))
+        return (len(payload[PayloadKeys.DRIVERS]))
 
     @staticmethod
     def _build_request_from_manifest_index(manifest, pick_up_index):
         stop = manifest[pick_up_index]
-        booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
+        booking_id = stop[PayloadKeys.MANIFEST_BOOKING_ID]
         for drop_off_stop in manifest[pick_up_index+1:]:
-            if drop_off_stop[PayloadParser.MANIFEST_BOOKING_ID] == booking_id:
+            if drop_off_stop[PayloadKeys.MANIFEST_BOOKING_ID] == booking_id:
                 return PayloadParser._build_request_from_stops(stop, drop_off_stop)
 
     @staticmethod
     def _build_request_from_stops(pickup_stop, dropoff_stop):
         """builds request from two separate stops out of manifest"""
         request = {
-            PayloadParser.REQ_BOOKING_ID:               pickup_stop[PayloadParser.MANIFEST_BOOKING_ID],
-            PayloadParser.REQ_AMBULATORY:               pickup_stop[PayloadParser.MANIFEST_AMBULATORY],
-            PayloadParser.REQ_WHEELCHAIR:               pickup_stop[PayloadParser.MANIFEST_WHEELCHAIR],
-            PayloadParser.REQ_PICKUP_WINDOW_START:      pickup_stop[PayloadParser.MANIFEST_TIME_WINDOW_START],
-            PayloadParser.REQ_PICKUP_WINDOW_END:        pickup_stop[PayloadParser.MANIFEST_TIME_WINDOW_END],
-            PayloadParser.REQ_PICKUP_PT:                pickup_stop[PayloadParser.MANIFEST_LOC],
-            PayloadParser.REQ_DROPOFF_WINDOW_START:     dropoff_stop[PayloadParser.MANIFEST_TIME_WINDOW_START],
-            PayloadParser.REQ_DROPOFF_WINDOW_END:       dropoff_stop[PayloadParser.MANIFEST_TIME_WINDOW_END],
-            PayloadParser.REQ_DROPOFF_PT:               dropoff_stop[PayloadParser.MANIFEST_LOC],
+            PayloadKeys.REQ_BOOKING_ID:               pickup_stop[PayloadKeys.MANIFEST_BOOKING_ID],
+            PayloadKeys.REQ_AMBULATORY:               pickup_stop[PayloadKeys.MANIFEST_AMBULATORY],
+            PayloadKeys.REQ_WHEELCHAIR:               pickup_stop[PayloadKeys.MANIFEST_WHEELCHAIR],
+            PayloadKeys.REQ_PICKUP_WINDOW_START:      pickup_stop[PayloadKeys.MANIFEST_TIME_WINDOW_START],
+            PayloadKeys.REQ_PICKUP_WINDOW_END:        pickup_stop[PayloadKeys.MANIFEST_TIME_WINDOW_END],
+            PayloadKeys.REQ_PICKUP_PT:                pickup_stop[PayloadKeys.MANIFEST_LOC],
+            PayloadKeys.REQ_DROPOFF_WINDOW_START:     dropoff_stop[PayloadKeys.MANIFEST_TIME_WINDOW_START],
+            PayloadKeys.REQ_DROPOFF_WINDOW_END:       dropoff_stop[PayloadKeys.MANIFEST_TIME_WINDOW_END],
+            PayloadKeys.REQ_DROPOFF_PT:               dropoff_stop[PayloadKeys.MANIFEST_LOC],
         }
         return request
 
@@ -313,15 +259,15 @@ class PayloadParser:
     def _build_request(request_data):
         """no changes due to this method, but makes it easier to read"""
         request = {
-            PayloadParser.REQ_BOOKING_ID:           request_data[PayloadParser.REQ_BOOKING_ID],
-            PayloadParser.REQ_AMBULATORY:           request_data[PayloadParser.REQ_AMBULATORY],
-            PayloadParser.REQ_WHEELCHAIR:           request_data[PayloadParser.REQ_WHEELCHAIR],
-            PayloadParser.REQ_PICKUP_WINDOW_START:  request_data[PayloadParser.REQ_PICKUP_WINDOW_START], 
-            PayloadParser.REQ_PICKUP_WINDOW_END:    request_data[PayloadParser.REQ_PICKUP_WINDOW_END],
-            PayloadParser.REQ_PICKUP_PT:            request_data[PayloadParser.REQ_PICKUP_PT],
-            PayloadParser.REQ_DROPOFF_WINDOW_START: request_data[PayloadParser.REQ_DROPOFF_WINDOW_START], 
-            PayloadParser.REQ_DROPOFF_WINDOW_END:   request_data[PayloadParser.REQ_DROPOFF_WINDOW_END],
-            PayloadParser.REQ_DROPOFF_PT:           request_data[PayloadParser.REQ_DROPOFF_PT],
+            PayloadKeys.REQ_BOOKING_ID:           request_data[PayloadKeys.REQ_BOOKING_ID],
+            PayloadKeys.REQ_AMBULATORY:           request_data[PayloadKeys.REQ_AMBULATORY],
+            PayloadKeys.REQ_WHEELCHAIR:           request_data[PayloadKeys.REQ_WHEELCHAIR],
+            PayloadKeys.REQ_PICKUP_WINDOW_START:  request_data[PayloadKeys.REQ_PICKUP_WINDOW_START], 
+            PayloadKeys.REQ_PICKUP_WINDOW_END:    request_data[PayloadKeys.REQ_PICKUP_WINDOW_END],
+            PayloadKeys.REQ_PICKUP_PT:            request_data[PayloadKeys.REQ_PICKUP_PT],
+            PayloadKeys.REQ_DROPOFF_WINDOW_START: request_data[PayloadKeys.REQ_DROPOFF_WINDOW_START], 
+            PayloadKeys.REQ_DROPOFF_WINDOW_END:   request_data[PayloadKeys.REQ_DROPOFF_WINDOW_END],
+            PayloadKeys.REQ_DROPOFF_PT:           request_data[PayloadKeys.REQ_DROPOFF_PT],
         }
         return request
 
@@ -344,37 +290,37 @@ class PayloadParser:
         """
         if PayloadParser._is_canonical_structure(data):
             # # turn all request-booking ids into strings
-            # for request in data[PayloadParser.REQUESTS]:
-            #     request[PayloadParser.REQ_BOOKING_ID] = str(request[PayloadParser.REQ_BOOKING_ID])
+            # for request in data[PayloadKeys.REQUESTS]:
+            #     request[PayloadKeys.REQ_BOOKING_ID] = str(request[PayloadKeys.REQ_BOOKING_ID])
             return data  # Nothing to do
 
         normalized = copy.deepcopy(data)
 
-        depot_loc = normalized[PayloadParser.DEPOT][PayloadParser.DEPOT_PT]
+        depot_loc = normalized[PayloadKeys.DEPOT][PayloadKeys.DEPOT_PT]
 
         new_driver_runs = []
-        for run in normalized[PayloadParser.DRIVERS]:
+        for run in normalized[PayloadKeys.DRIVERS]:
             state = {
                 # copy old state
-                PayloadParser.DRIVER_STATE_RUN_ID: run[PayloadParser.DRIVER_STATE_RUN_ID],
-                PayloadParser.DRIVER_STATE_START_TIME: run[PayloadParser.DRIVER_STATE_START_TIME],
-                PayloadParser.DRIVER_STATE_END_TIME: run[PayloadParser.DRIVER_STATE_END_TIME],
-                PayloadParser.DRIVER_STATE_AM_CAP: run[PayloadParser.DRIVER_STATE_AM_CAP],
-                PayloadParser.DRIVER_STATE_WC_CAP: run[PayloadParser.DRIVER_STATE_WC_CAP],
+                PayloadKeys.DRIVER_STATE_RUN_ID: run[PayloadKeys.DRIVER_STATE_RUN_ID],
+                PayloadKeys.DRIVER_STATE_START_TIME: run[PayloadKeys.DRIVER_STATE_START_TIME],
+                PayloadKeys.DRIVER_STATE_END_TIME: run[PayloadKeys.DRIVER_STATE_END_TIME],
+                PayloadKeys.DRIVER_STATE_AM_CAP: run[PayloadKeys.DRIVER_STATE_AM_CAP],
+                PayloadKeys.DRIVER_STATE_WC_CAP: run[PayloadKeys.DRIVER_STATE_WC_CAP],
                 # injected defaults
-                PayloadParser.DRIVER_STATE_LOC_SERV: 0,
-                PayloadParser.DRIVER_STATE_DT_SEC: 0,
+                PayloadKeys.DRIVER_STATE_LOC_SERV: 0,
+                PayloadKeys.DRIVER_STATE_DT_SEC: 0,
                 # initialize location at depot
-                PayloadParser.DRIVER_STATE_LOC: {
+                PayloadKeys.DRIVER_STATE_LOC: {
                     "lat": depot_loc["lat"],
                     "lon": depot_loc["lon"],
                 }
             }
             new_driver_runs.append({
-                PayloadParser.DRIVER_STATE: state,
-                PayloadParser.DRIVER_MANIFEST: []})
+                PayloadKeys.DRIVER_STATE: state,
+                PayloadKeys.DRIVER_MANIFEST: []})
 
-        normalized[PayloadParser.DRIVERS] = new_driver_runs
+        normalized[PayloadKeys.DRIVERS] = new_driver_runs
 
         return normalized
 
@@ -394,7 +340,7 @@ class PayloadParser:
         """
         Build a test case with a given number of requests and vehicles.
         """
-        requests = copy.deepcopy(data.get(PayloadParser.REQUESTS, []))
+        requests = copy.deepcopy(data.get(PayloadKeys.REQUESTS, []))
 
         REPEAT_COUNT = 6
 
@@ -454,8 +400,8 @@ class PayloadParser:
 
 
         # limit number of vehicles to max_vehicles
-        vehicles = data[PayloadParser.DRIVERS][:max_vehicles]
-        depot = data[PayloadParser.DEPOT]
+        vehicles = data[PayloadKeys.DRIVERS][:max_vehicles]
+        depot = data[PayloadKeys.DEPOT]
 
         # build a new payload set with certain rules of requests
         new_payload = {

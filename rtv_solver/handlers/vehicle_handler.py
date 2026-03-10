@@ -15,7 +15,7 @@ from rtv_solver.structure.request import Request
 from rtv_solver.structure.driver_run import ManifestEntry
 
 from rtv_solver.handlers.network_handler import NetworkHandler
-from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.schema.payload_keys import PayloadKeys
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
@@ -52,11 +52,11 @@ class VehicleHandler:
         for driver_run in driver_runs:
             vehicle_data = self._extract_vehicle_state(driver_run)
 
-            vehicle_id = int(vehicle_data[PayloadParser.DRIVER_STATE_RUN_ID])
-            am_capacity = int(vehicle_data[PayloadParser.DRIVER_STATE_AM_CAP])
-            wc_capacity = int(vehicle_data[PayloadParser.DRIVER_STATE_WC_CAP])
-            start_time = vehicle_data[PayloadParser.DRIVER_STATE_START_TIME]
-            end_time = vehicle_data[PayloadParser.DRIVER_STATE_END_TIME]
+            vehicle_id = int(vehicle_data[PayloadKeys.DRIVER_STATE_RUN_ID])
+            am_capacity = int(vehicle_data[PayloadKeys.DRIVER_STATE_AM_CAP])
+            wc_capacity = int(vehicle_data[PayloadKeys.DRIVER_STATE_WC_CAP])
+            start_time = vehicle_data[PayloadKeys.DRIVER_STATE_START_TIME]
+            end_time = vehicle_data[PayloadKeys.DRIVER_STATE_END_TIME]
 
             manifest = self._extract_vehicle_manifest(driver_run)
 
@@ -80,14 +80,14 @@ class VehicleHandler:
     @staticmethod
     def _extract_vehicle_state(driver_run):
         # depending on the definition of the payload (with or without 'state' key), this handles both cases
-        if PayloadParser.DRIVER_STATE in driver_run:
-            return driver_run[PayloadParser.DRIVER_STATE]
+        if PayloadKeys.DRIVER_STATE in driver_run:
+            return driver_run[PayloadKeys.DRIVER_STATE]
         return driver_run
     
     @staticmethod
     def _extract_vehicle_manifest(driver_run):
-        if PayloadParser.DRIVER_MANIFEST in driver_run:
-            manifest = [ManifestEntry.from_dict(entry) for entry in driver_run[PayloadParser.DRIVER_MANIFEST]]
+        if PayloadKeys.DRIVER_MANIFEST in driver_run:
+            manifest = [ManifestEntry.from_dict(entry) for entry in driver_run[PayloadKeys.DRIVER_MANIFEST]]
             return manifest
         return []
 
@@ -116,11 +116,11 @@ class VehicleHandler:
         Returns a new driver_run dict (state + manifest).
         """
         # retrieve old information
-        state = driver_run[PayloadParser.DRIVER_STATE]
-        old_manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
-        current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
+        state = driver_run[PayloadKeys.DRIVER_STATE]
+        old_manifest = driver_run[PayloadKeys.DRIVER_MANIFEST]
+        current_order = state[PayloadKeys.DRIVER_STATE_LOC_SERV]
         
-        vehicle_id = state[PayloadParser.DRIVER_STATE_RUN_ID]
+        vehicle_id = state[PayloadKeys.DRIVER_STATE_RUN_ID]
         vehicle = self.vehicles[vehicle_id]
 
         # TODO what is the difference on vehicle.time_at_next and vehicle.time_at_next_immediate_node???    
@@ -129,10 +129,10 @@ class VehicleHandler:
         new_manifest.extend(added_manifest)
         # Update state meta info
         new_state = state.copy()
-        new_state[PayloadParser.DRIVER_STATE_T_LOCS] = len(new_manifest)
+        new_state[PayloadKeys.DRIVER_STATE_T_LOCS] = len(new_manifest)
         # Build new driver run from both parts
-        new_driver_run = {PayloadParser.DRIVER_STATE: new_state, 
-                          PayloadParser.DRIVER_MANIFEST: new_manifest}
+        new_driver_run = {PayloadKeys.DRIVER_STATE: new_state, 
+                          PayloadKeys.DRIVER_MANIFEST: new_manifest}
         return new_driver_run
 
     @staticmethod
@@ -166,19 +166,19 @@ class VehicleHandler:
             if stop_time <= time_window_start:
                 stop_time = time_window_start
             stop = {
-                PayloadParser.MANIFEST_RUN_ID: vehicle.id, 
-                PayloadParser.MANIFEST_BOOKING_ID: trip.request_id, 
-                PayloadParser.MANIFEST_ORDER: current_order, 
-                PayloadParser.MANIFEST_ACTION: action, 
-                PayloadParser.MANIFEST_LOC: {
+                PayloadKeys.MANIFEST_RUN_ID: vehicle.id, 
+                PayloadKeys.MANIFEST_BOOKING_ID: trip.request_id, 
+                PayloadKeys.MANIFEST_ORDER: current_order, 
+                PayloadKeys.MANIFEST_ACTION: action, 
+                PayloadKeys.MANIFEST_LOC: {
                     'lat': node.lat, 
                     'lon': node.lon, 
                     'node_id': node.id},
-                PayloadParser.MANIFEST_SCHED_TIME: stop_time, # arrival time at stop
-                PayloadParser.MANIFEST_AMBULATORY: trip.am_capacity, 
-                PayloadParser.MANIFEST_WHEELCHAIR: trip.wc_capacity, 
-                PayloadParser.MANIFEST_TIME_WINDOW_START: time_window_start, 
-                PayloadParser.MANIFEST_TIME_WINDOW_END: time_window_end}
+                PayloadKeys.MANIFEST_SCHED_TIME: stop_time, # arrival time at stop
+                PayloadKeys.MANIFEST_AMBULATORY: trip.am_capacity, 
+                PayloadKeys.MANIFEST_WHEELCHAIR: trip.wc_capacity, 
+                PayloadKeys.MANIFEST_TIME_WINDOW_START: time_window_start, 
+                PayloadKeys.MANIFEST_TIME_WINDOW_END: time_window_end}
             manifest.append(stop)
             # local update for vehicle state to create complete manifest over next iteration
             last_node, time_at_last_node = node, stop_time + dwell 
@@ -194,7 +194,7 @@ class VehicleHandler:
             vehicle = self.vehicles[vehicle_id]
             driver_run = None
             for run in driver_runs:
-                if int(run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_RUN_ID]) == vehicle_id:
+                if int(run[PayloadKeys.DRIVER_STATE][PayloadKeys.DRIVER_STATE_RUN_ID]) == vehicle_id:
                     driver_run = run 
                     break # select the right driver_run
             self.add_manifest_to_vehicle(vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup)
@@ -207,12 +207,12 @@ class VehicleHandler:
         TODO move this to the vehicle object in order to collect everything there
         """
         # retrieve information from dictionary
-        state = driver_run[PayloadParser.DRIVER_STATE]
-        state_loc = state[PayloadParser.DRIVER_STATE_LOC]
-        current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
+        state = driver_run[PayloadKeys.DRIVER_STATE]
+        state_loc = state[PayloadKeys.DRIVER_STATE_LOC]
+        current_order = state[PayloadKeys.DRIVER_STATE_LOC_SERV]
         vehicle.started = True
         # retrieves next position and time there # TODO does this work as we always initialize the vehicleLocation as depot
-        time_at_next_immediate_node = state[PayloadParser.DRIVER_STATE_DT_SEC]
+        time_at_next_immediate_node = state[PayloadKeys.DRIVER_STATE_DT_SEC]
         next_immediate_node = NetworkHandler.get_node_from_manifest_location(
             state_loc, 
             node_id = NetworkHandler.get_next_node_id(
@@ -220,31 +220,31 @@ class VehicleHandler:
                 state_loc['lon']))
 
         # iterate over manifest to update all variables
-        manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
+        manifest = driver_run[PayloadKeys.DRIVER_MANIFEST]
         if len(manifest) > 0:
             for stop in manifest:
-                if stop[PayloadParser.MANIFEST_ORDER] > current_order:
+                if stop[PayloadKeys.MANIFEST_ORDER] > current_order:
                     # future stops are not handled in this method
                     break
-                if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
-                    vehicle.am_capacity -= stop[PayloadParser.MANIFEST_AMBULATORY]
-                    vehicle.wc_capacity -= stop[PayloadParser.MANIFEST_WHEELCHAIR]
+                if stop[PayloadKeys.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
+                    vehicle.am_capacity -= stop[PayloadKeys.MANIFEST_AMBULATORY]
+                    vehicle.wc_capacity -= stop[PayloadKeys.MANIFEST_WHEELCHAIR]
                 else: # DROPOFF
-                    vehicle.am_capacity += stop[PayloadParser.MANIFEST_AMBULATORY]
-                    vehicle.wc_capacity += stop[PayloadParser.MANIFEST_WHEELCHAIR]
+                    vehicle.am_capacity += stop[PayloadKeys.MANIFEST_AMBULATORY]
+                    vehicle.wc_capacity += stop[PayloadKeys.MANIFEST_WHEELCHAIR]
             
             # filters remaining DROPOFFs for boarded requests (only dropoffs need to be considered as stops, PICKUPs is not required because then it is not boarded)
             filtered_manifest = []
             for stop in manifest:
-                booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
-                if booking_id in boarded_requests and stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_DROPOFF:
+                booking_id = stop[PayloadKeys.MANIFEST_BOOKING_ID]
+                if booking_id in boarded_requests and stop[PayloadKeys.MANIFEST_ACTION] == VehicleStop.ACT_DROPOFF:
                     filtered_manifest.append(stop)
 
             for stop in filtered_manifest:
                 # find boarded 
                 trip_of_stop = None
                 for trip in boarded_trips:
-                    if trip.request_id == stop[PayloadParser.MANIFEST_BOOKING_ID]:
+                    if trip.request_id == stop[PayloadKeys.MANIFEST_BOOKING_ID]:
                         trip_of_stop = trip
                         break
                 # add trip to vehicle
@@ -978,16 +978,16 @@ class VehicleHandler:
         return completed_stops, picked_requests, completed_requests
 
     def get_state(self, driver_run):
-        new_state = driver_run[PayloadParser.DRIVER_STATE]
-        current_order = new_state[PayloadParser.DRIVER_STATE_LOC_SERV]
-        manifest = driver_run[PayloadParser.DRIVER_MANIFEST][:current_order]
-        vehicle = self.vehicles[new_state[PayloadParser.DRIVER_STATE_RUN_ID]]
+        new_state = driver_run[PayloadKeys.DRIVER_STATE]
+        current_order = new_state[PayloadKeys.DRIVER_STATE_LOC_SERV]
+        manifest = driver_run[PayloadKeys.DRIVER_MANIFEST][:current_order]
+        vehicle = self.vehicles[new_state[PayloadKeys.DRIVER_STATE_RUN_ID]]
         next_immediate_node,time_at_next_immediate_node = VehicleHandler.get_current_location_time(vehicle)
-        new_state[PayloadParser.DRIVER_STATE_LOC] = {"lat": next_immediate_node.lat,
+        new_state[PayloadKeys.DRIVER_STATE_LOC] = {"lat": next_immediate_node.lat,
                                                      "lon": next_immediate_node.lon}
-        new_state[PayloadParser.DRIVER_STATE_DT_SEC] = time_at_next_immediate_node
+        new_state[PayloadKeys.DRIVER_STATE_DT_SEC] = time_at_next_immediate_node
         manifest.extend(VehicleHandler.get_manifest(vehicle, current_order))
-        new_driver_run = {PayloadParser.DRIVER_STATE:new_state,PayloadParser.DRIVER_MANIFEST:manifest}
+        new_driver_run = {PayloadKeys.DRIVER_STATE:new_state,PayloadKeys.DRIVER_MANIFEST:manifest}
         return new_driver_run
 
     def get_vehicle_exact_location(self,vehicle_id):

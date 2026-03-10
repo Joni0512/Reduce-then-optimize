@@ -14,6 +14,8 @@ from rtv_solver.handlers.trip_handler import TripHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.online_rtv_solver import OnlineRTVSolver
 
+from rtv_solver.schema.payload_keys import PayloadKeys
+
 from rtv_solver.structure.config import Config
 from rtv_solver.structure.trip_cost import TripCost
 from rtv_solver.structure.assignment_result import AssignmentResult
@@ -131,41 +133,41 @@ class COAMLPipeline():
         # track progress of solver iterations
         iteration = 0
 
-        driver_runs = payload[PayloadParser.DRIVERS]
+        driver_runs = payload[PayloadKeys.DRIVERS]
 
         while current_time < end_time:
             console_logger.info(f"=== Iteration {iteration} offline RTV Solver at time {current_time} ===")
             
             # select requests that are to be considered in the current interval with pickup_window [current_time, current_time + interval]
             selected_requests = {}
-            for request in payload[PayloadParser.REQUESTS]:
+            for request in payload[PayloadKeys.REQUESTS]:
                 # if start of time window is part of current batch_interval
-                if (request[PayloadParser.REQ_PICKUP_WINDOW_START] >= current_time and 
-                    request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + self.config.BATCH_INTERVAL 
+                if (request[PayloadKeys.REQ_PICKUP_WINDOW_START] >= current_time and 
+                    request[PayloadKeys.REQ_PICKUP_WINDOW_START] < current_time + self.config.BATCH_INTERVAL 
                     ):
-                    selected_requests[request[PayloadParser.REQ_BOOKING_ID]] = request
+                    selected_requests[request[PayloadKeys.REQ_BOOKING_ID]] = request
             
             # remove requests that are already part of vehicles; covered by PayloadParser in OnlineRTVsolver # TODO check
             for dr in driver_runs:
-                manifest = dr[PayloadParser.DRIVER_MANIFEST]
+                manifest = dr[PayloadKeys.DRIVER_MANIFEST]
                 for stop in manifest:
-                    if stop[PayloadParser.MANIFEST_BOOKING_ID] in selected_requests:
-                        del selected_requests[stop[PayloadParser.MANIFEST_BOOKING_ID]]
+                    if stop[PayloadKeys.MANIFEST_BOOKING_ID] in selected_requests:
+                        del selected_requests[stop[PayloadKeys.MANIFEST_BOOKING_ID]]
             selected_requests = list(selected_requests.values())
 
             # create a new payload with the selected requests
             new_payload = {
-                PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
-                PayloadParser.REQUESTS: selected_requests,
-                PayloadParser.DRIVERS: driver_runs,
-                PayloadParser.CURRENT_TIME: current_time,
-                PayloadParser.TIME_MATRIX: payload.get(PayloadParser.TIME_MATRIX, None)}
+                PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
+                PayloadKeys.REQUESTS: selected_requests,
+                PayloadKeys.DRIVERS: driver_runs,
+                PayloadKeys.CURRENT_TIME: current_time,
+                PayloadKeys.TIME_MATRIX: payload.get(PayloadKeys.TIME_MATRIX, None)}
 
             # solve the RTV problem and update manifests
             if len(selected_requests) == 0:
                 new_driver_runs = driver_runs
             else:    
-                new_driver_runs = self.solve_iteration(new_payload, iteration, mode = mode, tt_matrix=new_payload[PayloadParser.TIME_MATRIX])
+                new_driver_runs = self.solve_iteration(new_payload, iteration, mode = mode, tt_matrix=new_payload[PayloadKeys.TIME_MATRIX])
                 if mode == "train" and optimizer is not None and self.last_loss is not None:
                     optimizer.zero_grad(set_to_none=True)
                     self.last_loss.backward()
@@ -177,11 +179,11 @@ class COAMLPipeline():
 
             # update vehicles based on decisions in the previous step until current time (might not be the entire interval)
             # TODO if the networkHandler is not used from server, we cannot handle intermediate locations here, so we need to set intermediate_location to False
-            simulated_driver_runs = OnlineRTVSolver.simulate_manifest(self.config, current_time, new_driver_runs, intermediate_location=False, tt_matrix=new_payload[PayloadParser.TIME_MATRIX]) # TODO check if intermediate_location is correct
+            simulated_driver_runs = OnlineRTVSolver.simulate_manifest(self.config, current_time, new_driver_runs, intermediate_location=False, tt_matrix=new_payload[PayloadKeys.TIME_MATRIX]) # TODO check if intermediate_location is correct
             driver_runs = simulated_driver_runs
 
         final_driver_runs = OnlineRTVSolver.finalize_driverRuns(
-            self.config, driver_runs, payload[PayloadParser.DEPOT]
+            self.config, driver_runs, payload[PayloadKeys.DEPOT]
         )
         self.save_model_weights()
         return final_driver_runs
@@ -485,10 +487,10 @@ class COAMLPipeline():
             
         # check invariants whether manifest is still correct
         OnlineRTVSolver._check_consistency_of_manifests(
-            subset_payload[PayloadParser.DRIVERS], 
+            subset_payload[PayloadKeys.DRIVERS], 
             updated_driver_runs,
             unserved_requests, 
-            subset_payload[PayloadParser.REQUESTS],
+            subset_payload[PayloadKeys.REQUESTS],
             keep_active=self.config.KEEP_ACTIVE,
             return_depot=self.config.RETURN_DEPOT)
         
@@ -608,6 +610,6 @@ class COAMLPipeline():
         console_logger.info(f"COAML FY loss computed: {self.last_loss.item():.4f}")
 
     def _log_assignment_status(self, result: AssignmentResult, unserved_requests: set[int], current_time: float):
-        assignment_status = {PayloadParser.STATS_ASSIGNED: result.request_assignment, 
-                            PayloadParser.STATS_UNSERVED: list(unserved_requests)}
+        assignment_status = {PayloadKeys.STATS_ASSIGNED: result.request_assignment, 
+                            PayloadKeys.STATS_UNSERVED: list(unserved_requests)}
         data_logger.info("Status", extra={"timestamp": current_time, "status": assignment_status})  

@@ -2,7 +2,7 @@ import pytest
 
 from rtv_solver.offline_rtv_solver import OfflineRTVSolver
 
-from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.schema.payload_keys import PayloadKeys
 from rtv_solver.handlers.stats_parser import StatsParser
 
 from rtv_solver.structure.config import Config
@@ -118,9 +118,9 @@ def test_integration_solver_parametrized(
     )
     # compute stats
     stats_payload = {
-        PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
-        PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
-        PayloadParser.DRIVERS: updated_driver_runs,}
+        PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
+        PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
+        PayloadKeys.DRIVERS: updated_driver_runs,}
     stats_evaluator = StatsParser(config=config)
     feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
 

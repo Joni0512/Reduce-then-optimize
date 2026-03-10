@@ -29,9 +29,9 @@ class SwapHandler:
         self.DWELL_ALIGHT = config.DWELL_ALIGHT
         NetworkHandler.init_from_source(server_url)
         payload_object = PayloadParser.get_payload_object({
-            PayloadParser.DRIVERS: driver_runs,
-            PayloadParser.DEPOT: depot, 
-            PayloadParser.REQUESTS: []})
+            PayloadKeys.DRIVERS: driver_runs,
+            PayloadKeys.DEPOT: depot, 
+            PayloadKeys.REQUESTS: []})
         self.active_requests = set(payload_object.active_requests_keys)
         
         requests = payload_object.requests
@@ -43,7 +43,7 @@ class SwapHandler:
         # add node_id to request pickup and dropoff spots
         for request in requests:
             # TODO this code can be moved to a helper function but it needs to change the information in-place
-            req_pickup_pt, req_dropoff_pt = request[PayloadParser.REQ_PICKUP_PT], request[PayloadParser.REQ_DROPOFF_PT]
+            req_pickup_pt, req_dropoff_pt = request[PayloadKeys.REQ_PICKUP_PT], request[PayloadKeys.REQ_DROPOFF_PT]
             node_id = NetworkHandler.get_next_node_id(req_pickup_pt["lat"],
                                                       req_pickup_pt["lon"])
             req_pickup_pt["node_id"] = node_id
@@ -52,26 +52,26 @@ class SwapHandler:
         
         self.request_dic = {}
         for request in requests:
-            self.request_dic[request[PayloadParser.REQ_BOOKING_ID]] = request
+            self.request_dic[request[PayloadKeys.REQ_BOOKING_ID]] = request
 
         self.driver_runs = copy.deepcopy(driver_runs)
         for driver_run in self.driver_runs:
-            state = driver_run[PayloadParser.DRIVER_STATE]
-            run_id = state[PayloadParser.DRIVER_STATE_RUN_ID]
-            state_loc = state[PayloadParser.DRIVER_STATE_LOC]
+            state = driver_run[PayloadKeys.DRIVER_STATE]
+            run_id = state[PayloadKeys.DRIVER_STATE_RUN_ID]
+            state_loc = state[PayloadKeys.DRIVER_STATE_LOC]
             current_node_id = NetworkHandler.get_next_node_id(state_loc["lat"], 
                                                               state_loc["lon"])
             state_loc["node_id"] = current_node_id
-            current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
-            manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
+            current_order = state[PayloadKeys.DRIVER_STATE_LOC_SERV]
+            manifest = driver_run[PayloadKeys.DRIVER_MANIFEST]
             for stop in manifest[current_order:]:
-                booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
-                stop_loc = stop[PayloadParser.MANIFEST_LOC]
+                booking_id = stop[PayloadKeys.MANIFEST_BOOKING_ID]
+                stop_loc = stop[PayloadKeys.MANIFEST_LOC]
                 request = self.request_dic[booking_id]
-                if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
-                    stop_loc["node_id"] = request[PayloadParser.REQ_PICKUP_PT]["node_id"]
+                if stop[PayloadKeys.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
+                    stop_loc["node_id"] = request[PayloadKeys.REQ_PICKUP_PT]["node_id"]
                 else:
-                    stop_loc["node_id"] = request[PayloadParser.REQ_DROPOFF_PT]["node_id"]
+                    stop_loc["node_id"] = request[PayloadKeys.REQ_DROPOFF_PT]["node_id"]
             
         # Initialize travel time matrix
         NetworkHandler.initialize_travel_time_matrix()
@@ -83,22 +83,22 @@ class SwapHandler:
         # collect requests per vehicle that have not been served yet
         driver_run_requests = {}
         for driver_run in self.driver_runs:
-            state = driver_run[PayloadParser.DRIVER_STATE]
-            run_id = state[PayloadParser.DRIVER_STATE_RUN_ID]
-            current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
-            manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
+            state = driver_run[PayloadKeys.DRIVER_STATE]
+            run_id = state[PayloadKeys.DRIVER_STATE_RUN_ID]
+            current_order = state[PayloadKeys.DRIVER_STATE_LOC_SERV]
+            manifest = driver_run[PayloadKeys.IVER_MANIFEST]
             driver_run_requests[run_id] = set()
             for stop in manifest[current_order:]:
-                booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
-                if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
+                booking_id = stop[PayloadKeys.MANIFEST_BOOKING_ID]
+                if stop[PayloadKeys.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                     driver_run_requests[run_id].add(booking_id)
         
         SwapHandler.manifest_options = []
         initial_cost = 0
         pool = mp.Pool(self.MAX_NUM_THREAD)
         for driver_run in self.driver_runs:
-            state = driver_run[PayloadParser.DRIVER_STATE]
-            run_id = state[PayloadParser.DRIVER_STATE_RUN_ID]
+            state = driver_run[PayloadKeys.DRIVER_STATE]
+            run_id = state[PayloadKeys.DRIVER_STATE_RUN_ID]
             active_requests_in_manifest = driver_run_requests[run_id]
             manifest_cost = SwapHandler._manifest_cost(driver_run)
             initial_cost += manifest_cost
@@ -158,8 +158,8 @@ class SwapHandler:
         
         manifests_with_vehicle = {}
         for driver_run in self.driver_runs:
-            state = driver_run[PayloadParser.DRIVER_STATE]
-            run_id = state[PayloadParser.DRIVER_STATE_RUN_ID]
+            state = driver_run[PayloadKeys.DRIVER_STATE]
+            run_id = state[PayloadKeys.DRIVER_STATE_RUN_ID]
             manifests_with_vehicle[run_id] = []
             for i in range(no_options):
                 option = SwapHandler.manifest_options[i]
@@ -253,9 +253,9 @@ class SwapHandler:
     def _manifest_cost(driver_run):
         cost = 0
 
-        state = driver_run[PayloadParser.DRIVER_STATE]
-        no_completed_stops = state[PayloadParser.DRIVER_STATE_LOC_SERV]
-        remaining_stops = driver_run[PayloadParser.DRIVER_MANIFEST][no_completed_stops:]
+        state = driver_run[PayloadKeys.DRIVER_STATE]
+        no_completed_stops = state[PayloadKeys.DRIVER_STATE_LOC_SERV]
+        remaining_stops = driver_run[PayloadKeys.DRIVER_MANIFEST][no_completed_stops:]
 
         current_node = SwapHandler._stop_to_node(state)
         for stop in remaining_stops:
@@ -266,35 +266,35 @@ class SwapHandler:
 
     @staticmethod
     def _stop_to_node(stop):
-        stop_loc = stop[PayloadParser.MANIFEST_LOC]
+        stop_loc = stop[PayloadKeys.MANIFEST_LOC]
         return Node(stop_loc["lat"],
                     stop_loc["lon"],
                     id = stop_loc["node_id"])
 
     @staticmethod
     def _remove_request_from_driver_run(driver_run, booking_id, DWELL_PICKUP, DWELL_ALIGHT):
-        state = copy.deepcopy(driver_run[PayloadParser.DRIVER_STATE])
-        no_completed_stops = state[PayloadParser.DRIVER_STATE_LOC_SERV]
-        menifest = copy.deepcopy(driver_run[PayloadParser.DRIVER_MANIFEST])
+        state = copy.deepcopy(driver_run[PayloadKeys.DRIVER_STATE])
+        no_completed_stops = state[PayloadKeys.IVER_STATE_LOC_SERV]
+        menifest = copy.deepcopy(driver_run[PayloadKeys.DRIVER_MANIFEST])
         new_manifest = menifest[:no_completed_stops]
         remaining_stops = []
 
         current_node = SwapHandler._stop_to_node(state)
-        current_time = state[PayloadParser.DRIVER_STATE_DT_SEC]
+        current_time = state[PayloadKeys.DRIVER_STATE_DT_SEC]
         current_order = no_completed_stops
         for stop in menifest[no_completed_stops:]:
-            if stop[PayloadParser.MANIFEST_BOOKING_ID] == booking_id:
+            if stop[PayloadKeys.MANIFEST_BOOKING_ID] == booking_id:
                 continue
             stop_node = SwapHandler._stop_to_node(stop)
             travel_time = NetworkHandler.travel_time(current_node, stop_node)
             current_time += travel_time
-            if current_time < stop[PayloadParser.MANIFEST_TIME_WINDOW_START]:
-                current_time = stop[PayloadParser.MANIFEST_TIME_WINDOW_START]
-            stop[PayloadParser.MANIFEST_SCHED_TIME] = current_time
+            if current_time < stop[PayloadKeys.MANIFEST_TIME_WINDOW_START]:
+                current_time = stop[PayloadKeys.MANIFEST_TIME_WINDOW_START]
+            stop[PayloadKeys.MANIFEST_SCHED_TIME] = current_time
             current_order += 1
-            stop[PayloadParser.MANIFEST_ORDER] = current_order
+            stop[PayloadKeys.MANIFEST_ORDER] = current_order
 
-            if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
+            if stop[PayloadKeys.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
                 current_time += DWELL_PICKUP
             else:
                 current_time += DWELL_ALIGHT
@@ -302,11 +302,11 @@ class SwapHandler:
             remaining_stops.append(stop)
             current_node = stop_node
 
-        state[PayloadParser.DRIVER_STATE_T_LOCS] = len(new_manifest + remaining_stops)
+        state[PayloadKeys.DRIVER_STATE_T_LOCS] = len(new_manifest + remaining_stops)
         
         return {
-            PayloadParser.DRIVER_STATE: state,
-            PayloadParser.DRIVER_MANIFEST: new_manifest + remaining_stops
+            PayloadKeys.DRIVER_STATE: state,
+            PayloadKeys.DRIVER_MANIFEST: new_manifest + remaining_stops
         }
 
     @staticmethod  
@@ -314,66 +314,66 @@ class SwapHandler:
         driver_run_c = copy.deepcopy(driver_run)
         # initialize stops
         pickup_stop = {
-            PayloadParser.MANIFEST_RUN_ID: None, 
-            PayloadParser.MANIFEST_BOOKING_ID: request[PayloadParser.REQ_BOOKING_ID], 
-            PayloadParser.MANIFEST_ORDER: -1, 
-            PayloadParser.MANIFEST_ACTION: VehicleStop.ACT_PICKUP, 
-            PayloadParser.MANIFEST_LOC: request[PayloadParser.REQ_PICKUP_PT], 
-            PayloadParser.MANIFEST_SCHED_TIME: -1, 
-            PayloadParser.MANIFEST_AMBULATORY: request[PayloadParser.REQ_AMBULATORY], 
-            PayloadParser.MANIFEST_WHEELCHAIR: request[PayloadParser.REQ_WHEELCHAIR], 
-            PayloadParser.MANIFEST_TIME_WINDOW_START: request[PayloadParser.REQ_PICKUP_WINDOW_START],
-            PayloadParser.MANIFEST_TIME_WINDOW_END: request[PayloadParser.REQ_PICKUP_WINDOW_END]}
+            PayloadKeys.MANIFEST_RUN_ID: None, 
+            PayloadKeys.NIFEST_BOOKING_ID: request[PaPayloadKeys.Q_BOOKING_ID], 
+            PayloadKeys.MANIFEST_ORDER: -1, 
+            PayloadKeys.MANIFEST_ACTION: VehicleStop.ACT_PICKUP, 
+            PayloadKeys.MANIFEST_LOC: request[PayloadKeys.REQ_PICKUP_PT], 
+            PayloadKeys.MANIFEST_SCHED_TIME: -1, 
+            PayloadKeys.MANIFEST_AMBULATORY: request[PayloadKeys.REQ_AMBULATORY], 
+            PayloadKeys.MANIFEST_WHEELCHAIR: request[PayloadKeys.REQ_WHEELCHAIR], 
+            PayloadKeys.MANIFEST_TIME_WINDOW_START: request[PayloadKeys.REQ_PICKUP_WINDOW_START],
+            PayloadKeys.MANIFEST_TIME_WINDOW_END: request[PayloadKeys.REQ_PICKUP_WINDOW_END]}
         dropoff_stop = {
-            PayloadParser.MANIFEST_RUN_ID: None, 
-            PayloadParser.MANIFEST_BOOKING_ID: request[PayloadParser.REQ_BOOKING_ID], 
-            PayloadParser.MANIFEST_ORDER: -1, 
-            PayloadParser.MANIFEST_ACTION: VehicleStop.ACT_DROPOFF, 
-            PayloadParser.MANIFEST_LOC: request[PayloadParser.REQ_DROPOFF_PT], 
-            PayloadParser.MANIFEST_SCHED_TIME: -1, 
-            PayloadParser.MANIFEST_AMBULATORY: request[PayloadParser.REQ_AMBULATORY], 
-            PayloadParser.MANIFEST_WHEELCHAIR: request[PayloadParser.REQ_WHEELCHAIR], 
-            PayloadParser.MANIFEST_TIME_WINDOW_START: request[PayloadParser.REQ_DROPOFF_WINDOW_START],
-            PayloadParser.MANIFEST_TIME_WINDOW_END: request[PayloadParser.REQ_DROPOFF_WINDOW_END]}
+            PayloadKeys.NIFEST_RUN_ID: None, 
+            PayloadKeys.MANIFEST_BOOKING_ID: request[PayloadKeys.REQ_BOOKING_ID], 
+            PayloadKeys.MANIFEST_ORDER: -1, 
+            PayloadKeys.MANIFEST_ACTION: VehicleStop.ACT_DROPOFF, 
+            PayloadKeys.MANIFEST_LOC: request[PayloadKeys.REQ_DROPOFF_PT], 
+            PayloadKeys.MANIFEST_SCHED_TIME: -1, 
+            PayloadKeys.MANIFEST_AMBULATORY: request[PayloadKeys.REQ_AMBULATORY], 
+            PayloadKeys.NIFEST_WHEELCHAIR: request[PayloadKeys.REQ_WHEELCHAIR], 
+            PayloadKeys.MANIFEST_TIME_WINDOW_START: request[PayloadKeys.REQ_DROPOFF_WINDOW_START],
+            PayloadKeys.MANIFEST_TIME_WINDOW_END: request[PayloadKeys.REQ_DROPOFF_WINDOW_END]}
 
         load = 0
-        state = driver_run_c[PayloadParser.DRIVER_STATE]
-        manifest = driver_run_c[PayloadParser.DRIVER_MANIFEST]
+        state = driver_run_c[PayloadKeys.DRIVER_STATE]
+        manifest = driver_run_c[PayloadKeys.DRIVER_MANIFEST]
         # insert vehicle to stops
-        pickup_stop[PayloadParser.MANIFEST_RUN_ID] = state[PayloadParser.DRIVER_STATE_RUN_ID]
-        dropoff_stop[PayloadParser.MANIFEST_RUN_ID] = state[PayloadParser.DRIVER_STATE_RUN_ID]
+        pickup_stop[PayloadKeys.MANIFEST_RUN_ID] = state[PayloadKeys.DRIVER_STATE_RUN_ID]
+        dropoff_stop[PayloadKeys.MANIFEST_RUN_ID] = state[PayloadKeys.DRIVER_STATE_RUN_ID]
         
         start_node = SwapHandler._stop_to_node(state)
-        start_time = state[PayloadParser.DRIVER_STATE_DT_SEC]
+        start_time = state[PayloadKeys.DRIVER_STATE_DT_SEC]
         # differentiate already completed stops and remaining stops in manifest
         completed_stops = []
         remaining_stops = []
         for stop in manifest:
-            if stop[PayloadParser.MANIFEST_ORDER] <= state[PayloadParser.DRIVER_STATE_LOC_SERV]:
-                if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
-                    load += stop[PayloadParser.MANIFEST_AMBULATORY]
+            if stop[PayloadKeys.MANIFEST_ORDER] <= state[PayloadKeys.DRIVER_STATE_LOC_SERV]:
+                if stop[PayloadKeys.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
+                    load += stop[PayloadKeys.MANIFEST_AMBULATORY]
                 else:
-                    load -= stop[PayloadParser.MANIFEST_AMBULATORY]
+                    load -= stop[PayloadKeys.MANIFEST_AMBULATORY]
                 completed_stops.append(stop)
             else:
                 remaining_stops.append(stop)
 
         # get pickup and dropoff indices in the manifest
-        earliest_pickup_time = pickup_stop[PayloadParser.MANIFEST_TIME_WINDOW_START]
-        latest_pickup_time = pickup_stop[PayloadParser.MANIFEST_TIME_WINDOW_END]
-        earliest_dropoff_time = dropoff_stop[PayloadParser.MANIFEST_TIME_WINDOW_START]
-        latest_dropoff_time = dropoff_stop[PayloadParser.MANIFEST_TIME_WINDOW_END]
+        earliest_pickup_time = pickup_stop[PayloadKeys.NIFEST_TIME_WINDOW_START]
+        latest_pickup_time = pickup_stop[PayloadKeys.NIFEST_TIME_WINDOW_END]
+        earliest_dropoff_time = dropoff_stop[PayloadKeys.MANIFEST_TIME_WINDOW_START]
+        latest_dropoff_time = dropoff_stop[PayloadKeys.MANIFEST_TIME_WINDOW_END]
 
         pick_earliest_index = 0
         pick_latest_index = 0
         for i, stop in enumerate(remaining_stops):
-            if stop[PayloadParser.MANIFEST_TIME_WINDOW_END] >= earliest_pickup_time:
+            if stop[PayloadKeys.NIFEST_TIME_WINDOW_END] >= earliest_pickup_time:
                 break
             else:
                 pick_earliest_index = i + 1
         
         for i, stop in enumerate(remaining_stops):
-            if stop[PayloadParser.MANIFEST_TIME_WINDOW_START] > latest_pickup_time:
+            if stop[PayloadKeys.MANIFEST_TIME_WINDOW_START] > latest_pickup_time:
                 break
             else:
                 pick_latest_index = i + 1
@@ -383,12 +383,12 @@ class SwapHandler:
         drop_earliest_index = 0
         drop_latest_index = 0
         for i, stop in enumerate(remaining_stops):
-            if stop[PayloadParser.MANIFEST_TIME_WINDOW_END] >= earliest_dropoff_time:
+            if stop[PayloadKeys.MANIFEST_TIME_WINDOW_END] >= earliest_dropoff_time:
                 break
             else:
                 drop_earliest_index = i + 1
         for i, stop in enumerate(remaining_stops):
-            if stop[PayloadParser.MANIFEST_TIME_WINDOW_START] > latest_dropoff_time:
+            if stop[PayloadKeys.MANIFEST_TIME_WINDOW_START] > latest_dropoff_time:
                 break
             else:
                 drop_latest_index = i + 1
@@ -397,7 +397,7 @@ class SwapHandler:
 
         st_time = time.time()
         # build args for insertion evaluation
-        end_time = state[PayloadParser.DRIVER_STATE_END_TIME]
+        end_time = state[PayloadKeys.DRIVER_STATE_END_TIME]
         objective = "vmt"
         args_list = [ # create args for each pickup index i & each dropoff index
             (i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective,depot_node, end_time, DWELL_PICKUP, DWELL_ALIGHT) 
@@ -420,8 +420,8 @@ class SwapHandler:
             return -1, None, time_taken_to_evaluate
 
         new_driver_run = copy.deepcopy(driver_run)
-        new_driver_run[PayloadParser.DRIVER_MANIFEST] = completed_stops + best_insertion
-        new_driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_T_LOCS] = len(new_driver_run[PayloadParser.DRIVER_MANIFEST])
+        new_driver_run[PayloadKeys.DRIVER_MANIFEST] = completed_stops + best_insertion
+        new_driver_run[PayloadKeys.DRIVER_STATE][PayloadKeys.DRIVER_STATE_T_LOCS] = len(new_driver_run[PayloadKeys.DRIVER_MANIFEST])
 
         return best_cost, new_driver_run, time_taken_to_evaluate
 
@@ -435,7 +435,7 @@ class SwapHandler:
         current_load = load
         # initialize loop
         cost = 0
-        order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
+        order = state[PayloadKeys.DRIVER_STATE_LOC_SERV]
         index = 0
         for stop in new_manifest:
             next_node = SwapHandler._stop_to_node(stop)
@@ -443,28 +443,28 @@ class SwapHandler:
             cost += travel_time
             current_node = next_node
             current_time += travel_time
-            if current_time < stop[PayloadParser.MANIFEST_TIME_WINDOW_START]:
-                current_time = stop[PayloadParser.MANIFEST_TIME_WINDOW_START]
-            stop[PayloadParser.MANIFEST_SCHED_TIME] = current_time
+            if current_time < stop[PayloadKeys.MANIFEST_TIME_WINDOW_START]:
+                current_time = stop[PayloadKeys.MANIFEST_TIME_WINDOW_START]
+            stop[PayloadKeys.NIFEST_SCHED_TIME] = current_time
             if objective == "pick_up_time" and (i == index or j == index):
-                stop[PayloadParser.MANIFEST_TIME_WINDOW_END] = current_time + 30
-            if current_time > stop[PayloadParser.MANIFEST_TIME_WINDOW_END]:
+                stop[PayloadKeys.MANIFEST_TIME_WINDOW_END] = current_time + 30
+            if current_time > stop[PayloadKeys.MANIFEST_TIME_WINDOW_END]:
                 return float("inf"), None
-            if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
-                current_load += stop[PayloadParser.MANIFEST_AMBULATORY]
+            if stop[PayloadKeys.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
+                current_load += stop[PayloadKeys.MANIFEST_AMBULATORY]
                 current_time += dwell_pickup
             else:
-                current_load -= stop[PayloadParser.MANIFEST_AMBULATORY]
+                current_load -= stop[PayloadKeys.MANIFEST_AMBULATORY]
                 current_time += dwell_alight
-            if current_load > state[PayloadParser.DRIVER_STATE_AM_CAP]:
+            if current_load > state[PayloadKeys.DRIVER_STATE_AM_CAP]:
                 return float("inf"), None
             # increment elements
             order += 1
-            stop[PayloadParser.MANIFEST_ORDER] = order
+            stop[PayloadKeys.MANIFEST_ORDER] = order
             index += 1
 
         if current_time + NetworkHandler.travel_time(current_node,depot) > end_time:
             return float("inf"), None
         if objective == "pick_up_time": # result would not be cost but time?
-            return new_manifest[i][PayloadParser.MANIFEST_SCHED_TIME], new_manifest
+            return new_manifest[i][PayloadKeys.MANIFEST_SCHED_TIME], new_manifest
         return cost, new_manifest

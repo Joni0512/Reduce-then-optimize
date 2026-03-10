@@ -17,6 +17,7 @@ from rtv_solver.structure.node import Node
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.config import Config
 from rtv_solver.structure.driver_run import DriverRun, ManifestEntry
+from rtv_solver.schema.payload_keys import PayloadKeys
 
 from rtv_solver.pipeline import CO_TripCostMinimization, CO_RebalancingCoverage
 
@@ -44,22 +45,22 @@ class OnlineRTVSolver:
         NetworkHandler.init_from_source(server_url=self.config.SERVER_URL)
         feasible_time_slots = []
 
-        request = payload[PayloadParser.REQUESTS][0]
-        pickup_pt, dropoff_pt = request[PayloadParser.REQ_PICKUP_PT], request[PayloadParser.REQ_DROPOFF_PT]
+        request = payload[PayloadKeys.REQUESTS][0]
+        pickup_pt, dropoff_pt = request[PayloadKeys.REQ_PICKUP_PT], request[PayloadKeys.REQ_DROPOFF_PT]
         origin = Node(pickup_pt["lat"], pickup_pt["lon"])
         destination = Node(dropoff_pt["lat"], dropoff_pt["lon"])
         request_travel_time = NetworkHandler.travel_time(origin, destination)
 
         for time_window in request["time_windows"]: # NOTE where does the 'time_windows' come from? and the strings below are thus not changed as we do not know its origin
             request_copy = copy.deepcopy(request)
-            request_copy[PayloadParser.REQ_PICKUP_WINDOW_START] = time_window["pickup_time_window_start"]
-            request_copy[PayloadParser.REQ_PICKUP_WINDOW_END] = time_window["pickup_time_window_end"]
-            request_copy[PayloadParser.REQ_DROPOFF_WINDOW_START] = time_window["dropoff_time_window_start"]
-            request_copy[PayloadParser.REQ_DROPOFF_WINDOW_END] = time_window["dropoff_time_window_end"]
+            request_copy[PayloadKeys.REQ_PICKUP_WINDOW_START] = time_window["pickup_time_window_start"]
+            request_copy[PayloadKeys.REQ_PICKUP_WINDOW_END] = time_window["pickup_time_window_end"]
+            request_copy[PayloadKeys.REQ_DROPOFF_WINDOW_START] = time_window["dropoff_time_window_start"]
+            request_copy[PayloadKeys.REQ_DROPOFF_WINDOW_END] = time_window["dropoff_time_window_end"]
             best_cost = float("inf")
-            for driver_run in payload[PayloadParser.DRIVERS]:
+            for driver_run in payload[PayloadKeys.DRIVERS]:
                 cost, _ = self._insert_request_to_driver_run(
-                    payload[PayloadParser.DEPOT], driver_run, request_copy)
+                    payload[PayloadKeys.DEPOT], driver_run, request_copy)
                 if cost >= 0 and cost < best_cost:
                     best_cost = cost
             if best_cost < float("inf"):
@@ -160,15 +161,15 @@ class OnlineRTVSolver:
             updated_driver_runs.append(new_driver_run)
             
         # check invariants whether manifest is still correct
-        self._check_consistency_of_manifests(payload[PayloadParser.DRIVERS], 
+        self._check_consistency_of_manifests(payload[PayloadKeys.DRIVERS], 
                                             updated_driver_runs,
                                             unserved_requests, 
-                                            payload[PayloadParser.REQUESTS],
+                                            payload[PayloadKeys.REQUESTS],
                                             keep_active=self.config.KEEP_ACTIVE,
                                             return_depot=self.config.RETURN_DEPOT)
         # TODO remove this complex data structure to move data up the stack; integrate JSON logger that records information to a standardized JSON file and can later be rebuilt and analyzed using that JSON file (probably requires something similar to OutputHandler that was used in the simulation)
-        assignment_status = {PayloadParser.STATS_ASSIGNED: result.request_assignment, 
-                            PayloadParser.STATS_UNSERVED: list(unserved_requests)}
+        assignment_status = {PayloadKeys.STATS_ASSIGNED: result.request_assignment, 
+                            PayloadKeys.STATS_UNSERVED: list(unserved_requests)}
         return updated_driver_runs, assignment_status # ,trip_handler, vehicle_handler, request_handler, payload_object
 
     @staticmethod
@@ -197,13 +198,13 @@ class OnlineRTVSolver:
         active_requests = set()
         boarded_requests = set()
         for driver_run in prev_driver_runs:
-            state = driver_run[PayloadParser.DRIVER_STATE]
-            manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
-            serviced_locations = state[PayloadParser.DRIVER_STATE_LOC_SERV] # vehicle state condition for active / boarding
+            state = driver_run[PayloadKeys.DRIVER_STATE]
+            manifest = driver_run[PayloadKeys.DRIVER_MANIFEST]
+            serviced_locations = state[PayloadKeys.DRIVER_STATE_LOC_SERV] # vehicle state condition for active / boarding
             for stop in manifest:
-                stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
-                action = stop[PayloadParser.MANIFEST_ACTION]
-                stop_order = stop[PayloadParser.MANIFEST_ORDER]
+                stop_id = stop[PayloadKeys.MANIFEST_BOOKING_ID]
+                action = stop[PayloadKeys.MANIFEST_ACTION]
+                stop_order = stop[PayloadKeys.MANIFEST_ORDER]
                 if action == VehicleStop.ACT_PICKUP:
                     if stop_order <= serviced_locations: # i.e., already boarded or finished
                         boarded_requests.add(stop_id)
@@ -218,13 +219,13 @@ class OnlineRTVSolver:
         depot_requests = []
         manifests = []
         for driver_run in new_driver_runs:
-            state = driver_run[PayloadParser.DRIVER_STATE]
-            manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
+            state = driver_run[PayloadKeys.DRIVER_STATE]
+            manifest = driver_run[PayloadKeys.DRIVER_MANIFEST]
             manifests.append(manifest)
 
             for stop in manifest:
-                stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
-                action = stop[PayloadParser.MANIFEST_ACTION]
+                stop_id = stop[PayloadKeys.MANIFEST_BOOKING_ID]
+                action = stop[PayloadKeys.MANIFEST_ACTION]
                 if action == VehicleStop.ACT_PICKUP:
                     boarded_requests.discard(stop_id)
                     if keep_active: # only additionally remove active requests when keep_active = True
@@ -267,21 +268,21 @@ class OnlineRTVSolver:
         # TODO longterm: turn driver_run into an object that handles all the conditions and changes based on validated calls
         for driver_run in driver_runs:
             # get data from vehicle
-            state = driver_run[PayloadParser.DRIVER_STATE]
-            current_order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
-            next_immediate_time = state[PayloadParser.DRIVER_STATE_DT_SEC]
-            next_immediate_loc = state[PayloadParser.DRIVER_STATE_LOC]
-            manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
+            state = driver_run[PayloadKeys.DRIVER_STATE]
+            current_order = state[PayloadKeys.DRIVER_STATE_LOC_SERV]
+            next_immediate_time = state[PayloadKeys.DRIVER_STATE_DT_SEC]
+            next_immediate_loc = state[PayloadKeys.DRIVER_STATE_LOC]
+            manifest = driver_run[PayloadKeys.DRIVER_MANIFEST]
             
             # update time if manifest is already completed
             if len(manifest) == current_order and next_immediate_time < current_time:
                 next_immediate_time = current_time
 
-            while len(manifest) > current_order and current_time >= manifest[current_order][PayloadParser.MANIFEST_SCHED_TIME]:
+            while len(manifest) > current_order and current_time >= manifest[current_order][PayloadKeys.MANIFEST_SCHED_TIME]:
                 next_stop = manifest[current_order]
-                next_immediate_time = next_stop[PayloadParser.MANIFEST_SCHED_TIME]
-                next_immediate_loc = next_stop[PayloadParser.MANIFEST_LOC]
-                action = next_stop[PayloadParser.MANIFEST_ACTION]
+                next_immediate_time = next_stop[PayloadKeys.MANIFEST_SCHED_TIME]
+                next_immediate_loc = next_stop[PayloadKeys.MANIFEST_LOC]
+                action = next_stop[PayloadKeys.MANIFEST_ACTION]
                 # apply dwell time if applicable, why do we have this 
                 if action == VehicleStop.ACT_PICKUP:
                     next_immediate_time += config.DWELL_PICKUP
@@ -296,19 +297,19 @@ class OnlineRTVSolver:
             if len(manifest) > current_order and next_immediate_time < current_time and intermediate_location:
                 # if manifest is longer than final stop (according to time limit) AND next_immediate_time is still smaller than current_time AND we want to have the location in between stops, we will get that location here
                 next_immediate_node = NetworkHandler.get_node_from_manifest_location(next_immediate_loc)
-                target_node = NetworkHandler.get_node_from_manifest_location(manifest[current_order][PayloadParser.MANIFEST_LOC])
+                target_node = NetworkHandler.get_node_from_manifest_location(manifest[current_order][PayloadKeys.MANIFEST_LOC])
                 next_immediate_time, next_immediate_node = NetworkHandler.get_current_location_time(
                     next_immediate_node, target_node, next_immediate_time, current_time)
                 next_immediate_loc = {"lat":next_immediate_node.lat,
                                       "lon":next_immediate_node.lon,
                                       "node_id":next_immediate_node.id}
 
-            state[PayloadParser.DRIVER_STATE_DT_SEC] = next_immediate_time
-            state[PayloadParser.DRIVER_STATE_LOC] = next_immediate_loc
-            state[PayloadParser.DRIVER_STATE_LOC_SERV] = current_order
+            state[PayloadKeys.DRIVER_STATE_DT_SEC] = next_immediate_time
+            state[PayloadKeys.DRIVER_STATE_LOC] = next_immediate_loc
+            state[PayloadKeys.DRIVER_STATE_LOC_SERV] = current_order
             new_driver_runs.append({
-                PayloadParser.DRIVER_STATE: state,
-                PayloadParser.DRIVER_MANIFEST: manifest})
+                PayloadKeys.DRIVER_STATE: state,
+                PayloadKeys.DRIVER_MANIFEST: manifest})
         
         OnlineRTVSolver._check_consistency_of_manifests(driver_runs, new_driver_runs, [], [], keep_active=config.KEEP_ACTIVE, return_depot=config.RETURN_DEPOT)
         return new_driver_runs
@@ -317,16 +318,16 @@ class OnlineRTVSolver:
         """ uses heuristic to
         DO NOT USE IT FOR RTV solution. 
         """
-        updated_driver_runs = copy.deepcopy(payload[PayloadParser.DRIVERS])
+        updated_driver_runs = copy.deepcopy(payload[PayloadKeys.DRIVERS])
         total_cost = 0
         unserved_requests = []
-        for request in payload[PayloadParser.REQUESTS]:
+        for request in payload[PayloadKeys.REQUESTS]:
             cheapest_vehicle = None
             cheapest_cost = float("inf")
             cheapest_vehicle_index = -1
             for vehicle_index in range(len(updated_driver_runs)):
                 driver_run = updated_driver_runs[vehicle_index]
-                cost, new_driver_run = self._insert_request_to_driver_run(payload[PayloadParser.DEPOT], driver_run, request)
+                cost, new_driver_run = self._insert_request_to_driver_run(payload[PayloadKeys.DEPOT], driver_run, request)
                 if cost >=0 and cost < cheapest_cost:
                     cheapest_cost = cost
                     cheapest_vehicle = new_driver_run
@@ -335,9 +336,9 @@ class OnlineRTVSolver:
                 updated_driver_runs[cheapest_vehicle_index] = cheapest_vehicle
                 total_cost += cheapest_cost
             else:
-                unserved_requests.append(request[PayloadParser.REQ_BOOKING_ID])
+                unserved_requests.append(request[PayloadKeys.REQ_BOOKING_ID])
         
-        self._check_consistency_of_manifests(payload[PayloadParser.DRIVERS], updated_driver_runs, unserved_requests, payload[PayloadParser.REQUESTS], keep_active=self.config.KEEP_ACTIVE, return_depot=self.config.RETURN_DEPOT)
+        self._check_consistency_of_manifests(payload[PayloadKeys.DRIVERS], updated_driver_runs, unserved_requests, payload[PayloadKeys.REQUESTS], keep_active=self.config.KEEP_ACTIVE, return_depot=self.config.RETURN_DEPOT)
         if return_added_vmt:
             return updated_driver_runs, unserved_requests, total_cost
         return updated_driver_runs, unserved_requests
@@ -349,12 +350,12 @@ class OnlineRTVSolver:
         # NOTE what is the difference to PDPTW_RTV
         # TODO currently not working due to the changes of the return values of solve-pdptw-rtv
         remaining_requests = []
-        for driver_run in payload[PayloadParser.DRIVERS]:
-            current_order = driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_LOC_SERV]
-            remaining_manifest = driver_run[PayloadParser.DRIVER_MANIFEST][current_order:]
+        for driver_run in payload[PayloadKeys.DRIVERS]:
+            current_order = driver_run[PayloadKeys.DRIVER_STATE][PayloadKeys.DRIVER_STATE_LOC_SERV]
+            remaining_manifest = driver_run[PayloadKeys.DRIVER_MANIFEST][current_order:]
             unique_requests = set()
             for stop in remaining_manifest:
-                booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
+                booking_id = stop[PayloadKeys.MANIFEST_BOOKING_ID]
                 if booking_id not in unique_requests:
                     unique_requests.add(booking_id)
             remaining_requests.append(len(unique_requests))
@@ -381,7 +382,7 @@ class OnlineRTVSolver:
         start_time = time.time()
         swap_handler = SwapHandler(self.config.SERVER_URL,
                                    updated_driver_runs,
-                                   payload[PayloadParser.DEPOT],
+                                   payload[PayloadKeys.DEPOT],
                                    config=self.config)
         swaped_driver_runs, reduced_cost, no_of_swaps = swap_handler.run_swap()
         while no_of_swaps > 0 and reduced_cost > 0 and time.time() - start_time < self.RTV_TIMEOUT:
@@ -399,10 +400,10 @@ class OnlineRTVSolver:
         current_node = start_node
         current_load = load
         cost = 0
-        order = state[PayloadParser.DRIVER_STATE_LOC_SERV]
+        order = state[PayloadKeys.DRIVER_STATE_LOC_SERV]
         index = 0
         for stop in new_manifest:
-            stop_location = stop[PayloadParser.MANIFEST_LOC]
+            stop_location = stop[PayloadKeys.MANIFEST_LOC]
             next_node = Node(stop_location["lat"], 
                              stop_location["lon"],
                              id = stop_location["node_id"])
@@ -410,35 +411,35 @@ class OnlineRTVSolver:
             cost += travel_time
             current_node = next_node
             current_time += travel_time
-            if current_time < stop[PayloadParser.MANIFEST_TIME_WINDOW_START]:
-                current_time = stop[PayloadParser.MANIFEST_TIME_WINDOW_START]
-            stop[PayloadParser.MANIFEST_SCHED_TIME] = current_time
+            if current_time < stop[PayloadKeys.MANIFEST_TIME_WINDOW_START]:
+                current_time = stop[PayloadKeys.MANIFEST_TIME_WINDOW_START]
+            stop[PayloadKeys.MANIFEST_SCHED_TIME] = current_time
             if objective == "pick_up_time" and (i == index or j == index):
-                stop[PayloadParser.MANIFEST_TIME_WINDOW_END] = current_time + 30
-            if current_time > stop[PayloadParser.MANIFEST_TIME_WINDOW_END]:
+                stop[PayloadKeys.MANIFEST_TIME_WINDOW_END] = current_time + 30
+            if current_time > stop[PayloadKeys.MANIFEST_TIME_WINDOW_END]:
                 return float("inf"), None
-            if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
-                current_load += stop[PayloadParser.MANIFEST_AMBULATORY]
+            if stop[PayloadKeys.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
+                current_load += stop[PayloadKeys.MANIFEST_AMBULATORY]
                 current_time += dwell_pickup
             else:
-                current_load -= stop[PayloadParser.MANIFEST_AMBULATORY]
+                current_load -= stop[PayloadKeys.MANIFEST_AMBULATORY]
                 current_time += dwell_alight
-            if current_load > state[PayloadParser.DRIVER_STATE_AM_CAP]:
+            if current_load > state[PayloadKeys.DRIVER_STATE_AM_CAP]:
                 return float("inf"), None
             order += 1
-            stop[PayloadParser.MANIFEST_ORDER] = order
+            stop[PayloadKeys.MANIFEST_ORDER] = order
             index += 1
 
         if current_time + NetworkHandler.travel_time(current_node,depot) > end_time:
             return float("inf"), None
         if objective == "pick_up_time":
-            return new_manifest[i][PayloadParser.MANIFEST_SCHED_TIME], new_manifest
+            return new_manifest[i][PayloadKeys.MANIFEST_SCHED_TIME], new_manifest
         return cost, new_manifest
 
     def _insert_request_to_driver_run(self, depot, driver_run, request, objective="vmt"):
         NetworkHandler.init_from_source(server_url=self.config.SERVER_URL)
         driver_run_c = copy.deepcopy(driver_run)
-        depot_pt = depot[PayloadParser.DEPOT_PT]
+        depot_pt = depot[PayloadKeys.DEPOT_PT]
         depot_node_id = NetworkHandler.get_next_node_id(depot_pt["lat"], depot_pt["lon"])
         depot_node = Node(
             depot_pt["lat"], 
@@ -446,58 +447,58 @@ class OnlineRTVSolver:
             id =depot_node_id)
 
         pickup_stop = {
-            PayloadParser.MANIFEST_RUN_ID: None, 
-            PayloadParser.MANIFEST_BOOKING_ID: request[PayloadParser.REQ_BOOKING_ID], 
-            PayloadParser.MANIFEST_ORDER: -1, 
-            PayloadParser.MANIFEST_ACTION: VehicleStop.ACT_PICKUP, 
-            PayloadParser.MANIFEST_LOC: request[PayloadParser.REQ_PICKUP_PT], 
-            PayloadParser.MANIFEST_SCHED_TIME: -1, 
-            PayloadParser.MANIFEST_AMBULATORY: request[PayloadParser.REQ_AMBULATORY], 
-            PayloadParser.MANIFEST_WHEELCHAIR: request[PayloadParser.REQ_WHEELCHAIR], 
-            PayloadParser.MANIFEST_TIME_WINDOW_START: request[PayloadParser.REQ_PICKUP_WINDOW_START],
-            PayloadParser.MANIFEST_TIME_WINDOW_END: request[PayloadParser.REQ_PICKUP_WINDOW_END]}
+            PayloadKeys.MANIFEST_RUN_ID: None, 
+            PayloadKeys.MANIFEST_BOOKING_ID: request[PayloadKeys.REQ_BOOKING_ID], 
+            PayloadKeys.MANIFEST_ORDER: -1, 
+            PayloadKeys.MANIFEST_ACTION: VehicleStop.ACT_PICKUP, 
+            PayloadKeys.MANIFEST_LOC: request[PayloadKeys.REQ_PICKUP_PT], 
+            PayloadKeys.MANIFEST_SCHED_TIME: -1, 
+            PayloadKeys.MANIFEST_AMBULATORY: request[PayloadKeys.REQ_AMBULATORY], 
+            PayloadKeys.MANIFEST_WHEELCHAIR: request[PayloadKeys.REQ_WHEELCHAIR], 
+            PayloadKeys.MANIFEST_TIME_WINDOW_START: request[PayloadKeys.REQ_PICKUP_WINDOW_START],
+            PayloadKeys.MANIFEST_TIME_WINDOW_END: request[PayloadKeys.REQ_PICKUP_WINDOW_END]}
         dropoff_stop = {
-            PayloadParser.MANIFEST_RUN_ID: None, 
-            PayloadParser.MANIFEST_BOOKING_ID: request[PayloadParser.REQ_BOOKING_ID], 
-            PayloadParser.MANIFEST_ORDER: -1, 
-            PayloadParser.MANIFEST_ACTION: VehicleStop.ACT_DROPOFF, 
-            PayloadParser.MANIFEST_LOC: request[PayloadParser.REQ_DROPOFF_PT], 
-            PayloadParser.MANIFEST_SCHED_TIME: -1, 
-            PayloadParser.MANIFEST_AMBULATORY: request[PayloadParser.REQ_AMBULATORY], 
-            PayloadParser.MANIFEST_WHEELCHAIR: request[PayloadParser.REQ_WHEELCHAIR], 
-            PayloadParser.MANIFEST_TIME_WINDOW_START: request[PayloadParser.REQ_DROPOFF_WINDOW_START],
-            PayloadParser.MANIFEST_TIME_WINDOW_END: request[PayloadParser.REQ_DROPOFF_WINDOW_END]}
+            PayloadKeys.MANIFEST_RUN_ID: None, 
+            PayloadKeys.MANIFEST_BOOKING_ID: request[PayloadKeys.REQ_BOOKING_ID], 
+            PayloadKeys.MANIFEST_ORDER: -1, 
+            PayloadKeys.MANIFEST_ACTION: VehicleStop.ACT_DROPOFF, 
+            PayloadKeys.MANIFEST_LOC: request[PayloadKeys.REQ_DROPOFF_PT], 
+            PayloadKeys.MANIFEST_SCHED_TIME: -1, 
+            PayloadKeys.MANIFEST_AMBULATORY: request[PayloadKeys.REQ_AMBULATORY], 
+            PayloadKeys.MANIFEST_WHEELCHAIR: request[PayloadKeys.REQ_WHEELCHAIR], 
+            PayloadKeys.MANIFEST_TIME_WINDOW_START: request[PayloadKeys.REQ_DROPOFF_WINDOW_START],
+            PayloadKeys.MANIFEST_TIME_WINDOW_END: request[PayloadKeys.REQ_DROPOFF_WINDOW_END]}
         
         # insert node ids for pickup and dropoff stops
-        pickup_loc = pickup_stop[PayloadParser.MANIFEST_LOC]
+        pickup_loc = pickup_stop[PayloadKeys.MANIFEST_LOC]
         pickup_node_id = NetworkHandler.get_next_node_id(pickup_loc["lat"],pickup_loc["lon"])
         pickup_loc["node_id"] = pickup_node_id
-        dropoff_loc = dropoff_stop[PayloadParser.MANIFEST_LOC]
+        dropoff_loc = dropoff_stop[PayloadKeys.MANIFEST_LOC]
         dropoff_node_id = NetworkHandler.get_next_node_id(dropoff_loc["lat"],dropoff_loc["lon"])
         dropoff_loc["node_id"] = dropoff_node_id
 
         load = 0
-        state = driver_run_c[PayloadParser.DRIVER_STATE]
-        pickup_stop[PayloadParser.MANIFEST_RUN_ID] = state[PayloadParser.DRIVER_STATE_RUN_ID]
-        dropoff_stop[PayloadParser.MANIFEST_RUN_ID] = state[PayloadParser.DRIVER_STATE_RUN_ID]
-        manifest = driver_run_c[PayloadParser.DRIVER_MANIFEST]
-        state_loc = state[PayloadParser.DRIVER_STATE_LOC]
+        state = driver_run_c[PayloadKeys.DRIVER_STATE]
+        pickup_stop[PayloadKeys.MANIFEST_RUN_ID] = state[PayloadKeys.DRIVER_STATE_RUN_ID]
+        dropoff_stop[PayloadKeys.MANIFEST_RUN_ID] = state[PayloadKeys.DRIVER_STATE_RUN_ID]
+        manifest = driver_run_c[PayloadKeys.DRIVER_MANIFEST]
+        state_loc = state[PayloadKeys.DRIVER_STATE_LOC]
         node_id = NetworkHandler.get_next_node_id(state_loc["lat"],state_loc["lon"])
         state_loc["node_id"] = node_id
         start_node = Node(state_loc["lat"], state_loc["lon"], id =node_id)
-        start_time = state[PayloadParser.DRIVER_STATE_DT_SEC]
+        start_time = state[PayloadKeys.DRIVER_STATE_DT_SEC]
         completed_stops = []
         remaining_stops = []
         for stop in manifest:
-            if stop[PayloadParser.MANIFEST_ORDER] <= state[PayloadParser.DRIVER_STATE_LOC_SERV]:
-                if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
-                    load += stop[PayloadParser.MANIFEST_AMBULATORY]
+            if stop[PayloadKeys.MANIFEST_ORDER] <= state[PayloadKeys.DRIVER_STATE_LOC_SERV]:
+                if stop[PayloadKeys.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
+                    load += stop[PayloadKeys.MANIFEST_AMBULATORY]
                 else:
-                    load -= stop[PayloadParser.MANIFEST_AMBULATORY]
+                    load -= stop[PayloadKeys.MANIFEST_AMBULATORY]
                 completed_stops.append(stop)
             else:
                 remaining_stops.append(stop)
-                stop_loc = stop[PayloadParser.MANIFEST_LOC]
+                stop_loc = stop[PayloadKeys.MANIFEST_LOC]
                 node_id = NetworkHandler.get_next_node_id(stop_loc["lat"], stop_loc["lon"])
                 stop_loc["node_id"] = node_id
         
@@ -506,14 +507,14 @@ class OnlineRTVSolver:
         prev_cost = 0
         current_node = start_node
         for stop in remaining_stops:
-            stop_loc = stop[PayloadParser.MANIFEST_LOC]
+            stop_loc = stop[PayloadKeys.MANIFEST_LOC]
             next_node = Node(stop_loc["lat"],
                              stop_loc["lon"],
                              id=stop_loc["node_id"])
             prev_cost += NetworkHandler.travel_time(current_node,next_node)
             current_node = next_node
 
-        end_time = state[PayloadParser.DRIVER_STATE_END_TIME]
+        end_time = state[PayloadKeys.DRIVER_STATE_END_TIME]
         st_th = time.time()
 
         pool = Pool(processes=max(1,min(len(remaining_stops), 8)))
@@ -536,8 +537,8 @@ class OnlineRTVSolver:
             return -1,None
 
         new_driver_run = copy.deepcopy(driver_run)
-        new_driver_run[PayloadParser.DRIVER_MANIFEST] = completed_stops + best_insertion
-        new_driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_T_LOCS] = len(new_driver_run[PayloadParser.DRIVER_MANIFEST])
+        new_driver_run[PayloadKeys.DRIVER_MANIFEST] = completed_stops + best_insertion
+        new_driver_run[PayloadKeys.DRIVER_STATE][PayloadKeys.DRIVER_STATE_T_LOCS] = len(new_driver_run[PayloadKeys.DRIVER_MANIFEST])
         if objective == "pick_up_time":
             return best_cost, new_driver_run
         return best_cost-prev_cost, new_driver_run
@@ -550,20 +551,20 @@ class OnlineRTVSolver:
         """
         # TODO check when this is valuable
         unserved_requests = []
-        updated_driver_runs = copy.deepcopy(payload[PayloadParser.DRIVERS])
-        for request in payload[PayloadParser.REQUESTS]:
+        updated_driver_runs = copy.deepcopy(payload[PayloadKeys.DRIVERS])
+        for request in payload[PayloadKeys.REQUESTS]:
             earliest_vehicle = None
             earliest_time = float("inf")
             earliest_vehicle_index = -1
             for vehicle_index in range(len(updated_driver_runs)):
                 driver_run = updated_driver_runs[vehicle_index]
-                pick_up_time, new_driver_run = self._insert_request_to_driver_run(payload[PayloadParser.DEPOT], driver_run, request, objective = "pick_up_time")
+                pick_up_time, new_driver_run = self._insert_request_to_driver_run(payload[PayloadKeys.DEPOT], driver_run, request, objective = "pick_up_time")
                 if pick_up_time >=0 and pick_up_time < earliest_time:
                     earliest_time = pick_up_time
                     earliest_vehicle = new_driver_run
                     earliest_vehicle_index = vehicle_index
             if earliest_vehicle_index == -1:
-                unserved_requests.append(request[PayloadParser.REQ_BOOKING_ID])
+                unserved_requests.append(request[PayloadKeys.REQ_BOOKING_ID])
             else:
                 updated_driver_runs[earliest_vehicle_index] = earliest_vehicle
         return updated_driver_runs, unserved_requests
@@ -596,21 +597,21 @@ class OnlineRTVSolver:
                     assert manifest_action == VehicleStop.ACT_DROPOFF, f"Last stop {manifest_action} should have been a dropoff"
 
                     # TODO remove dwell time for ACT_DEPOT wherever that is
-                    depot_node = Node.from_dict(depot_dict[PayloadParser.DEPOT_PT])
+                    depot_node = Node.from_dict(depot_dict[PayloadKeys.DEPOT_PT])
                     depot_arrival_time = time_at_last_node + NetworkHandler.travel_time(last_node, depot_node)
                     artificial_request_id = -(driver_run.state.run_id + 1)
 
                     depot_stop = ManifestEntry.from_dict({
-                            PayloadParser.MANIFEST_RUN_ID: driver_run.state.run_id, 
-                            PayloadParser.MANIFEST_BOOKING_ID: artificial_request_id, # easy recognition in the manifest
-                            PayloadParser.MANIFEST_ORDER: driver_run.state.locations_already_serviced + 1, 
-                            PayloadParser.MANIFEST_ACTION: VehicleStop.ACT_DEPOT, 
-                            PayloadParser.MANIFEST_LOC: Node.to_dict(depot_node),
-                            PayloadParser.MANIFEST_SCHED_TIME: depot_arrival_time,
-                            PayloadParser.MANIFEST_AMBULATORY: 0, 
-                            PayloadParser.MANIFEST_WHEELCHAIR: 0, 
-                            PayloadParser.MANIFEST_TIME_WINDOW_START: depot_arrival_time-10, 
-                            PayloadParser.MANIFEST_TIME_WINDOW_END: depot_arrival_time+10
+                            PayloadKeys.MANIFEST_RUN_ID: driver_run.state.run_id, 
+                            PayloadKeys.MANIFEST_BOOKING_ID: artificial_request_id, # easy recognition in the manifest
+                            PayloadKeys.MANIFEST_ORDER: driver_run.state.locations_already_serviced + 1, 
+                            PayloadKeys.MANIFEST_ACTION: VehicleStop.ACT_DEPOT, 
+                            PayloadKeys.MANIFEST_LOC: Node.to_dict(depot_node),
+                            PayloadKeys.MANIFEST_SCHED_TIME: depot_arrival_time,
+                            PayloadKeys.MANIFEST_AMBULATORY: 0, 
+                            PayloadKeys.MANIFEST_WHEELCHAIR: 0, 
+                            PayloadKeys.MANIFEST_TIME_WINDOW_START: depot_arrival_time-10, 
+                            PayloadKeys.MANIFEST_TIME_WINDOW_END: depot_arrival_time+10
                             })
                     driver_run.state.total_locations += 1
                     driver_run.state.locations_already_serviced += 1

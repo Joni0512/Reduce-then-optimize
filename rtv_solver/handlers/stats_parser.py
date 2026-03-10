@@ -6,7 +6,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from collections import defaultdict
 
-from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.schema.payload_keys import PayloadKeys
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.structure.node import Node
 from rtv_solver.structure.vehicle_stop import VehicleStop
@@ -124,9 +124,9 @@ class StatsParser:
 
         TODO add evaluation / analysis of initial and unserved requests
         """
-        depot = payload[PayloadParser.DEPOT]
-        requests = payload[PayloadParser.REQUESTS]
-        driver_runs = payload[PayloadParser.DRIVERS]
+        depot = payload[PayloadKeys.DEPOT]
+        requests = payload[PayloadKeys.REQUESTS]
+        driver_runs = payload[PayloadKeys.DRIVERS]
 
         self.request_stops.clear()
         self.stats = Stats()
@@ -147,7 +147,7 @@ class StatsParser:
         self.stats.total_time = total_time
 
     def evaluate_development(self, payload: dict):
-        requests = payload[PayloadParser.REQUESTS]
+        requests = payload[PayloadKeys.REQUESTS]
         return self._compute_request_development(requests)
 
     def _init_network(self, tt_matrix: Optional[np.ndarray] = None) -> None:
@@ -157,29 +157,29 @@ class StatsParser:
         self._network_initialized = True
 
     def _simulate_driver_run(self, depot: dict, driver_run: dict) -> None:
-        state = driver_run[PayloadParser.DRIVER_STATE]
-        manifest = driver_run[PayloadParser.DRIVER_MANIFEST]
+        state = driver_run[PayloadKeys.DRIVER_STATE]
+        manifest = driver_run[PayloadKeys.DRIVER_MANIFEST]
 
-        run_id = int(state[PayloadParser.DRIVER_STATE_RUN_ID])
-        max_am_capacity = int(state[PayloadParser.DRIVER_STATE_AM_CAP])
-        max_wc_capacity = int(state[PayloadParser.DRIVER_STATE_WC_CAP])
+        run_id = int(state[PayloadKeys.DRIVER_STATE_RUN_ID])
+        max_am_capacity = int(state[PayloadKeys.DRIVER_STATE_AM_CAP])
+        max_wc_capacity = int(state[PayloadKeys.DRIVER_STATE_WC_CAP])
 
         current_node = self._node_from_depot(depot)
-        current_time = state[PayloadParser.DRIVER_STATE_START_TIME]
+        current_time = state[PayloadKeys.DRIVER_STATE_START_TIME]
         current_load_am = 0
         current_load_wc = 0
 
         for stop in manifest:
-            booking_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
+            booking_id = stop[PayloadKeys.MANIFEST_BOOKING_ID]
             # ensure we have a container for this request
             if booking_id not in self.request_stops:
                 self.request_stops[booking_id] = StopPair()
 
             # turn stop into VehicleStop and compare with those variables after the fact that handles manifest operations
-            action = stop[PayloadParser.MANIFEST_ACTION]
-            scheduled_time = stop[PayloadParser.MANIFEST_SCHED_TIME]
-            tw_start = stop[PayloadParser.MANIFEST_TIME_WINDOW_START]
-            tw_end = stop[PayloadParser.MANIFEST_TIME_WINDOW_END]
+            action = stop[PayloadKeys.MANIFEST_ACTION]
+            scheduled_time = stop[PayloadKeys.MANIFEST_SCHED_TIME]
+            tw_start = stop[PayloadKeys.MANIFEST_TIME_WINDOW_START]
+            tw_end = stop[PayloadKeys.MANIFEST_TIME_WINDOW_END]
 
             next_node = self._node_from_stop(stop)
 
@@ -217,8 +217,8 @@ class StatsParser:
                     details={"service_start": service_start, "tw_end": tw_end})
 
             # apply pickup/dropoff logic
-            am_delta = int(stop[PayloadParser.MANIFEST_AMBULATORY])
-            wc_delta = int(stop[PayloadParser.MANIFEST_WHEELCHAIR])
+            am_delta = int(stop[PayloadKeys.MANIFEST_AMBULATORY])
+            wc_delta = int(stop[PayloadKeys.MANIFEST_WHEELCHAIR])
 
             if action == VehicleStop.ACT_PICKUP:
                 # update load
@@ -294,9 +294,9 @@ class StatsParser:
             direct_travel_time = NetworkHandler.travel_time(origin, destination)
             self.stats.pmt += direct_travel_time
 
-            pickup_time = pickup[PayloadParser.MANIFEST_SCHED_TIME]
-            pickup_tw_start = pickup[PayloadParser.MANIFEST_TIME_WINDOW_START]
-            dropoff_time = dropoff[PayloadParser.MANIFEST_SCHED_TIME]
+            pickup_time = pickup[PayloadKeys.MANIFEST_SCHED_TIME]
+            pickup_tw_start = pickup[PayloadKeys.MANIFEST_TIME_WINDOW_START]
+            dropoff_time = dropoff[PayloadKeys.MANIFEST_SCHED_TIME]
 
             self.stats.wait_time.append(pickup_time - pickup_tw_start)
             self.stats.detour.append((dropoff_time - pickup_time) - direct_travel_time)
@@ -322,8 +322,8 @@ class StatsParser:
                 entry = json.loads(line)
 
                 sim_ts = int(entry["extra"]["timestamp"])
-                assigned_status = entry["extra"]["status"][PayloadParser.STATS_ASSIGNED]
-                unserved_status = entry["extra"]["status"][PayloadParser.STATS_UNSERVED] 
+                assigned_status = entry["extra"]["status"][PayloadKeys.STATS_ASSIGNED]
+                unserved_status = entry["extra"]["status"][PayloadKeys.STATS_UNSERVED] 
 
                 assignment_history[sim_ts] = {}
                 boarded: List[int] = []
@@ -340,15 +340,15 @@ class StatsParser:
                     else: # artificial depot_request
                         continue
                 
-                assignment_history[sim_ts][PayloadParser.STATS_BOARDED] = boarded
-                assignment_history[sim_ts][PayloadParser.STATS_DROPPED] = delivered # TODO only the dropped from the last step and not from all stops before
+                assignment_history[sim_ts][PayloadKeys.STATS_BOARDED] = boarded
+                assignment_history[sim_ts][PayloadKeys.STATS_DROPPED] = delivered # TODO only the dropped from the last step and not from all stops before
 
                 per_vehicle = defaultdict(list)
                 for req_id, veh_id in assigned_status.items():
                     per_vehicle[veh_id].append(req_id)
 
-                assignment_history[sim_ts][PayloadParser.STATS_ASSIGNED] = dict(per_vehicle)
-                assignment_history[sim_ts][PayloadParser.STATS_UNSERVED] = unserved_status
+                assignment_history[sim_ts][PayloadKeys.STATS_ASSIGNED] = dict(per_vehicle)
+                assignment_history[sim_ts][PayloadKeys.STATS_UNSERVED] = unserved_status
 
         return assignment_history
                 

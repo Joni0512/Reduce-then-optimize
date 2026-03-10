@@ -3,7 +3,7 @@ import pandas as pd
 from rtv_solver.structure.request import Request
 from rtv_solver.structure.node import Node
 from rtv_solver.handlers.network_handler import NetworkHandler
-from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.schema.payload_keys import PayloadKeys
 
 from datetime import timedelta
 
@@ -25,74 +25,74 @@ class RequestHandler:
         """create a list of all requests in a pd.dataframe, sorted by the start of the pickup time window"""
         requests = [self._build_request_dict(req, dwell_pickup, dwell_alight) for req in request_data] 
         len_requests_initial = len(requests)
-        self.requests = pd.DataFrame(requests).astype({PayloadParser.REQ_BOOKING_ID: 'Int64'}).sort_values(by = [PayloadParser.REQ_PICKUP_WINDOW_START])
-        self.requests.drop_duplicates(subset=PayloadParser.REQ_BOOKING_ID, keep="first")
+        self.requests = pd.DataFrame(requests).astype({PayloadKeys.REQ_BOOKING_ID: 'Int64'}).sort_values(by = [PayloadKeys.REQ_PICKUP_WINDOW_START])
+        self.requests.drop_duplicates(subset=PayloadKeys.REQ_BOOKING_ID, keep="first")
         self.count = self.requests.shape[0]
         self.next_index = 0
 
         assert len_requests_initial == self.count, f"{len_requests_initial - self.count} requests dropped as duplicates. Where did they come from?"
         # add only the booking ids of all requests to the console output
-        booking_ids = self.requests[PayloadParser.REQ_BOOKING_ID].tolist()
+        booking_ids = self.requests[PayloadKeys.REQ_BOOKING_ID].tolist()
         console_logger.info(f'{self.count} new and already assigned request(s) in payload - {booking_ids}')
 
     @staticmethod
     def _build_request_dict(req, dwell_pickup, dwell_alight):
         # simplified code to build a single request dictionary from the raw request data
-        pickup = req[PayloadParser.REQ_PICKUP_PT]
+        pickup = req[PayloadKeys.REQ_PICKUP_PT]
         pickup_lat, pickup_lon = pickup['lat'], pickup['lon']
-        dropoff = req[PayloadParser.REQ_DROPOFF_PT]
+        dropoff = req[PayloadKeys.REQ_DROPOFF_PT]
         dropoff_lat, dropoff_lon = dropoff['lat'], dropoff['lon']
 
         return {
-            PayloadParser.REQ_BOOKING_ID: req[PayloadParser.REQ_BOOKING_ID],
+            PayloadKeys.REQ_BOOKING_ID: req[PayloadKeys.REQ_BOOKING_ID],
 
-            PayloadParser.REQ_PICKUP_LAT: pickup_lat,
-            PayloadParser.REQ_PICKUP_LON: pickup_lon,
-            PayloadParser.REQ_PICKUP_NODE_ID: NetworkHandler.get_next_node_id(pickup_lat, pickup_lon),
+            PayloadKeys.REQ_PICKUP_LAT: pickup_lat,
+            PayloadKeys.REQ_PICKUP_LON: pickup_lon,
+            PayloadKeys.REQ_PICKUP_NODE_ID: NetworkHandler.get_next_node_id(pickup_lat, pickup_lon),
 
-            PayloadParser.REQ_DROPOFF_LAT: dropoff_lat,
-            PayloadParser.REQ_DROPOFF_LON: dropoff_lon,
-            PayloadParser.REQ_DROPOFF_NODE_ID: NetworkHandler.get_next_node_id(dropoff_lat, dropoff_lon),
+            PayloadKeys.REQ_DROPOFF_LAT: dropoff_lat,
+            PayloadKeys.REQ_DROPOFF_LON: dropoff_lon,
+            PayloadKeys.REQ_DROPOFF_NODE_ID: NetworkHandler.get_next_node_id(dropoff_lat, dropoff_lon),
 
-            PayloadParser.REQ_PICKUP_WINDOW_START: req[PayloadParser.REQ_PICKUP_WINDOW_START],
-            PayloadParser.REQ_PICKUP_WINDOW_END: req[PayloadParser.REQ_PICKUP_WINDOW_END],
-            PayloadParser.REQ_DROPOFF_WINDOW_START: req[PayloadParser.REQ_DROPOFF_WINDOW_START],
-            PayloadParser.REQ_DROPOFF_WINDOW_END: req[PayloadParser.REQ_DROPOFF_WINDOW_END],
+            PayloadKeys.REQ_PICKUP_WINDOW_START: req[PayloadKeys.REQ_PICKUP_WINDOW_START],
+            PayloadKeys.REQ_PICKUP_WINDOW_END: req[PayloadKeys.REQ_PICKUP_WINDOW_END],
+            PayloadKeys.REQ_DROPOFF_WINDOW_START: req[PayloadKeys.REQ_DROPOFF_WINDOW_START],
+            PayloadKeys.REQ_DROPOFF_WINDOW_END: req[PayloadKeys.REQ_DROPOFF_WINDOW_END],
 
-            PayloadParser.REQ_AMBULATORY: req[PayloadParser.REQ_AMBULATORY],
-            PayloadParser.REQ_WHEELCHAIR: req[PayloadParser.REQ_WHEELCHAIR],
-            PayloadParser.REQ_DWELL_PICKUP: dwell_pickup,
-            PayloadParser.REQ_DWELL_ALIGHT: dwell_alight,
+            PayloadKeys.REQ_AMBULATORY: req[PayloadKeys.REQ_AMBULATORY],
+            PayloadKeys.REQ_WHEELCHAIR: req[PayloadKeys.REQ_WHEELCHAIR],
+            PayloadKeys.REQ_DWELL_PICKUP: dwell_pickup,
+            PayloadKeys.REQ_DWELL_ALIGHT: dwell_alight,
         }
 
     @staticmethod
     def get_request(request_data) -> Request:
-        pickup_node_id = request_data.get(PayloadParser.REQ_PICKUP_NODE_ID)
-        dropoff_node_id = request_data.get(PayloadParser.REQ_DROPOFF_NODE_ID)
+        pickup_node_id = request_data.get(PayloadKeys.REQ_PICKUP_NODE_ID)
+        dropoff_node_id = request_data.get(PayloadKeys.REQ_DROPOFF_NODE_ID)
 
         origin = Node(
-            request_data[PayloadParser.REQ_PICKUP_LAT],
-            request_data[PayloadParser.REQ_PICKUP_LON],
+            request_data[PayloadKeys.REQ_PICKUP_LAT],
+            request_data[PayloadKeys.REQ_PICKUP_LON],
             pickup_node_id,
         )
         destination = Node(
-            request_data[PayloadParser.REQ_DROPOFF_LAT],
-            request_data[PayloadParser.REQ_DROPOFF_LON],
+            request_data[PayloadKeys.REQ_DROPOFF_LAT],
+            request_data[PayloadKeys.REQ_DROPOFF_LON],
             dropoff_node_id,
         )
 
         return Request(
-            request_data[PayloadParser.REQ_BOOKING_ID],
-            request_data[PayloadParser.REQ_PICKUP_WINDOW_START],
-            request_data[PayloadParser.REQ_PICKUP_WINDOW_END],
-            request_data[PayloadParser.REQ_DROPOFF_WINDOW_START],
-            request_data[PayloadParser.REQ_DROPOFF_WINDOW_END],
+            request_data[PayloadKeys.REQ_BOOKING_ID],
+            request_data[PayloadKeys.REQ_PICKUP_WINDOW_START],
+            request_data[PayloadKeys.REQ_PICKUP_WINDOW_END],
+            request_data[PayloadKeys.REQ_DROPOFF_WINDOW_START],
+            request_data[PayloadKeys.REQ_DROPOFF_WINDOW_END],
             origin,
             destination,
-            int(request_data[PayloadParser.REQ_DWELL_PICKUP]),
-            int(request_data[PayloadParser.REQ_DWELL_ALIGHT]),
-            request_data[PayloadParser.REQ_AMBULATORY],
-            request_data[PayloadParser.REQ_WHEELCHAIR],
+            int(request_data[PayloadKeys.REQ_DWELL_PICKUP]),
+            int(request_data[PayloadKeys.REQ_DWELL_ALIGHT]),
+            request_data[PayloadKeys.REQ_AMBULATORY],
+            request_data[PayloadKeys.REQ_WHEELCHAIR],
         )
     
     def get_all_requests(self) -> list[Request]:
@@ -134,7 +134,7 @@ class RequestHandler:
                 break
             batch.append(request)
             self.next_index+=1
-        time_of_next_request = self.requests.iloc[min(self.next_index,self.requests.shape[0]-1)][PayloadParser.REQ_PICKUP_WINDOW_START]
+        time_of_next_request = self.requests.iloc[min(self.next_index,self.requests.shape[0]-1)][PayloadKeys.REQ_PICKUP_WINDOW_START]
         if time_of_next_request <= end_time and len(batch) > 0:
             end_time = min(end_time, batch[-1].pick_up_time)
         console_logger.info(f"T: {end_time}, batch {len(batch)}")
@@ -168,9 +168,9 @@ class RequestHandler:
         coordinates = {}
         nodes = []
         for _,request_data in self.requests.iterrows():
-            lat,lon = round(request_data[PayloadParser.REQ_PICKUP_LAT],round_at),round(request_data[PayloadParser.REQ_PICKUP_LON],round_at)
+            lat,lon = round(request_data[PayloadKeys.REQ_PICKUP_LAT],round_at),round(request_data[PayloadKeys.REQ_PICKUP_LON],round_at)
             coordinates[(lat,lon)] = None
-            lat,lon = round(request_data[PayloadParser.REQ_DROPOFF_LAT],round_at),round(request_data[PayloadParser.REQ_DROPOFF_LON],round_at)
+            lat,lon = round(request_data[PayloadKeys.REQ_DROPOFF_LAT],round_at),round(request_data[PayloadKeys.REQ_DROPOFF_LON],round_at)
             coordinates[(lat,lon)] = None
         for key in coordinates:
             nodes.append(Node(key[0],key[1]))
@@ -178,10 +178,10 @@ class RequestHandler:
 
     def update_request_location(self,index):
         row = self.requests.iloc[index]
-        lat,lon = NetworkHandler.get_nearest_node(row[PayloadParser.REQ_PICKUP_LAT],row[PayloadParser.REQ_PICKUP_LON])
-        self.requests.at[index,PayloadParser.REQ_PICKUP_LAT] = lat
-        self.requests.at[index,PayloadParser.REQ_PICKUP_LON] = lon
+        lat,lon = NetworkHandler.get_nearest_node(row[PayloadKeys.REQ_PICKUP_LAT],row[PayloadKeys.REQ_PICKUP_LON])
+        self.requests.at[index,PayloadKeys.REQ_PICKUP_LAT] = lat
+        self.requests.at[index,PayloadKeys.REQ_PICKUP_LON] = lon
 
-        lat,lon = NetworkHandler.get_nearest_node(row[PayloadParser.REQ_DROPOFF_LAT],row[PayloadParser.REQ_DROPOFF_LON])
-        self.requests.at[index,PayloadParser.REQ_DROPOFF_LAT] = lat
-        self.requests.at[index,PayloadParser.REQ_DROPOFF_LON] = lon
+        lat,lon = NetworkHandler.get_nearest_node(row[PayloadKeys.REQ_DROPOFF_LAT],row[PayloadKeys.REQ_DROPOFF_LON])
+        self.requests.at[index,PayloadKeys.REQ_DROPOFF_LAT] = lat
+        self.requests.at[index,PayloadKeys.REQ_DROPOFF_LON] = lon

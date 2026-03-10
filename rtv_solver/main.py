@@ -11,6 +11,8 @@ from rtv_solver.training_loop import COAMLTrainingLoop
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
 
+from rtv_solver.schema.payload_keys import PayloadKeys
+
 from rtv_solver.structure.config import Config
 
 from rtv_solver.util.logger import setup_loggers, BASIC_LOGGER, DATA_LOGGER
@@ -92,16 +94,16 @@ if __name__ == "__main__":
         config.RTV_TIMEOUT = 600000 # if I am clicking through inputs, it never breaks due to timeout
         
         # reduce the complexity by only considering a single vehicle
-        driver_runs_total = data[PayloadParser.DRIVERS]
+        driver_runs_total = data[PayloadKeys.DRIVERS]
         driver_runs_reduced = driver_runs_total[:1] 
         # test to change the first vehicle to trigger certain situations
-        vehicle_state = driver_runs_reduced[0][PayloadParser.DRIVER_STATE]
-        vehicle_manifest = driver_runs_reduced[0][PayloadParser.DRIVER_MANIFEST]        
-        # vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 25000
+        vehicle_state = driver_runs_reduced[0][PayloadKeys.DRIVER_STATE]
+        vehicle_manifest = driver_runs_reduced[0][PayloadKeys.DRIVER_MANIFEST]        
+        # vehicle_state[PayloadKeys.DRIVER_STATE_END_TIME] = 25000
 
         # BUG combination 2 --> iteration keeps running and still tries to optimize despite no active vehicle being left
         # TODO how to set vehicles to inactive, so they are not part of the optimization anymore but are also completed in their manifest (depot return and complete manifest of prior assigned trips)
-        # vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = 22000 
+        # vehicle_state[PayloadKeys.DRIVER_STATE_END_TIME] = 22000 
         #config.RETURN_DEPOT = True
         #config.KEEP_ACTIVE = True
 
@@ -113,8 +115,8 @@ if __name__ == "__main__":
         current_time = 5*3600 + 30*60
         step = 5*60
         selected_requests = []
-        for request in data[PayloadParser.REQUESTS]:
-            if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + step:
+        for request in data[PayloadKeys.REQUESTS]:
+            if request[PayloadKeys.REQ_PICKUP_WINDOW_START] < current_time + step:
                 selected_requests.append(request)
 
         # combination 3 not yet implemented
@@ -122,9 +124,9 @@ if __name__ == "__main__":
         
         # create a new payload with selected requests
         payload = {
-            PayloadParser.DEPOT: data[PayloadParser.DEPOT],
-            PayloadParser.REQUESTS: selected_requests,
-            PayloadParser.DRIVERS: driver_runs_reduced}
+            PayloadKeys.DEPOT: data[PayloadKeys.DEPOT],
+            PayloadKeys.REQUESTS: selected_requests,
+            PayloadKeys.DRIVERS: driver_runs_reduced}
     else: 
         payload = data
 
@@ -150,7 +152,7 @@ if __name__ == "__main__":
                 print(f"Loss history: {rh_solver.loss_history}")
         elif config.MODE == 'optimal_solution':
             # change the settings in order for the online solver to find the actual optimal solution (if possible)
-            max_cardinality = len(payload[PayloadParser.REQUESTS])
+            max_cardinality = len(payload[PayloadKeys.REQUESTS])
             config.MAX_CARDINALITY = max_cardinality
             config.LARGEST_TSP = max_cardinality * 2
             config.RTV_TIMEOUT = 3600 # 1 hour
@@ -170,10 +172,10 @@ if __name__ == "__main__":
             raise ValueError('No solution as no correct config.MODE provided.')
 
         # calculate statistics of each iteration; for now only the first vehicle
-        stats_payload = {PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
-                        PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
-                        PayloadParser.DRIVERS: updated_driver_runs}
-        tt_matrix = payload.get(PayloadParser.TIME_MATRIX, None)
+        stats_payload = {PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
+                        PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
+                        PayloadKeys.DRIVERS: updated_driver_runs}
+        tt_matrix = payload.get(PayloadKeys.TIME_MATRIX, None)
         stats_evaluator = StatsParser(config, tt_matrix = tt_matrix)
         total_time = time.time() - start_time
         feasible, stats, violations = stats_evaluator.evaluate(stats_payload)

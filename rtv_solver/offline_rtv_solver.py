@@ -2,6 +2,8 @@ from rtv_solver.online_rtv_solver import OnlineRTVSolver
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.structure.config import Config
 
+from rtv_solver.schema.payload_keys import PayloadKeys
+
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
 
@@ -25,38 +27,38 @@ class OfflineRTVSolver:
         # track progress of solver iterations
         iteration = 0
 
-        driver_runs = payload[PayloadParser.DRIVERS]
+        driver_runs = payload[PayloadKeys.DRIVERS]
 
         while current_time < end_time:
             console_logger.info(f"=== Iteration {iteration} offline RTV Solver at time {current_time} ===")
             
             # select requests that are to be considered in the current interval with pickup_window [current_time, current_time + interval]
             selected_requests = {}
-            for request in payload[PayloadParser.REQUESTS]:
+            for request in payload[PayloadKeys.REQUESTS]:
                 if ( # start of time window is part of current batch_interval
-                    request[PayloadParser.REQ_PICKUP_WINDOW_START] >= current_time
+                    request[PayloadKeys.REQ_PICKUP_WINDOW_START] >= current_time
                     and 
-                    request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + interval 
+                    request[PayloadKeys.REQ_PICKUP_WINDOW_START] < current_time + interval 
                     ):
-                    selected_requests[request[PayloadParser.REQ_BOOKING_ID]] = request
+                    selected_requests[request[PayloadKeys.REQ_BOOKING_ID]] = request
             
             # remove requests that are already part of vehicles; covered by PayloadParser in OnlineRTVsolver # TODO check
             for dr in driver_runs:
-                manifest = dr[PayloadParser.DRIVER_MANIFEST]
+                manifest = dr[PayloadKeys.DRIVER_MANIFEST]
                 for stop in manifest:
-                    if stop[PayloadParser.MANIFEST_BOOKING_ID] in selected_requests:
-                        del selected_requests[stop[PayloadParser.MANIFEST_BOOKING_ID]]
+                    if stop[PayloadKeys.MANIFEST_BOOKING_ID] in selected_requests:
+                        del selected_requests[stop[PayloadKeys.MANIFEST_BOOKING_ID]]
             selected_requests = list(selected_requests.values())
             
             # create a new payload with the selected requests
             new_payload = {
-                PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
-                PayloadParser.REQUESTS: selected_requests,
-                PayloadParser.DRIVERS: driver_runs}
+                PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
+                PayloadKeys.REQUESTS: selected_requests,
+                PayloadKeys.DRIVERS: driver_runs}
 
             # solve the RTV problem and update manifests
             if len(selected_requests) == 0:
-                new_driver_runs, assignment_status = driver_runs, {PayloadParser.STATS_ASSIGNED: {}, PayloadParser.STATS_UNSERVED: []}
+                new_driver_runs, assignment_status = driver_runs, {PayloadKeys.STATS_ASSIGNED: {}, PayloadKeys.STATS_UNSERVED: []}
             else:    
                 new_driver_runs, assignment_status = online_rtv_solver.solve_pdptw_rtv(new_payload, iteration)
             
@@ -74,6 +76,6 @@ class OfflineRTVSolver:
                                                                       intermediate_location=True)
             driver_runs = simulated_driver_runs
 
-        final_driver_runs = OnlineRTVSolver.finalize_driverRuns(self.config, driver_runs, payload[PayloadParser.DEPOT])
+        final_driver_runs = OnlineRTVSolver.finalize_driverRuns(self.config, driver_runs, payload[PayloadKeys.DEPOT])
         # TODO update assignment_devlopment calculation. based on the data stores to JSONL instead of handing it over here
         return final_driver_runs

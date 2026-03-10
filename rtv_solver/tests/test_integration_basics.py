@@ -10,6 +10,7 @@ from pathlib import Path
 
 from rtv_solver import OfflineRTVSolver, OnlineRTVSolver, COAMLPipeline
 from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.schema.payload_keys import PayloadKeys
 from rtv_solver.handlers.stats_parser import StatsParser
 from rtv_solver.structure.config import Config
 
@@ -29,24 +30,24 @@ def _init_payload(vehicle_count: int = 1, first_vehicle_reduced_time: int = 7200
         data = pickle.load(f)
     data = PayloadParser.normalize_to_canonical(data)
 
-    driver_runs_total = data[PayloadParser.DRIVERS]
+    driver_runs_total = data[PayloadKeys.DRIVERS]
     driver_runs_reduced = driver_runs_total[:vehicle_count]
-    vehicle_state = driver_runs_reduced[0][PayloadParser.DRIVER_STATE]
-    vehicle_manifest = driver_runs_reduced[0][PayloadParser.DRIVER_MANIFEST]
-    vehicle_state[PayloadParser.DRIVER_STATE_END_TIME] = first_vehicle_reduced_time 
+    vehicle_state = driver_runs_reduced[0][PayloadKeys.DRIVER_STATE]
+    vehicle_manifest = driver_runs_reduced[0][PayloadKeys.DRIVER_MANIFEST]
+    vehicle_state[PayloadKeys.DRIVER_STATE_END_TIME] = first_vehicle_reduced_time 
 
     current_time = 5 * 3600 + 30 * 60
     step = request_time_span_minutes * 60
 
     selected_requests = []
-    for request in data[PayloadParser.REQUESTS]:
-        if request[PayloadParser.REQ_PICKUP_WINDOW_START] < current_time + step:
+    for request in data[PayloadKeys.REQUESTS]:
+        if request[PayloadKeys.REQ_PICKUP_WINDOW_START] < current_time + step:
             selected_requests.append(request)
 
     payload = {
-        PayloadParser.DEPOT: data[PayloadParser.DEPOT],
-        PayloadParser.REQUESTS: selected_requests,
-        PayloadParser.DRIVERS: driver_runs_reduced,
+        PayloadKeys.DEPOT: data[PayloadKeys.DEPOT],
+        PayloadKeys.REQUESTS: selected_requests,
+        PayloadKeys.DRIVERS: driver_runs_reduced,
     }
     return payload
 
@@ -74,9 +75,9 @@ def test_integration_offlineRTVsolver_vehicle1_maxCard3():
     )
     # compute stats
     stats_payload = {
-        PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
-        PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
-        PayloadParser.DRIVERS: updated_driver_runs,}
+        PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
+        PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
+        PayloadKeys.DRIVERS: updated_driver_runs,}
     stats_evaluator = StatsParser(config=config)
     feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
 
@@ -118,9 +119,9 @@ def test_integration_offlineRTVsolver_vehicle2_maxCard2():
     )
     # compute stats
     stats_payload = {
-        PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
-        PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
-        PayloadParser.DRIVERS: updated_driver_runs,}
+        PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
+        PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
+        PayloadKeys.DRIVERS: updated_driver_runs,}
     stats_evaluator = StatsParser(config=config)
     feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
 
@@ -160,9 +161,9 @@ def test_integration_onlineRTVsolver_vehicle3_maxCard3():
     updated_driver_runs, _ = on_solver.solve_pdptw_rtv(payload)
     # compute stats
     stats_payload = {
-        PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
-        PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
-        PayloadParser.DRIVERS: updated_driver_runs,}
+        PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
+        PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
+        PayloadKeys.DRIVERS: updated_driver_runs,}
     stats_evaluator = StatsParser(config=config)
     feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
 
@@ -211,9 +212,9 @@ def test_integration_RHsolver_vehicleDeactivation_keepActiveTrue():
     )
     # compute stats
     stats_payload = {
-        PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
-        PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
-        PayloadParser.DRIVERS: updated_driver_runs,}
+        PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
+        PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
+        PayloadKeys.DRIVERS: updated_driver_runs,}
     stats_evaluator = StatsParser(config=config)
     feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
 
@@ -257,9 +258,9 @@ def test_integration_COAMLsolver_vehicle1_maxCard3():
 
     # compute stats
     stats_payload = {
-        PayloadParser.DEPOT: payload[PayloadParser.DEPOT],
-        PayloadParser.REQUESTS: payload[PayloadParser.REQUESTS],
-        PayloadParser.DRIVERS: updated_driver_runs,}
+        PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
+        PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
+        PayloadKeys.DRIVERS: updated_driver_runs,}
     stats_evaluator = StatsParser(config=config)
     feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
 

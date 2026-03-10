@@ -83,7 +83,7 @@ if __name__=="__main__":
 
     # for debugging only consider a single vehicle
     if DEBUG_BOOL:
-            payload[PayloadParser.DRIVERS] = payload[PayloadParser.DRIVERS][:1]
+            payload[PayloadKeys.DRIVERS] = payload[PayloadKeys.DRIVERS][:1]
 
     NetworkHandler.init(True, config.SERVER_URL) # initialize it once so everything else can access it
 
@@ -117,8 +117,8 @@ if __name__=="__main__":
         completed_stops, picked_requests, completed_requests = vehicle_handler.simulate_vehicles(end_time)
         for stop in completed_stops:
             for driver_run in payload["driver_runs"]:
-                if driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_RUN_ID] == stop.vehicle_id:
-                    driver_run[PayloadParser.DRIVER_STATE][PayloadParser.DRIVER_STATE_LOC_SERV] += 1
+                if driver_run[PayloadKeys.DRIVER_STATE][PayloadKeys.DRIVER_STATE_RUN_ID] == stop.vehicle_id:
+                    driver_run[PayloadKeys.DRIVER_STATE][PayloadKeys.DRIVER_STATE_LOC_SERV] += 1
                     break
         
         # FIXME: why are there some requests double in the list of picked_requests? seems to be a bug in simulate_vehicles?

@@ -13,7 +13,7 @@ from rtv_solver.structure.request import Request
 from rtv_solver.structure.driver_run import DriverRun, ManifestEntry
 from rtv_solver.structure.trip_cost import TripCost
 
-from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.schema.payload_keys import PayloadKeys
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
@@ -81,7 +81,7 @@ class ImitationHandler:
         
         # driverID: solution list of request IDs
         optimal_solution = {}
-        for driver_run in payload_data[PayloadParser.DRIVERS]:
+        for driver_run in payload_data[PayloadKeys.DRIVERS]:
             run = DriverRun.from_dict(driver_run)
             manifest = run.manifest
             driver_id = run.state.run_id
@@ -111,11 +111,11 @@ class ImitationHandler:
         """
         solution = []
         for stop in manifest:
-            if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
-                stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
+            if stop[PayloadKeys.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP:
+                stop_id = stop[PayloadKeys.NIFEST_BOOKING_ID]
                 solution.append(stop_id)
-            if stop[PayloadParser.MANIFEST_ACTION] == VehicleStop.ACT_DROPOFF:
-                stop_id = stop[PayloadParser.MANIFEST_BOOKING_ID]
+            if stop[PayloadKeys.MANIFEST_ACTION] == VehicleStop.ACT_DROPOFF:
+                stop_id = stop[PayloadKeys.MANIFEST_BOOKING_ID]
                 solution.append(-1 * stop_id)
         return solution
 
