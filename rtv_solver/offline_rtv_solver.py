@@ -12,6 +12,7 @@ class OfflineRTVSolver:
     def __init__(self, config: Config):
         """container for the offline RTV solver that uses the online RTV solver in batches over a rolling horizon"""
         self.config = config
+        raise NotImplementedError("OfflineRTVSolver needs update to intermediate location handling")
         # does not require multiprocessing scheme for MacoS as we do call OnlineRTVSolver as an object; it would break when being called for the second time
 
     def solve_rtv(self, payload, interval, step_size):

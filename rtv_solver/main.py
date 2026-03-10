@@ -37,9 +37,11 @@ if __name__ == "__main__":
     parser.add_argument('--override', action='append',      default=[], help='Override config values when loading from a config file, e.g. key=value (can be repeated)')
     # technical parameters
     parser.add_argument('--output_dir', type=str,           default="debug", help='Output directory')
-    parser.add_argument('--input_file', type=str,           default="test_nc/test_10r_1v_repeat6_simple.pkl", help='Request input file') # alternative: rtv-solver/inputs/localDB_payload_oct.pkl;
+    parser.add_argument('--input_file', type=str,           default="test_nc/ttm/test_10r_1v_repeat6_simple.pkl", help='Request input file') # alternative: rtv-solver/inputs/localDB_payload_oct.pkl;inputs/
+
+    # TODO make sure when COAML is selected, the right optimal solution is also selected to run the experiments automatically with the right setttings
     #parser.add_argument('--input_file', type=str,           default="wilson_nc_initial.pkl", help='Request input file') 
-    parser.add_argument('--server_url', type=str,           default="http://127.0.0.1:5001/", help='Backend server URL')
+    #parser.add_argument('--server_url', type=str,           default="http://127.0.0.1:5001/", help='Backend server URL')
     parser.add_argument('--max_thread_cnt', type=int,       default=16, help='Maximum thread count for parallel processing')
     parser.add_argument('--rtv_timeout', type=int,          default=120, help='RTV construction timeout in seconds')
     parser.add_argument('--ilp_timeout', type=int,          default=120, help='ILP solver timeout in seconds')
@@ -60,12 +62,12 @@ if __name__ == "__main__":
     parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
     # random_seed, training parameters, NN parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility') 
-    parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'coaml', 'plot', 'optimal_solution', 'hexaly_solution'], default='offline', help='Mode on how the programme should solve the PDPTW')
+    parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'coaml', 'plot', 'optimal_solution', 'hexaly_solution'], default='coaml', help='Mode on how the programme should solve the PDPTW')
     parser.add_argument('--debug', type= str, default='False', choices=['True', 'False'], help='Run in debug mode (# reduces number of vehicles and requests for easier debugging)')
     parser.add_argument('--imitation_solution_file', type=str, default='outputs/test_nc/solution_10r_1v_repeat6_simple/result_driver_runs.json', help='Path to the imitation solution file with the complete manifest of all trips for all vehicles')
     parser.add_argument('--y_star_type', type=str, choices=[TYPE_BEST_ORDERED_MATCH, TYPE_BEST_UNORDERED_MATCH], default=TYPE_BEST_ORDERED_MATCH, help='Type of y_star to be used for the Fenchel-Young loss during imitation learning')
-    parser.add_argument('--epochs', type=int, default=5, help='Number of training epochs over the same payload for COAML mode')
-    parser.add_argument('--learning_rate', type=float, default=5e-4, help='Learning rate for the ML model')
+    parser.add_argument('--epochs', type=int, default=1, help='Number of training epochs over the same payload for COAML mode')
+    parser.add_argument('--learning_rate', type=float, default=5e-3, help='Learning rate for the ML model')
     
     # implement configurations
     arguments = parser.parse_args()

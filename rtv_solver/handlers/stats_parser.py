@@ -374,6 +374,9 @@ class StatsParser:
         return Node(depot["pt"]["lat"], depot["pt"]["lon"], depot["pt"].get("node_id", None))
 
     def _node_from_stop(self, stop: dict) -> Node:
-        # TODO align the string for stops and depots (id vs node_id)
-        loc = stop[PayloadParser.MANIFEST_LOC]
-        return Node(loc["lat"], loc["lon"], loc.get("node_id", None))
+        # TODO align the string for stops and depots (id vs node_id) - FIXME quickfix
+        loc = stop["loc"]
+        if "node_id" in stop:
+            return Node(loc["lat"], loc["lon"], loc.get("node_id", None))
+        else:
+            return Node(loc["lat"], loc["lon"], loc.get("id", None))
