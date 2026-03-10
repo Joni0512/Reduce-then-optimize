@@ -7,7 +7,6 @@ import os
 
 from pathlib import Path
 
-from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import Stats
 
 def load_json(path):
