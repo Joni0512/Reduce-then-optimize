@@ -37,6 +37,7 @@ markers = [
     "rh: rolling horizon approach where batch_size != step_size",
     "coaml: coaml pipeline with machine learning elements",
     "offline: offline solver with batch_size == step_size",
-    "online: online solver that solves entire payload at once"
+    "online: online solver that solves entire payload at once",
+    "server: requires active backend server to handle requests"
 ]
 

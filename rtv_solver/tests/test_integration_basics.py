@@ -54,6 +54,7 @@ def _init_payload(vehicle_count: int = 1, first_vehicle_reduced_time: int = 7200
 @pytest.mark.basic
 @pytest.mark.integration
 @pytest.mark.offline    
+@pytest.mark.server
 def test_integration_offlineRTVsolver_vehicle1_maxCard3():
     """
     Integration test for a known run with 1 vehicle and max_cardinality = 3, reduced time
@@ -98,6 +99,7 @@ def test_integration_offlineRTVsolver_vehicle1_maxCard3():
 @pytest.mark.basic
 @pytest.mark.integration
 @pytest.mark.offline
+@pytest.mark.server
 def test_integration_offlineRTVsolver_vehicle2_maxCard2():
     """
     Integration test for a known run with 2 vehicles and max_cardinality = 2
@@ -144,6 +146,7 @@ def test_integration_offlineRTVsolver_vehicle2_maxCard2():
 @pytest.mark.basic
 @pytest.mark.integration
 @pytest.mark.online
+@pytest.mark.server
 def test_integration_onlineRTVsolver_vehicle3_maxCard3():
     """
     Integration test for an online RTV solver run with 3 vehicles and max_cardinality = 3
@@ -186,6 +189,7 @@ def test_integration_onlineRTVsolver_vehicle3_maxCard3():
 @pytest.mark.basic
 @pytest.mark.integration
 @pytest.mark.rh
+@pytest.mark.server
 def test_integration_RHsolver_vehicleDeactivation_keepActiveTrue():
     """
     Integration edge case with specific vehicle that ends before requests are finished
@@ -241,6 +245,7 @@ def test_integration_RHsolver_vehicleDeactivation_keepActiveTrue():
 @pytest.mark.basic
 @pytest.mark.integration
 @pytest.mark.coaml
+@pytest.mark.server
 def test_integration_COAMLsolver_vehicle1_maxCard3():
     """
     Integration test for a known run with 1 vehicle and max_cardinality = 3
@@ -251,6 +256,8 @@ def test_integration_COAMLsolver_vehicle1_maxCard3():
     config.STEP_SIZE = 600
     config.BATCH_INTERVAL = 600
     config.MODE = 'rh-ml'
+    config.INPUT_FILE = "test_nc/test_10r_1v_repeat6_simple.pkl"
+    config.IMITATION_SOLUTION_FILE = "outputs/test_nc/solution_10r_1v_repeat6_simple/result_driver_runs.json"
     config.SERVER_URL = "http://127.0.0.1:5001/" # tests work only with active server
 
     rh_solver = COAMLPipeline(config, payload)

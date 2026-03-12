@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from pathlib import Path
+import requests
 
 from rtv_solver.structure.trip import Trip
 from rtv_solver.structure.shared_trip import SharedTrip
@@ -21,6 +22,27 @@ Interim trip costs and the related test objects are checking whether also a miso
 
 If a fixture is created, sometimes also other objects have large changes that mirror these changes.
 """
+
+SERVER_URL = "http://127.0.0.1:5001/"
+
+
+def is_server_running():
+    try:
+        requests.get(SERVER_URL, timeout=1)
+        return True
+    except requests.ConnectionError:
+        return False
+
+def pytest_collection_modifyitems(config, items):
+    """pytest setup with hook to pytest-config and all test-items to skip tests that require the server to be running"""
+    if is_server_running():
+        return
+
+    skip_server = pytest.mark.skip(reason="Server not running")
+
+    for item in items:
+        if "server" in item.keywords:
+            item.add_marker(skip_server)
 
 # TODO add basic structures and use them for tests
 @pytest.fixture

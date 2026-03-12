@@ -78,6 +78,7 @@ Add configurations that once returned errors so we can update the tool according
             id = "rh-10"
         ),
     ],)
+@pytest.mark.server
 def test_integration_solver_parametrized(
         vehicle_count: int, 
         first_vehicle_reduced_time: int, 

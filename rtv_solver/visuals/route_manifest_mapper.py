@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.schema.payload_keys import PayloadKeys
 from rtv_solver.handlers.network_handler import NetworkHandler
 
 from rtv_solver.structure.node import Node
@@ -13,6 +13,11 @@ from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.visuals.map_icons import MakiIcon
 
 from rtv_solver.util.helper import load_json
+
+from rtv_solver.util.logger import BASIC_LOGGER
+import logging
+
+console_logger = logging.getLogger(BASIC_LOGGER)
 
 class RouteManifestMapper():
     """
@@ -32,8 +37,12 @@ class RouteManifestMapper():
     def _init_network(self) -> None:
         if self._network_initialized:
             return
-        NetworkHandler.init_from_source(server_url=self.config.SERVER_URL)
-        self._network_initialized = True
+        
+        if self.config.SERVER_URL is None:
+            console_logger.warning(f"Street route calculation is simplified as we cannot calculate the routes.")
+        else:
+            NetworkHandler.init_from_source(server_url=self.config.SERVER_URL)
+            self._network_initialized = True
     
     def _get_route_colors(self, veh_count: int) -> dict[int, str]:
         """Choose colormap from <https://matplotlib.org/stable/users/explain/colors/colormaps.html>"""
@@ -57,14 +66,14 @@ class RouteManifestMapper():
         for run in driver_runs:
             route = []
             state = run[PayloadKeys.DRIVER_STATE]
-            manifest = run[PayloadKeys.IVER_MANIFEST]
+            manifest = run[PayloadKeys.DRIVER_MANIFEST]
 
             last_loc = Node.from_dict(depot[PayloadKeys.DEPOT_PT]) # assumes all vehicles start in depot
             for stop in manifest:
                 stop_feature = self._build_stop_feature(stop)
                 features.append(stop_feature)
 
-                next_loc = Node.from_dict(stop[PayloadKeys.NIFEST_LOC])
+                next_loc = Node.from_dict(stop[PayloadKeys.MANIFEST_LOC])
                 route_part = self._build_simple_route_feature(last_loc, next_loc)
                 route.append(route_part)
 
@@ -146,7 +155,11 @@ class RouteManifestMapper():
     
     def _build_simple_route_feature(self, last_loc, next_loc):
         """simple route as we do not handle any complexities but rather re-create the street network route between two locations"""
-        geometry = self._get_GEOJSON_route(last_loc, next_loc)
+        if self.config.SERVER_URL is None:
+            geometry = self._get_simple_route_feature(last_loc, next_loc)
+        else:
+            geometry = self._get_GEOJSON_route(last_loc, next_loc)
+        
         return self._feature(geometry=geometry,
                             properties={"feature_type": "run_route"},) # TODO add more details to route
     
@@ -164,6 +177,17 @@ class RouteManifestMapper():
     def _get_GEOJSON_route(source, dest):
         response = NetworkHandler.get_detailed_route_reponse(source, dest)
         return response['routes'][0]['geometry']
+
+    @staticmethod
+    def _get_simple_route_feature(source, dest):
+        # if the networkHandler is not available, return a simple line between the two locations
+        return {
+            "type": "LineString",
+            "coordinates": [
+                [source.lon, source.lat],
+                [dest.lon, dest.lat]
+            ]
+        }
 
     @staticmethod
     def _feature_collection(features: List[Dict[str, Any]]) -> Dict[str, Any]:

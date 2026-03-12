@@ -1,3 +1,4 @@
+import pytest
 import json
 
 from pathlib import Path
@@ -5,14 +6,18 @@ from pathlib import Path
 from rtv_solver.visuals.route_manifest_mapper import RouteManifestMapper
 from rtv_solver.structure.config import Config
 
+from rtv_solver.handlers.network_handler import NetworkHandler
+
 ALLOWED_GEOMETRY_TYPES = {
     "Point", "MultiPoint",
     "LineString", "MultiLineString",
     "Polygon", "MultiPolygon"
 }
 
+@pytest.mark.server
 def test_visual_geoJsonCreation():
     """check if the structure of the output is valid GeoJson"""
+    
     # initialize data
     TEST_DIR = Path(__file__).resolve().parent
     INPUTS_DIR = TEST_DIR.parent / "visuals"
@@ -55,4 +60,33 @@ def test_visual_geoJsonCreation():
             assert geometry.get("type") in ALLOWED_GEOMETRY_TYPES
             assert "coordinates" in geometry
 
+def test_visual_geoJsonCreation_without_server():
+    """check if the structure of the output is valid GeoJson"""
+    # initialize data
+    TEST_DIR = Path(__file__).resolve().parent
+    INPUTS_DIR = TEST_DIR.parent / "visuals"
+    path = INPUTS_DIR / "debug_output.json"
+    with open(path, 'r') as json_file:
+        loaded_data = json.load(json_file)
 
+    config = Config()
+    config.SERVER_URL = None
+    
+    mapper = RouteManifestMapper(config)
+    result = mapper.manifest_to_geojson(loaded_data)
+
+    # --- parse JSON if needed ---
+    if isinstance(result, str):
+        geojson = json.loads(result)
+    else:
+        geojson = result
+
+    assert isinstance(geojson, dict)
+    assert geojson.get("type") == "FeatureCollection"
+    assert "features" in geojson
+    assert isinstance(geojson["features"], list)
+
+    for feature in geojson["features"]:
+        assert isinstance(feature, dict)
+        assert feature.get("type") == "Feature"
+        assert "properties" in feature  
