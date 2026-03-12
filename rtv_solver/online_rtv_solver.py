@@ -76,6 +76,14 @@ class OnlineRTVSolver:
         """
         # initalize network and payload
         NetworkHandler.init_from_source(server_url=self.config.SERVER_URL)
+
+        # FIXME alternative code to run offline solver for pdptw-rtv
+        # # TODO this currently cannot handle when the tt_matrix is not available in payload, how can I fail gracefully?
+        # if payload.get(PayloadKeys.TIME_MATRIX) is None:
+        #     console_logger.warning("Solution run on server, but time_matrix is missing - leading to no possibility of running this dataset without backend server.") 
+        #     NetworkHandler.init_from_source(server_url=self.config.SERVER_URL, tt_matrix=None)
+        # else:
+        #     NetworkHandler.init_from_source(server_url=self.config.SERVER_URL, tt_matrix=payload[PayloadKeys.TIME_MATRIX])
         payload_object = PayloadParser.get_payload_object(payload)
         # get all requests of payload, add 
         request_handler = RequestHandler(payload_object.requests, self.config.DWELL_PICKUP, self.config.DWELL_ALIGHT)
@@ -259,10 +267,14 @@ class OnlineRTVSolver:
         return True
 
     @staticmethod
-    def simulate_manifest(config: Config, current_time, driver_runs, intermediate_location=True, tt_matrix: np.ndarray = None):
+    def simulate_manifest(config: Config, current_time, driver_runs, tt_matrix: np.ndarray = None):
         """
         Update the driver_run for the offlineSolver so that the last results fits the time that we have used for it.
+
+        INTERMEDIATE_LOCATION: can only be used when we have the backend server running as it required the server_based networkHandler
         """
+        INTERMEDIATE_LOCATION = config.INTERMEDIATE_LOCATION
+
         NetworkHandler.init_from_source(server_url=config.SERVER_URL, tt_matrix=tt_matrix)
         new_driver_runs = []
         # TODO longterm: turn driver_run into an object that handles all the conditions and changes based on validated calls
@@ -294,7 +306,7 @@ class OnlineRTVSolver:
                 if next_immediate_time > current_time:
                     break
                 
-            if len(manifest) > current_order and next_immediate_time < current_time and intermediate_location:
+            if len(manifest) > current_order and next_immediate_time < current_time and INTERMEDIATE_LOCATION:
                 # if manifest is longer than final stop (according to time limit) AND next_immediate_time is still smaller than current_time AND we want to have the location in between stops, we will get that location here
                 next_immediate_node = NetworkHandler.get_node_from_manifest_location(next_immediate_loc)
                 target_node = NetworkHandler.get_node_from_manifest_location(manifest[current_order][PayloadKeys.MANIFEST_LOC])

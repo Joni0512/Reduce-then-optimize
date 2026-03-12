@@ -178,8 +178,7 @@ class COAMLPipeline():
             iteration += 1
 
             # update vehicles based on decisions in the previous step until current time (might not be the entire interval)
-            # TODO if the networkHandler is not used from server, we cannot handle intermediate locations here, so we need to set intermediate_location to False
-            simulated_driver_runs = OnlineRTVSolver.simulate_manifest(self.config, current_time, new_driver_runs, intermediate_location=False, tt_matrix=new_payload[PayloadKeys.TIME_MATRIX]) # TODO check if intermediate_location is correct
+            simulated_driver_runs = OnlineRTVSolver.simulate_manifest(self.config, current_time, new_driver_runs, tt_matrix=new_payload[PayloadKeys.TIME_MATRIX])
             driver_runs = simulated_driver_runs
 
         final_driver_runs = OnlineRTVSolver.finalize_driverRuns(

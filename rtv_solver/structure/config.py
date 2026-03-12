@@ -9,6 +9,13 @@ from pathlib import Path
 
 from rtv_solver.util.helper import save_json, load_json
 
+
+from rtv_solver.util.logger import BASIC_LOGGER
+import logging
+
+console_logger = logging.getLogger(BASIC_LOGGER)
+
+
 @dataclass
 class Config:
     """
@@ -41,6 +48,7 @@ class Config:
     REBALANCING: bool = False
     KEEP_ACTIVE: bool = True
     RETURN_DEPOT: bool = False
+    INTERMEDIATE_LOCATION: bool = False
     WALK_DISTANCE_CUTOFF: int = 0
     STEP_SIZE: int = 300
     BATCH_INTERVAL: int = 1200
@@ -116,6 +124,7 @@ class Config:
             REBALANCING = cls.str_to_bool(args.rebalancing),
             KEEP_ACTIVE = cls.str_to_bool(args.keep_active),
             RETURN_DEPOT = cls.str_to_bool(args.return_depot),
+            INTERMEDIATE_LOCATION = cls.str_to_bool(args.intermediate_location),
             DWELL_PICKUP = args.dwell_pickup,
             DWELL_ALIGHT = args.dwell_alight,
             WALK_DISTANCE_CUTOFF = args.walk_distance_cutoff,
@@ -140,6 +149,15 @@ class Config:
 
         return config
         # return cls(**vars(args))
+
+    def enforce_constraints(self):
+        """
+        Enforce constraints on the config as certain parameters are dependent on other parameters.
+        """
+        # based on the availability of SERVER_URL, we need to check that we can only calculate with INTERMEDIATE_LOCATION false as the backend server is required in that situation
+        if self.SERVER_URL is None:
+            console_logger.warning("SERVER_URL is not set, setting INTERMEDIATE_LOCATION to False")
+            self.INTERMEDIATE_LOCATION = False
 
     @classmethod
     def from_dict(cls, cfg_dict: dict) -> "Config":

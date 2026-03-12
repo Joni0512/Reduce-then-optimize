@@ -14,7 +14,7 @@ class OfflineRTVSolver:
     def __init__(self, config: Config):
         """container for the offline RTV solver that uses the online RTV solver in batches over a rolling horizon"""
         self.config = config
-        raise NotImplementedError("OfflineRTVSolver needs update to intermediate location handling")
+        # TODO fix calls with or without server URL
         # does not require multiprocessing scheme for MacoS as we do call OnlineRTVSolver as an object; it would break when being called for the second time
 
     def solve_rtv(self, payload, interval, step_size):
@@ -72,8 +72,7 @@ class OfflineRTVSolver:
             # update vehicles based on decisions in the previous step until current time (might not be the entire interval)
             simulated_driver_runs = OnlineRTVSolver.simulate_manifest(self.config, 
                                                                       current_time ,
-                                                                      new_driver_runs, 
-                                                                      intermediate_location=True)
+                                                                      new_driver_runs)
             driver_runs = simulated_driver_runs
 
         final_driver_runs = OnlineRTVSolver.finalize_driverRuns(self.config, driver_runs, payload[PayloadKeys.DEPOT])
