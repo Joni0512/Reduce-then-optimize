@@ -32,6 +32,15 @@ class NetworkHandler:
         return NetworkHandler.init(True, server_url=server_url, euclidean=euclidean)
 
     @staticmethod
+    def check_server_availability(server_url):
+        try:
+            response = requests.get(server_url)
+            response.raise_for_status()
+            return True
+        except requests.exceptions.RequestException:
+            return False
+
+    @staticmethod
     def init(server_based, server_url=None, tt_matrix=None, euclidean=False):
         """
         For liLim, Euclidean must be True
@@ -44,13 +53,13 @@ class NetworkHandler:
         NetworkHandler.node_data = []
         SERVER_BASED = RawValue(ctypes.c_bool, server_based)
         EUCLIDEAN = RawValue(ctypes.c_bool, euclidean)
-        if SERVER_BASED:
+        if SERVER_BASED.value:
             routing_url = server_url + 'route/v1/driving/'
             nearest_url = server_url + 'nearest/v1/driving/'
             table_url = server_url + 'table/v1/driving/'
             session = requests.Session()
             return routing_url, nearest_url, session, table_url, SERVER_BASED
-        elif euclidean:
+        elif EUCLIDEAN.value:
             return None, None, None, None, SERVER_BASED, EUCLIDEAN
         else:
             travel_time_matrix = np.array(tt_matrix)
