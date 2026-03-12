@@ -78,8 +78,9 @@ def test_integration_offlineRTVsolver_vehicle1_maxCard3():
     stats_payload = {
         PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
         PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
-        PayloadKeys.DRIVERS: updated_driver_runs,}
-    stats_evaluator = StatsParser(config=config)
+        PayloadKeys.DRIVERS: updated_driver_runs,
+        PayloadKeys.TIME_MATRIX: payload.get(PayloadKeys.TIME_MATRIX, None)}
+    stats_evaluator = StatsParser(config=config, payload=stats_payload)
     feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
 
     # Test assertions
@@ -123,8 +124,9 @@ def test_integration_offlineRTVsolver_vehicle2_maxCard2():
     stats_payload = {
         PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
         PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
-        PayloadKeys.DRIVERS: updated_driver_runs,}
-    stats_evaluator = StatsParser(config=config)
+        PayloadKeys.DRIVERS: updated_driver_runs,
+        PayloadKeys.TIME_MATRIX: payload.get(PayloadKeys.TIME_MATRIX, None)}
+    stats_evaluator = StatsParser(config=config, payload=stats_payload)
     feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
 
     # Test assertions
@@ -166,8 +168,9 @@ def test_integration_onlineRTVsolver_vehicle3_maxCard3():
     stats_payload = {
         PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
         PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
-        PayloadKeys.DRIVERS: updated_driver_runs,}
-    stats_evaluator = StatsParser(config=config)
+        PayloadKeys.DRIVERS: updated_driver_runs,
+        PayloadKeys.TIME_MATRIX: payload.get(PayloadKeys.TIME_MATRIX, None)}
+    stats_evaluator = StatsParser(config=config, payload=stats_payload)
     feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
 
     # Test assertions
@@ -218,8 +221,9 @@ def test_integration_RHsolver_vehicleDeactivation_keepActiveTrue():
     stats_payload = {
         PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
         PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
-        PayloadKeys.DRIVERS: updated_driver_runs,}
-    stats_evaluator = StatsParser(config=config)
+        PayloadKeys.DRIVERS: updated_driver_runs,
+        PayloadKeys.TIME_MATRIX: payload.get(PayloadKeys.TIME_MATRIX, None)}
+    stats_evaluator = StatsParser(config=config, payload=stats_payload)
     feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
 
     # Test assertions
@@ -267,8 +271,9 @@ def test_integration_COAMLsolver_vehicle1_maxCard3():
     stats_payload = {
         PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
         PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
-        PayloadKeys.DRIVERS: updated_driver_runs,}
-    stats_evaluator = StatsParser(config=config)
+        PayloadKeys.DRIVERS: updated_driver_runs,
+        PayloadKeys.TIME_MATRIX: payload.get(PayloadKeys.TIME_MATRIX, None)}
+    stats_evaluator = StatsParser(config=config, payload=stats_payload)
     feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
 
     # Simplest test to check whether it runs at all correctly

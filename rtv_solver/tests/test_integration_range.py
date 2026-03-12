@@ -121,8 +121,9 @@ def test_integration_solver_parametrized(
     stats_payload = {
         PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
         PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
-        PayloadKeys.DRIVERS: updated_driver_runs,}
-    stats_evaluator = StatsParser(config=config)
+        PayloadKeys.DRIVERS: updated_driver_runs,
+        PayloadKeys.TIME_MATRIX: payload.get(PayloadKeys.TIME_MATRIX, None)}
+    stats_evaluator = StatsParser(config=config, payload=stats_payload)
     feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
 
     # Test assertions
