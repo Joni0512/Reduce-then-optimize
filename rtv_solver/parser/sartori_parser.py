@@ -15,6 +15,8 @@ class SartoriParser(BaseParser):
     - dem > 0 for pickup, dem < 0 for delivery
     - Pickup id pairs with delivery id = id + (SIZE-1)/2
     - EDGES: SIZE lines of SIZE integers (travel times in minutes, OSRM-based)
+
+    # TODO visualizer in the github repo makes a lot of sense to use for our appraoch and understand behaviour instead of building it ourselves
     """
     # TODO exchange relevant keys to PayloadParser keys, but first need a file to check correct outcome
 
@@ -86,10 +88,11 @@ class SartoriParser(BaseParser):
 
         # Depot is node 0
         depot_task = tasks[0]
-        depot = {"pt": {"lon": depot_task["x"], "lat": depot_task["y"]}}
+        depot_loc = {"lon": depot_task["x"], "lat": depot_task["y"]}
+        depot = {"pt": depot_loc, "node_id": 0}
         depot_start_time = depot_task["earliest"]
         depot_end_time = depot_task["latest"]
-        depot_loc = {"lon": depot_task["x"], "lat": depot_task["y"]}
+        
 
         # Build pickup-delivery pairs: pickup id -> delivery id = id + (SIZE-1)/2
         num_pickups = (size - 1) // 2
@@ -106,7 +109,7 @@ class SartoriParser(BaseParser):
                 )
 
             request = {
-                "booking_id": str(pickup_id),
+                "booking_id": pickup_id,
                 "pickup_pt": {
                     "lon": pickup_task["x"],
                     "lat": pickup_task["y"],
@@ -145,6 +148,9 @@ class SartoriParser(BaseParser):
         if num_vehicles is None:
             num_vehicles = min(50, len(requests))
 
+        vehicle_start_loc = copy.deepcopy(depot_loc)
+        vehicle_start_loc["node_id"] = 0 
+
         driver_runs = []
         for i in range(num_vehicles):
             driver_runs.append(
@@ -157,7 +163,7 @@ class SartoriParser(BaseParser):
                         "wc_capacity": 0,
                         "locations_already_serviced": 0,
                         "location_dt_seconds": depot_start_time,
-                        "loc": copy.deepcopy(depot_loc),
+                        "loc": copy.deepcopy(vehicle_start_loc),
                         "total_locations": 0,
                     },
                     "manifest": [],

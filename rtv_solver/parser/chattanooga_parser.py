@@ -31,7 +31,7 @@ class ChattanoogaParser(BaseParser):
                 PayloadKeys.DRIVER_STATE_START_TIME: run[PayloadKeys.DRIVER_STATE_START_TIME],
                 PayloadKeys.DRIVER_STATE_END_TIME: run[PayloadKeys.DRIVER_STATE_END_TIME],
                 PayloadKeys.DRIVER_STATE_AM_CAP: run[PayloadKeys.DRIVER_STATE_AM_CAP],
-                PayloadKeys.IVER_STATE_WC_CAP: run[PayloadKeys.DRIVER_STATE_WC_CAP],
+                PayloadKeys.DRIVER_STATE_WC_CAP: run[PayloadKeys.DRIVER_STATE_WC_CAP],
                 # injected defaults
                 PayloadKeys.DRIVER_STATE_LOC_SERV: 0,
                 PayloadKeys.DRIVER_STATE_DT_SEC: 0,

@@ -10,6 +10,8 @@ from typing import Any
 import numpy as np
 
 from rtv_solver.schema.payload_keys import PayloadKeys
+from rtv_solver.parser.li_lim_parser import LiLimParser
+from rtv_solver.parser.sartori_parser import SartoriParser
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
@@ -24,22 +26,93 @@ class PayloadParser:
 
     @staticmethod
     def load_input_data(input_file: Path | str):
-        if isinstance(input_file, str):
-            file_type = input_file.split(".")[-1]
-        elif isinstance(input_file, Path):
-            file_type = input_file.suffix[1:].lstrip(".")
-        else:
+        """
+        Loads the input data from the given file, checks which schema format conversion needs to be applied and returns a payload object that all solvers can interact with. 
+
+        It is especially important to make sure that the time matrix is available for the solver to use in order to run the solver on the cluster without the backend server.
+        # TODO time_matrix availability is currently not checked for the wilson format, this should be added.
+        """
+        if not isinstance(input_file, (str, Path)):
             raise ValueError(f"Unsupported file type: {input_file}")
-        console_logger.info(f"Loading input data from {input_file} with file type {file_type}")
+        input_path = Path(input_file)
+        file_type = input_path.suffix[1:].lstrip(".").lower()
+        console_logger.info(f"Loading input data from {input_path} with file type {file_type}")
         if file_type == "json":
-            with open(input_file, 'r') as f:
+            with open(input_path, "r") as f:
                 data = json.load(f)
         elif file_type == "pkl":
-            with open(input_file, 'rb') as f:
+            with open(input_path, "rb") as f:
                 data = pickle.load(f)
+        elif file_type == "txt":
+            txt_format = PayloadParser._detect_txt_format(input_path)
+            if txt_format == "sartori":
+                data = SartoriParser.parse_file(str(input_path))
+            elif txt_format == "li_lim":
+                data = LiLimParser.parse_file(str(input_path))
+            else:
+                raise ValueError(
+                    f"Unsupported txt benchmark format in file: {input_path}. "
+                    "Expected Sartori or Li-Lim instance format."
+                )
         else:
             raise ValueError(f"Unsupported file type: {file_type}")
         return PayloadParser.normalize_to_canonical(data)
+
+    @staticmethod
+    def _detect_txt_format(input_path: Path) -> str | None:
+        """
+        Detect benchmark txt format based on path tokens and file signatures.
+        """
+        input_path_lc = str(input_path).lower()
+        if "sartori" in input_path_lc:
+            return "sartori"
+        if "li_lim" in input_path_lc or "lilim" in input_path_lc:
+            return "li_lim"
+
+        with open(input_path, "r", encoding="utf-8") as file:
+            non_empty_lines = [line.strip() for line in file if line.strip()]
+
+        if not non_empty_lines:
+            return None
+
+        first_30_lines = non_empty_lines[:30]
+        has_sartori_header = any(
+            line.startswith(("NAME:", "LOCATION:", "TYPE:", "SIZE:", "CAPACITY:", "ROUTE-TIME:"))
+            for line in first_30_lines
+        )
+        has_nodes_section = any(line == "NODES" for line in first_30_lines)
+        has_edges_section = any(line == "EDGES" for line in non_empty_lines[:200])
+        if has_sartori_header and (has_nodes_section or has_edges_section):
+            return "sartori"
+
+        first_line_parts = non_empty_lines[0].replace("\t", " ").split()
+        if len(first_line_parts) == 3:
+            try:
+                int(first_line_parts[0])
+                int(first_line_parts[1])
+                float(first_line_parts[2])
+                return "li_lim"
+            except ValueError:
+                pass
+
+        for line in non_empty_lines[1:6]:
+            parts = line.replace("\t", " ").split()
+            if len(parts) >= 9:
+                try:
+                    int(parts[0])
+                    float(parts[1])
+                    float(parts[2])
+                    int(parts[3])
+                    int(parts[4])
+                    int(parts[5])
+                    int(parts[6])
+                    int(parts[7])
+                    int(parts[8])
+                    return "li_lim"
+                except ValueError:
+                    continue
+
+        return None
 
     @staticmethod
     def get_payload_object(payload: dict[str: Any], online: bool=True) -> Payload:

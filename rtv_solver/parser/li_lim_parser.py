@@ -30,7 +30,7 @@ class LiLimParser(BaseParser):
         depot_info = lines[1].strip().split('\t')
         depot_start_time = int(depot_info[4])
         depot_end_time = int(depot_info[5])
-        depot_loc = {'lon': float(depot_info[1]), 'lat': float(depot_info[2])}
+        depot_loc = {'lon': float(depot_info[1]), 'lat': float(depot_info[2]), 'node_id': 0}
 
         driver_runs = []
         for i in range(num_vehicles):
@@ -72,7 +72,7 @@ class LiLimParser(BaseParser):
         
         # Task 0 is the depot
         depot_task = tasks[0]
-        depot = {'pt': {'lon': depot_task['x'], 'lat': depot_task['y']}}
+        depot = {'pt': {'lon': depot_task['x'], 'lat': depot_task['y']}, 'node_id': 0}
         
         # Find pickup-delivery pairs
         # Pickups have pickup_idx=0 and delivery_idx>0
@@ -98,7 +98,7 @@ class LiLimParser(BaseParser):
                 
                 # Create request
                 request = {
-                    'booking_id': str(task_no),
+                    'booking_id': task_no,
                     'pickup_pt': {
                         'lon': pickup_task['x'],
                         'lat': pickup_task['y'],
@@ -124,7 +124,6 @@ class LiLimParser(BaseParser):
         # order requests by pickup_time_window_start
         requests = sorted(requests, key=lambda r: r['pickup_time_window_start'])
 
-
         # build the travel time matrix (using Euclidean distance as a proxy for travel time)
         num_tasks = len(tasks)
         travel_time_matrix = np.zeros((num_tasks, num_tasks))
@@ -134,6 +133,7 @@ class LiLimParser(BaseParser):
                 if i == j:
                     travel_time_matrix[i][j] = 0
                 else:
+                    # travel time matrix is just the euclidean distance between two tasks
                     distance = np.sqrt((task_i['x'] - task_j['x'])**2 + (task_i['y'] - task_j['y'])**2)
                     travel_time_matrix[i][j] = distance
 
