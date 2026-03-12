@@ -202,7 +202,13 @@ class Vehicle:
     def get_remaining_capacities(self):
         """return remaining caps normalized"""
         am_used, wc_used, am_cap, wc_cap = self.get_capacities()
+        # add check that we do not divide by 0
+        if am_cap == 0:
+            return 0, 0, 0, 0
+        if wc_cap == 0:
+            return 0, 0, 0, 0
         remaining_am_cap = (am_cap - am_used) / am_cap
+        
         remaining_wc_cap = (wc_cap - wc_used) / wc_cap
         return am_cap, wc_cap, remaining_am_cap, remaining_wc_cap
     
