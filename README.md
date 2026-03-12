@@ -102,6 +102,7 @@ Each format can be used as there is an automatic detection and conversion of the
 ### Wilson
 
 The JSON format is mainly for documentation purposes and facilitates understanding instead of usability. For `wilson`, the following format applies (example `inputs/wilson_nc_initial.pkl`):
+The value `node_id` might not be part of the original data object, but is generally added wherever locations are handled.
 
 ``` js 
 {
@@ -110,11 +111,13 @@ The JSON format is mainly for documentation purposes and facilitates understandi
             "booking_id": "1", 
             "pickup_pt":{
                 "lon":-77.930793762,
-                "lat":35.780387878
+                "lat":35.780387878,
+                "node_id": 12
             },
             "dropoff_pt":{
                 "lon":-77.893867493,
-                "lat":35.719944
+                "lat":35.719944,
+                "node_id": 13
             },
             "pickup_time_window_start":20043,
             "pickup_time_window_end":21843,
@@ -144,7 +147,8 @@ The JSON format is mainly for documentation purposes and facilitates understandi
             "total_locations": 4,
             "loc":{
                 "lat":35.723017652422435,
-                "lon":-77.90871990823223
+                "lon":-77.90871990823223,
+                "node-id": 0
             }
         },
         "manifest":[ list of all actual stops of that vehicle
