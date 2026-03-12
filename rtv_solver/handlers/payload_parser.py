@@ -349,6 +349,15 @@ class PayloadParser:
         """
         Detects whether the JSON already matches the canonical structure in the 'wilson' format.
         """
+        has_canonical_matrix = PayloadKeys.TIME_MATRIX in data
+        has_legacy_matrix = "time_matrix" in data
+
+        # Require a matrix key to exist; otherwise this is not canonical input.
+        if not has_canonical_matrix and not has_legacy_matrix:
+            return False
+        # Legacy-only key indicates non-canonical chattanooga-like format.
+        if has_legacy_matrix and not has_canonical_matrix:
+            return False
         return (
             "driver_runs" in data
             and len(data["driver_runs"]) > 0
@@ -362,9 +371,6 @@ class PayloadParser:
         For structural differences, see 'Documentation.md'. The changes are only additions and no prior information is lost.
         """
         if PayloadParser._is_canonical_structure(data):
-            # # turn all request-booking ids into strings
-            # for request in data[PayloadKeys.REQUESTS]:
-            #     request[PayloadKeys.REQ_BOOKING_ID] = str(request[PayloadKeys.REQ_BOOKING_ID])
             return data  # Nothing to do
 
         normalized = copy.deepcopy(data)
@@ -394,6 +400,15 @@ class PayloadParser:
                 PayloadKeys.DRIVER_MANIFEST: []})
 
         normalized[PayloadKeys.DRIVERS] = new_driver_runs
+
+        # Ensure canonical key `travel_time_matrix` always exists after normalization:
+        # 1) keep existing canonical value, 2) rename legacy `time_matrix`, 3) fallback to None.
+        if PayloadKeys.TIME_MATRIX in data:
+            normalized[PayloadKeys.TIME_MATRIX] = data.get(PayloadKeys.TIME_MATRIX)
+        elif "time_matrix" in data:
+            normalized[PayloadKeys.TIME_MATRIX] = data.get("time_matrix")
+        else:
+            normalized[PayloadKeys.TIME_MATRIX] = None
 
         return normalized
 

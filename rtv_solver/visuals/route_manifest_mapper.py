@@ -29,20 +29,23 @@ class RouteManifestMapper():
 
     TODO add `to_folium_map()` that consumes FeatureCollection to build an interactive map
     """
-    def __init__(self, config: Config | None = None):
+    def __init__(self, config: Config | None = None, tt_matrix: dict[str, Any] | None = None):
         self.config = config
         self._network_initialized = False
-        self._init_network()
+        self._init_network(tt_matrix)
 
-    def _init_network(self) -> None:
+    def _init_network(self, tt_matrix: dict[str, Any] | None = None) -> None:
         if self._network_initialized:
             return
-        
-        if self.config.SERVER_URL is None:
-            console_logger.warning(f"Street route calculation is simplified as we cannot calculate the routes.")
-        else:
-            NetworkHandler.init_from_source(server_url=self.config.SERVER_URL)
-            self._network_initialized = True
+
+        # Detailed street routing needs a routing backend. A payload matrix cannot provide route geometry, so when tt_matrix is present we use simple lines.
+        can_build_detailed_routes = self.config.SERVER_URL is not None and tt_matrix is None
+        if not can_build_detailed_routes:
+            console_logger.warning("Street route calculation is simplified as backend routing is unavailable.")
+            return
+
+        NetworkHandler.init_from_source(server_url=self.config.SERVER_URL, tt_matrix=None)
+        self._network_initialized = True
     
     def _get_route_colors(self, veh_count: int) -> dict[int, str]:
         """Choose colormap from <https://matplotlib.org/stable/users/explain/colors/colormaps.html>"""
@@ -155,7 +158,7 @@ class RouteManifestMapper():
     
     def _build_simple_route_feature(self, last_loc, next_loc):
         """simple route as we do not handle any complexities but rather re-create the street network route between two locations"""
-        if self.config.SERVER_URL is None:
+        if not self._network_initialized:
             geometry = self._get_simple_route_feature(last_loc, next_loc)
         else:
             geometry = self._get_GEOJSON_route(last_loc, next_loc)

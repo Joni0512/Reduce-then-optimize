@@ -6,6 +6,7 @@ from multiprocessing.sharedctypes import RawArray, RawValue
 import ctypes
 import math
 
+from rtv_solver.schema.payload_keys import PayloadKeys
 from rtv_solver.util.logger import BASIC_LOGGER
 import logging
 
@@ -26,10 +27,37 @@ class NetworkHandler:
     node_data = []
 
     @staticmethod
+    def init_from_payload(payload: dict, server_url=None, euclidean=False) -> bool:
+        """
+        Initialize the network from a payload and indicate if server-side matrix
+        precomputation is required.
+
+        Returns:
+            bool: True when no precomputed matrix is provided in payload.
+        """
+        tt_matrix = payload.get(PayloadKeys.TIME_MATRIX)
+        NetworkHandler.init_from_source(
+            server_url=server_url,
+            tt_matrix=tt_matrix,
+            euclidean=euclidean,
+        )
+        return tt_matrix is None
+
+    @staticmethod
     def init_from_source(server_url=None, tt_matrix=None, euclidean=False):
         if tt_matrix is not None:
             return NetworkHandler.init(False, tt_matrix=tt_matrix, euclidean=euclidean)
         return NetworkHandler.init(True, server_url=server_url, euclidean=euclidean)
+
+    @staticmethod
+    def needs_runtime_matrix_build() -> bool:
+        """
+        True when travel times must be built from discovered nodes at runtime.
+        """
+        global SERVER_BASED, EUCLIDEAN
+        server_mode = SERVER_BASED is not None and SERVER_BASED.value
+        euclidean_mode = EUCLIDEAN is not None and EUCLIDEAN.value
+        return server_mode or euclidean_mode
 
     @staticmethod
     def check_server_availability(server_url):
@@ -59,9 +87,9 @@ class NetworkHandler:
             table_url = server_url + 'table/v1/driving/'
             session = requests.Session()
             return routing_url, nearest_url, session, table_url, SERVER_BASED
-        elif EUCLIDEAN.value:
+        elif EUCLIDEAN.value: # NOTE this probably does not work as expected
             return None, None, None, None, SERVER_BASED, EUCLIDEAN
-        else:
+        else: # if time matrix is provided in the payload
             travel_time_matrix = np.array(tt_matrix)
             no_of_nodes = RawValue(ctypes.c_uint, travel_time_matrix.shape[0])
             travel_time_matrix = RawArray(
@@ -143,7 +171,7 @@ class NetworkHandler:
 
         if session is None:
             raise RuntimeError(
-                "NetworkHandler session is not initialized. Call NetworkHandler.init() first."
+                "NetworkHandler session is not initialized. Call NetworkHandler.init_from_source() or NetworkHandler.init_from_payload() first; depending on whether you provide the time matrix in the payload or not"
             )
 
         last_exception = None
@@ -178,8 +206,8 @@ class NetworkHandler:
                 time.sleep(retry_delay_s)
 
         raise RuntimeError(
-            f"Failed to get valid response from {url} after {max_retries} attempts. "
-            f"Last error: {last_exception}"        ) from last_exception
+            f"Failed to get valid response from {url} after {max_retries} attempts. \n"
+            f"Last error: {last_exception}" ) from last_exception
 
     @staticmethod
     def get_simple_route_reponse(source: Node, dest: Node) -> dict:

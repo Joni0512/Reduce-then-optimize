@@ -56,6 +56,12 @@ class OfflineRTVSolver:
                 PayloadKeys.REQUESTS: selected_requests,
                 PayloadKeys.DRIVERS: driver_runs}
 
+            if payload.get(PayloadKeys.TIME_MATRIX) is not None:
+                new_payload[PayloadKeys.TIME_MATRIX] = payload[PayloadKeys.TIME_MATRIX]
+            else:
+                new_payload[PayloadKeys.TIME_MATRIX] = None
+                console_logger.warning("Time matrix is not available. Solution run on server, but time_matrix is missing - leading to no possibility of running this dataset without backend server.") 
+
             # solve the RTV problem and update manifests
             if len(selected_requests) == 0:
                 new_driver_runs, assignment_status = driver_runs, {PayloadKeys.STATS_ASSIGNED: {}, PayloadKeys.STATS_UNSERVED: []}
@@ -70,9 +76,11 @@ class OfflineRTVSolver:
             iteration += 1
 
             # update vehicles based on decisions in the previous step until current time (might not be the entire interval)
+            tt_matrix = new_payload.get(PayloadKeys.TIME_MATRIX)
             simulated_driver_runs = OnlineRTVSolver.simulate_manifest(self.config, 
                                                                       current_time ,
-                                                                      new_driver_runs)
+                                                                      new_driver_runs,
+                                                                      tt_matrix=tt_matrix)
             driver_runs = simulated_driver_runs
 
         final_driver_runs = OnlineRTVSolver.finalize_driverRuns(self.config, driver_runs, payload[PayloadKeys.DEPOT])

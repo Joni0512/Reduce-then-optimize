@@ -42,7 +42,7 @@ class OnlineRTVSolver:
 
     def check_feasibility(self, payload):
         # NOTE for what do we need this method?
-        NetworkHandler.init_from_source(server_url=self.config.SERVER_URL)
+        NetworkHandler.init_from_payload(payload=payload, server_url=self.config.SERVER_URL)
         feasible_time_slots = []
 
         request = payload[PayloadKeys.REQUESTS][0]
@@ -60,7 +60,10 @@ class OnlineRTVSolver:
             best_cost = float("inf")
             for driver_run in payload[PayloadKeys.DRIVERS]:
                 cost, _ = self._insert_request_to_driver_run(
-                    payload[PayloadKeys.DEPOT], driver_run, request_copy)
+                    payload[PayloadKeys.DEPOT],
+                    driver_run,
+                    request_copy,
+                )
                 if cost >= 0 and cost < best_cost:
                     best_cost = cost
             if best_cost < float("inf"):
@@ -75,7 +78,10 @@ class OnlineRTVSolver:
         With conifg.return_depot, this method will not add the final trips to the depot. The user has to call finalize_driverRuns(...) to add those final stops. 
         """
         # initalize network and payload
-        NetworkHandler.init_from_source(server_url=self.config.SERVER_URL)
+        needs_server_matrix_build = NetworkHandler.init_from_payload(
+            payload=payload,
+            server_url=self.config.SERVER_URL
+        ) # TODO add handling of euclidean distance
 
         # FIXME alternative code to run offline solver for pdptw-rtv
         # # TODO this currently cannot handle when the tt_matrix is not available in payload, how can I fail gracefully?
@@ -117,7 +123,8 @@ class OnlineRTVSolver:
 
         # TODO add depot node with id, so it can be calculated later on using the travel_time_matrix
         
-        NetworkHandler.initialize_travel_time_matrix() 
+        if needs_server_matrix_build:
+            NetworkHandler.initialize_travel_time_matrix()
         iteration += 1  # increase iteration as the prior step was just rebuilding from the last iteration (if there was a prior step)
         
         try:
@@ -331,6 +338,7 @@ class OnlineRTVSolver:
         DO NOT USE IT FOR RTV solution. 
         """
         updated_driver_runs = copy.deepcopy(payload[PayloadKeys.DRIVERS])
+        NetworkHandler.init_from_payload(payload=payload, server_url=self.config.SERVER_URL)
         total_cost = 0
         unserved_requests = []
         for request in payload[PayloadKeys.REQUESTS]:
@@ -449,10 +457,14 @@ class OnlineRTVSolver:
         return cost, new_manifest
 
     def _insert_request_to_driver_run(self, depot, driver_run, request, objective="vmt"):
-        NetworkHandler.init_from_source(server_url=self.config.SERVER_URL)
+        if NetworkHandler.needs_runtime_matrix_build():
+            NetworkHandler.init_from_source(server_url=self.config.SERVER_URL)
         driver_run_c = copy.deepcopy(driver_run)
         depot_pt = depot[PayloadKeys.DEPOT_PT]
-        depot_node_id = NetworkHandler.get_next_node_id(depot_pt["lat"], depot_pt["lon"])
+        depot_node_id = depot_pt.get("node_id")
+        if depot_node_id is None:
+            depot_node_id = NetworkHandler.get_next_node_id(depot_pt["lat"], depot_pt["lon"])
+            depot_pt["node_id"] = depot_node_id
         depot_node = Node(
             depot_pt["lat"], 
             depot_pt["lon"], 
@@ -483,10 +495,16 @@ class OnlineRTVSolver:
         
         # insert node ids for pickup and dropoff stops
         pickup_loc = pickup_stop[PayloadKeys.MANIFEST_LOC]
-        pickup_node_id = NetworkHandler.get_next_node_id(pickup_loc["lat"],pickup_loc["lon"])
+        pickup_node_id = pickup_loc.get("node_id")
+        if pickup_node_id is None:
+            pickup_node_id = NetworkHandler.get_next_node_id(pickup_loc["lat"],pickup_loc["lon"])
+            pickup_loc["node_id"] = pickup_node_id
         pickup_loc["node_id"] = pickup_node_id
         dropoff_loc = dropoff_stop[PayloadKeys.MANIFEST_LOC]
-        dropoff_node_id = NetworkHandler.get_next_node_id(dropoff_loc["lat"],dropoff_loc["lon"])
+        dropoff_node_id = dropoff_loc.get("node_id")
+        if dropoff_node_id is None:
+            dropoff_node_id = NetworkHandler.get_next_node_id(dropoff_loc["lat"],dropoff_loc["lon"])
+            dropoff_loc["node_id"] = dropoff_node_id
         dropoff_loc["node_id"] = dropoff_node_id
 
         load = 0
@@ -495,7 +513,10 @@ class OnlineRTVSolver:
         dropoff_stop[PayloadKeys.MANIFEST_RUN_ID] = state[PayloadKeys.DRIVER_STATE_RUN_ID]
         manifest = driver_run_c[PayloadKeys.DRIVER_MANIFEST]
         state_loc = state[PayloadKeys.DRIVER_STATE_LOC]
-        node_id = NetworkHandler.get_next_node_id(state_loc["lat"],state_loc["lon"])
+        node_id = state_loc.get("node_id")
+        if node_id is None:
+            node_id = NetworkHandler.get_next_node_id(state_loc["lat"],state_loc["lon"])
+            state_loc["node_id"] = node_id
         state_loc["node_id"] = node_id
         start_node = Node(state_loc["lat"], state_loc["lon"], id =node_id)
         start_time = state[PayloadKeys.DRIVER_STATE_DT_SEC]
@@ -511,10 +532,14 @@ class OnlineRTVSolver:
             else:
                 remaining_stops.append(stop)
                 stop_loc = stop[PayloadKeys.MANIFEST_LOC]
-                node_id = NetworkHandler.get_next_node_id(stop_loc["lat"], stop_loc["lon"])
+                node_id = stop_loc.get("node_id")
+                if node_id is None:
+                    node_id = NetworkHandler.get_next_node_id(stop_loc["lat"], stop_loc["lon"])
+                    stop_loc["node_id"] = node_id
                 stop_loc["node_id"] = node_id
         
-        NetworkHandler.initialize_travel_time_matrix()
+        if NetworkHandler.needs_runtime_matrix_build():
+            NetworkHandler.initialize_travel_time_matrix()
 
         prev_cost = 0
         current_node = start_node
@@ -564,6 +589,7 @@ class OnlineRTVSolver:
         # TODO check when this is valuable
         unserved_requests = []
         updated_driver_runs = copy.deepcopy(payload[PayloadKeys.DRIVERS])
+        NetworkHandler.init_from_payload(payload=payload, server_url=self.config.SERVER_URL)
         for request in payload[PayloadKeys.REQUESTS]:
             earliest_vehicle = None
             earliest_time = float("inf")
@@ -609,7 +635,11 @@ class OnlineRTVSolver:
                     assert manifest_action == VehicleStop.ACT_DROPOFF, f"Last stop {manifest_action} should have been a dropoff"
 
                     # TODO remove dwell time for ACT_DEPOT wherever that is
-                    depot_node = Node.from_dict(depot_dict[PayloadKeys.DEPOT_PT])
+                    # turn depot_dict into a Node object with node_id
+                    depot_node = Node.from_dict({
+                        "lon": depot_dict[PayloadKeys.DEPOT_PT]["lon"],
+                        "lat": depot_dict[PayloadKeys.DEPOT_PT]["lat"], 
+                        "node_id": depot_dict["node_id"]})
                     depot_arrival_time = time_at_last_node + NetworkHandler.travel_time(last_node, depot_node)
                     artificial_request_id = -(driver_run.state.run_id + 1)
 
