@@ -26,13 +26,15 @@ TYPE_BEST_UNORDERED_MATCH = "best_unordered_match"
 
 class ImitationHandler:
     """
-    Handles the generation of the y* list of the correct solution for the CO-layer.
+    Handles the generation of the y* list of the correct solution for the CO-layer. Based on the correct order of request pickups as we do not have more control over the order of dropoffs.
 
-    # TODO add separate solution handling for stop sequences
     # TODO add handling for multiple vehicles
-    - option 1: take solution with the most fitting requests independent of order (y-star min)
-    - option 2: take solution with the most fitting requests and the correct order (possibly cutting off requests as the order is wrong at some point)
     """
+    # The current ImitationHandler cannot handle multiple vehicles in many methods or at least we do not have the methods that handle multiple vehicles. We can generate the optimal solution and have a dictionary of vehicles {vehicle_id: optimal_solution}.
+    # However, turning the current trips into solutions requires new methods that are not yet implemented.
+    # The data that we get from the tripHandler clearly has the direct vehicle association in the TripCost object but also in the vehicle_to_trips_cost_map and trip_to_vehicle_cost_map dictionaries. We can use this information to get the optimal solutions for each vehicle. We still need to make sure that the order of the trips is preserved.
+    # Instructions: we need new methods to handle the optimal solutions for multiple vehicles. We need to make sure that the final order of our imitated solution matches the corresponding order of the generated trips. The code should be highly testable and robust.
+    # The order is very important as the order of TripCosts is deeply integrated into the optimization process. The final outcome must make sure that the order remains, even if we temporarily deduce solutions per vehicle. The number of vehicles is known beforehand and can be identified by a clear vehicleID. We need to add testing to check the final outcome of both the imitation_scores and the y_star tensor.
     def __init__(self, config: Config):
         self.config = config
         self.optimal_solution = self._load_complete_optimal_solution()
@@ -72,6 +74,8 @@ class ImitationHandler:
     def _load_complete_optimal_solution(self):
         """
         Load the complete optimal solution from the payload for the entire period.
+
+        Assumption: all vehicles start in the same position (singledepot).
         """
         if self.config.IMITATION_SOLUTION_FILE is None:
             raise ValueError("No imitation solution file provided.")
@@ -335,10 +339,19 @@ class ImitationHandler:
         """
         return a tensor with only 0s and 1s based on the imitation scores, the maximum value is 1 and all other values are considered 0.
         """
+        # TODO this will not be able to handle multiple vehicles
         max_value = torch.max(imitation_scores)
         max_indices = torch.where(imitation_scores == max_value)[0]
         # assert that there is only one maximum value
-        assert len(max_indices) == 1, f"There should be only one maximum value. {imitation_scores}" 
+        # assert len(max_indices) == 1, f"There should be only one maximum value. {imitation_scores}"  
+        # not required anymore as we have a negative value for the reject action per vehicle 
+        # if all other values are zero or negative, set the minimum value to 1
+        if torch.all(imitation_scores <= 0):
+            min_value = torch.min(imitation_scores)
+            min_indices = torch.where(imitation_scores == min_value)[0]
+            y_star = torch.zeros_like(imitation_scores)
+            y_star[min_indices] = 1
+            return y_star
         y_star = torch.zeros_like(imitation_scores)
         y_star[max_indices] = 1
         return y_star
@@ -349,13 +362,6 @@ class ImitationHandler:
         return a tensor with only 0s and 1s based on the imitation scores, the minimum value is 1 and all other values are considered 0.
         """
         raise NotImplementedError("This function is not implemented yet as the score calculation does not support unordered matches.")
-        min_value = torch.min(imitation_scores)
-        min_indices = torch.where(imitation_scores == min_value)[0]
-        # assert that there is only one minimum value
-        assert len(min_indices) == 1, "There should be only one minimum value."
-        y_star = torch.zeros_like(imitation_scores)
-        y_star[min_indices] = 1
-        return y_star
 
 
 
