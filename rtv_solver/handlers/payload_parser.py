@@ -349,20 +349,29 @@ class PayloadParser:
         """
         Detects whether the JSON already matches the canonical structure in the 'wilson' format.
         """
-        has_canonical_matrix = PayloadKeys.TIME_MATRIX in data
-        has_legacy_matrix = "time_matrix" in data
+        driver_runs = data.get(PayloadKeys.DRIVERS, [])
+        if len(driver_runs) == 0:
+            return False
+        return PayloadKeys.DRIVER_STATE in driver_runs[0]
 
-        # Require a matrix key to exist; otherwise this is not canonical input.
-        if not has_canonical_matrix and not has_legacy_matrix:
-            return False
-        # Legacy-only key indicates non-canonical chattanooga-like format.
-        if has_legacy_matrix and not has_canonical_matrix:
-            return False
-        return (
-            "driver_runs" in data
-            and len(data["driver_runs"]) > 0
-            and "state" in data["driver_runs"][0]
-        )
+    @staticmethod
+    def _normalize_matrix_key(data: dict) -> dict:
+        """
+        Normalize matrix keys to canonical `travel_time_matrix`.
+
+        Rules:
+        - keep existing `travel_time_matrix`
+        - otherwise rename legacy `time_matrix`
+        - otherwise add `travel_time_matrix = None`
+        """
+        normalized = copy.deepcopy(data)
+        if PayloadKeys.TIME_MATRIX in normalized:
+            return normalized
+        if "time_matrix" in normalized:
+            normalized[PayloadKeys.TIME_MATRIX] = normalized.pop("time_matrix")
+        else:
+            normalized[PayloadKeys.TIME_MATRIX] = None
+        return normalized
 
     @staticmethod
     def normalize_to_canonical(data: dict) -> dict:
@@ -371,7 +380,8 @@ class PayloadParser:
         For structural differences, see 'Documentation.md'. The changes are only additions and no prior information is lost.
         """
         if PayloadParser._is_canonical_structure(data):
-            return data  # Nothing to do
+            # Keep Wilson `driver_runs.state` and `manifest` untouched.
+            return PayloadParser._normalize_matrix_key(data)
 
         normalized = copy.deepcopy(data)
 
@@ -379,13 +389,15 @@ class PayloadParser:
 
         new_driver_runs = []
         for run in normalized[PayloadKeys.DRIVERS]:
+            # Chattanooga stores state fields directly at run level.
+            run_state = run
             state = {
                 # copy old state
-                PayloadKeys.DRIVER_STATE_RUN_ID: run[PayloadKeys.DRIVER_STATE_RUN_ID],
-                PayloadKeys.DRIVER_STATE_START_TIME: run[PayloadKeys.DRIVER_STATE_START_TIME],
-                PayloadKeys.DRIVER_STATE_END_TIME: run[PayloadKeys.DRIVER_STATE_END_TIME],
-                PayloadKeys.DRIVER_STATE_AM_CAP: run[PayloadKeys.DRIVER_STATE_AM_CAP],
-                PayloadKeys.DRIVER_STATE_WC_CAP: run[PayloadKeys.DRIVER_STATE_WC_CAP],
+                PayloadKeys.DRIVER_STATE_RUN_ID: run_state[PayloadKeys.DRIVER_STATE_RUN_ID],
+                PayloadKeys.DRIVER_STATE_START_TIME: run_state[PayloadKeys.DRIVER_STATE_START_TIME],
+                PayloadKeys.DRIVER_STATE_END_TIME: run_state[PayloadKeys.DRIVER_STATE_END_TIME],
+                PayloadKeys.DRIVER_STATE_AM_CAP: run_state[PayloadKeys.DRIVER_STATE_AM_CAP],
+                PayloadKeys.DRIVER_STATE_WC_CAP: run_state[PayloadKeys.DRIVER_STATE_WC_CAP],
                 # injected defaults
                 PayloadKeys.DRIVER_STATE_LOC_SERV: 0,
                 PayloadKeys.DRIVER_STATE_DT_SEC: 0,
@@ -401,14 +413,7 @@ class PayloadParser:
 
         normalized[PayloadKeys.DRIVERS] = new_driver_runs
 
-        # Ensure canonical key `travel_time_matrix` always exists after normalization:
-        # 1) keep existing canonical value, 2) rename legacy `time_matrix`, 3) fallback to None.
-        if PayloadKeys.TIME_MATRIX in data:
-            normalized[PayloadKeys.TIME_MATRIX] = data.get(PayloadKeys.TIME_MATRIX)
-        elif "time_matrix" in data:
-            normalized[PayloadKeys.TIME_MATRIX] = data.get("time_matrix")
-        else:
-            normalized[PayloadKeys.TIME_MATRIX] = None
+        normalized = PayloadParser._normalize_matrix_key(normalized)
 
         return normalized
 
