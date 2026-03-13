@@ -176,3 +176,33 @@ class SartoriParser(BaseParser):
             "driver_runs": driver_runs,
             "travel_time_matrix": travel_time_matrix,
         }
+
+    @staticmethod
+    def parse_solution(filepath):
+        """
+        We want to parse the solution file in order to have 'optimal' solution for the entire period.
+
+        Args:
+            filepath: Path to the solution file
+
+        Returns:
+            dict with keys: requests, depot, driver_runs, travel_time_matrix
+
+        File example:
+            Instance name : bar-n100-1
+            Authors       : Isaiah Reimer (isaiah.reimer@rideco.com). RideCo (rideco.com)
+            Date          : 2023-04-04
+            Reference     : Rideco PDPTW Solver
+            Solution
+            Route 1 : 13 16 63 48 98 41 66 34 84 91 6 56 23 3 73 53
+            Route 2 : 39 29 89 47 79 11 22 97 72 61 25 46 36 75 50 96 100 86
+            Route 3 : 40 17 20 67 2 21 71 52 8 70 58 45 1 4 90 95 54 51
+            Route 4 : 30 33 80 7 57 9 59 42 10 60 38 83 28 92 88 78
+            Route 5 : 31 14 64 44 35 81 5 55 32 82 19 85 94 69
+            Route 6 : 15 27 26 76 24 49 74 65 43 12 18 77 99 62 68 93 37 87
+
+        TODO as the main Sartori does not yet completely work, we postpone this work.
+        """
+        raise NotImplementedError("Sartori parser for solutions is not implemented yet, see LiLim Parser for inspiration.")
+        # TODO make sure that return_depot is enabled
+        pass

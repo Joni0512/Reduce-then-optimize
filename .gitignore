@@ -4,3 +4,4 @@
 /outputs
 *.html
 *.github
+/solutions/li_lim/manifests/*.json
