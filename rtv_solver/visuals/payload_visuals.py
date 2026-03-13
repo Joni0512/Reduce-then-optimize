@@ -4,9 +4,11 @@ from matplotlib.lines import Line2D
 
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.request_handler import RequestHandler
+from rtv_solver.schema.payload_keys import PayloadKeys
 import numpy as np
 
 from typing import Any
+from pathlib import Path
 
 def plot_requests_operating_area(
     payload,
@@ -48,6 +50,121 @@ def plot_requests_operating_area(
     plt.gca().set_aspect("equal", adjustable="box")
     plt.legend()
     plt.title("Request Operating Area")
+
+    if save_path is not None:
+        plt.savefig(save_path, bbox_inches="tight")
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+def plot_request_positions_xy(
+    payload: dict[str, Any],
+    show: bool = True,
+    save_path: str | None = None,
+) -> None:
+    """
+    Plot Wilson request positions on a simple XY plane.
+
+    - Pickup nodes are blue triangles.
+    - Dropoff nodes are red circles.
+    - The original depot is a black square.
+    - Each pickup->dropoff pair is connected by a green line behind nodes.
+
+    Coordinates are treated as plain XY values:
+    x := lon, y := lat.
+    """
+    requests = payload.get(PayloadKeys.REQUESTS, [])
+    if not requests:
+        raise ValueError("No requests found in payload.")
+
+    pickup_xs: list[float] = []
+    pickup_ys: list[float] = []
+    dropoff_xs: list[float] = []
+    dropoff_ys: list[float] = []
+    request_pairs: list[tuple[float, float, float, float]] = []
+
+    for req in requests:
+        pickup_pt = req.get(PayloadKeys.REQ_PICKUP_PT) or {}
+        dropoff_pt = req.get(PayloadKeys.REQ_DROPOFF_PT) or {}
+
+        p_x = pickup_pt.get("lon")
+        p_y = pickup_pt.get("lat")
+        d_x = dropoff_pt.get("lon")
+        d_y = dropoff_pt.get("lat")
+
+        if None in (p_x, p_y, d_x, d_y):
+            continue
+
+        pickup_xs.append(p_x)
+        pickup_ys.append(p_y)
+        dropoff_xs.append(d_x)
+        dropoff_ys.append(d_y)
+        request_pairs.append((p_x, p_y, d_x, d_y))
+
+    if not request_pairs:
+        raise ValueError("No valid pickup/dropoff coordinates found in payload requests.")
+
+    depot_data = payload.get(PayloadKeys.DEPOT, {})
+    depot_pt = depot_data.get("loc") or depot_data.get(PayloadKeys.DEPOT_PT) or {}
+    depot_x = depot_pt.get("lon")
+    depot_y = depot_pt.get("lat")
+
+    fig, ax = plt.subplots()
+
+    # keep request connectors behind nodes so points remain visible
+    for p_x, p_y, d_x, d_y in request_pairs:
+        ax.plot([p_x, d_x], [p_y, d_y], color="green", linewidth=1.0, alpha=0.8, zorder=1)
+
+    ax.scatter(
+        pickup_xs,
+        pickup_ys,
+        c="blue",
+        marker="^",
+        s=30,
+        zorder=3,
+        label="Pickups",
+    )
+    ax.scatter(
+        dropoff_xs,
+        dropoff_ys,
+        c="red",
+        marker="o",
+        s=25,
+        zorder=3,
+        label="Dropoffs",
+    )
+
+    if depot_x is not None and depot_y is not None:
+        ax.scatter(
+            [depot_x],
+            [depot_y],
+            c="black",
+            marker="s",
+            s=60,
+            zorder=4,
+            label="Depot",
+        )
+
+    all_x = pickup_xs + dropoff_xs + ([depot_x] if depot_x is not None else [])
+    all_y = pickup_ys + dropoff_ys + ([depot_y] if depot_y is not None else [])
+    x_min, x_max = min(all_x), max(all_x)
+    y_min, y_max = min(all_y), max(all_y)
+    x_span = x_max - x_min
+    y_span = y_max - y_min
+    x_margin = 0.02 * x_span if x_span > 0 else 0.01
+    y_margin = 0.02 * y_span if y_span > 0 else 0.01
+
+    ax.set_xlim(x_min - x_margin, x_max + x_margin)
+    ax.set_ylim(y_min - y_margin, y_max + y_margin)
+    ax.set_xlabel("X (lon)")
+    ax.set_ylabel("Y (lat)")
+    ax.set_title("Request Positions (XY)")
+    ax.set_aspect("equal", adjustable="box")
+    ax.grid(alpha=0.2, linestyle="--")
+    ax.legend()
+
+    plt.tight_layout()
 
     if save_path is not None:
         plt.savefig(save_path, bbox_inches="tight")
@@ -117,6 +234,7 @@ def plot_request_time_windows_timematrix(
     
     y_positions = np.arange(n_requests)
     bar_height = 0.6
+    plotted_travel_times = []
     
     for i, req in enumerate(sorted_requests):
         pickup_start = req['pickup_time_window_start']
@@ -141,6 +259,7 @@ def plot_request_time_windows_timematrix(
 
         # Draw travel time from pickup to dropoff as a line if started at pickup start
         travel_time = travel_time_matrix[req['pickup_pt']['node_id']][req['dropoff_pt']['node_id']]
+        plotted_travel_times.append(float(travel_time))
         ax.plot([pickup_start,pickup_start + travel_time], [y_positions[i], y_positions[i]], 
                 color='blue', linestyle='--', alpha=0.7, label='Travel Time' if i == 0 else "")
     
@@ -155,7 +274,20 @@ def plot_request_time_windows_timematrix(
     pickup_patch = mpatches.Patch(color=pickup_color, alpha=0.8, label='Pickup Window')
     dropoff_patch = mpatches.Patch(color=dropoff_color, alpha=0.8, label='Dropoff Window')
     span_patch = mpatches.Patch(color=span_color, alpha=0.3, label='Overall Span')
-    ax.legend(handles=[pickup_patch, dropoff_patch, span_patch], loc='upper right')
+    if plotted_travel_times:
+        avg_travel_time = sum(plotted_travel_times) / len(plotted_travel_times)
+        travel_time_line = Line2D(
+            [0], [0],
+            color='blue',
+            linestyle='--',
+            linewidth=2.0,
+            alpha=0.7,
+            label=f"Travel Time (avg {avg_travel_time:.1f}s)"
+        )
+        legend_handles = [pickup_patch, dropoff_patch, span_patch, travel_time_line]
+    else:
+        legend_handles = [pickup_patch, dropoff_patch, span_patch]
+    ax.legend(handles=legend_handles, loc='upper right')
     
     # Grid
     ax.grid(axis='x', alpha=0.3, linestyle='--')
@@ -177,7 +309,8 @@ def plot_request_time_windows_timematrix(
 def plot_request_time_windows_woTimematrix(
         data: dict[str, Any],
         save_path: str | None = None,
-        show: bool = True):
+        show: bool = True,
+        step_size: int = 300):
     """
     Plot the request time windows if the time matrix is not part of the data
     """
@@ -228,7 +361,7 @@ def plot_request_time_windows_woTimematrix(
         # Red: latest_pickup -> latest_arrival
         ax1.hlines(y=i, xmin=row['earliest_arrival_time'], xmax=row['latest_arrival_time'], color='red', alpha=0.5)
         # TODO there seems to be a bug because in some lines there are multiple travel times in the visual
-        ax1.hlines(y=i, xmin=row['latest_pickup_time'], xmax=row['latest_pickup_time'] + row['travel_time'], color='black', linestyle='--', alpha=1.0)
+        # ax1.hlines(y=i, xmin=row['latest_pickup_time'], xmax=row['latest_pickup_time'] + row['travel_time'], color='black', linestyle='--', alpha=1.0)
 
     #ax1.set_yticks(y_pos)
     #ax1.set_yticklabels(df['request_id'])
@@ -249,7 +382,7 @@ def plot_request_time_windows_woTimematrix(
     legend_elements = [
         Line2D([0], [0], color='green', lw=8, alpha=0.2, label='Pickup Window'),
         Line2D([0], [0], color='red', lw=8, alpha=0.5, label='Dropoff Window'),
-        Line2D([0], [0], color='black', lw=2, alpha=1.0, linestyle='--', label='Travel Time'),
+        # Line2D([0], [0], color='black', lw=2, alpha=1.0, linestyle='--', label='Travel Time'),
     ]
 
     # Add legend to the top subplot
@@ -257,7 +390,7 @@ def plot_request_time_windows_woTimematrix(
 
     # --- Bottom subplot: Active requests count ---
     # Create a fine grid of time steps
-    time_grid = np.arange(df['earliest_pickup_time'].min(), df['latest_arrival_time'].max(), 300.0)  # step 300 seconds
+    time_grid = np.arange(df['earliest_pickup_time'].min(), df['latest_arrival_time'].max(), step_size)  # step 300 seconds
     active_counts = []
 
     for t in time_grid:
@@ -281,21 +414,119 @@ def plot_request_time_windows_woTimematrix(
         plt.close()
     return fig, ax1, ax2
 
+def batch_plot_request_time_windows_timematrix(
+    input_folder: str | Path,
+    output_folder: str | Path,
+    *,
+    recursive: bool = False,
+) -> tuple[int, int]:
+    """
+    Generate and save request time-window plots for all payload files in a folder.
+
+    Supported file types: .json, .pkl, .txt
+    Returns: (processed_count, failed_count)
+    """
+    input_dir = Path(input_folder)
+    output_dir = Path(output_folder)
+
+    if not input_dir.exists() or not input_dir.is_dir():
+        raise ValueError(f"Input folder does not exist or is not a folder: {input_dir}")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    suffixes = {".json", ".pkl", ".txt"}
+    glob_pattern = "**/*" if recursive else "*"
+    files = sorted(
+        p for p in input_dir.glob(glob_pattern)
+        if p.is_file() and p.suffix.lower() in suffixes
+    )
+
+    if not files:
+        raise ValueError(
+            f"No supported input files found in {input_dir}. "
+            f"Expected one of: {sorted(suffixes)}"
+        )
+
+    processed_count = 0
+    failed_count = 0
+    for input_path in files:
+        output_path = output_dir / f"{input_path.stem}_time_windows.png"
+        try:
+            data = PayloadParser.load_input_data(input_path)
+            plot_request_time_windows_timematrix(
+                data,
+                title=f"Request Time Windows - {input_path.stem}",
+                save_path=str(output_path),
+                show=False,
+            )
+            processed_count += 1
+        except Exception as exc:
+            failed_count += 1
+            print(f"Failed for {input_path}: {exc}")
+
+    print(
+        f"Batch plotting done. Processed: {processed_count}, "
+        f"Failed: {failed_count}, Output: {output_dir}"
+    )
+    return processed_count, failed_count
+
+def batch_plot_request_positions_xy(
+    input_folder: str | Path,
+    output_folder: str | Path,
+    *,
+    recursive: bool = False,
+) -> tuple[int, int]:
+    """
+    Generate and save XY request-pair plots for all payload files in a folder.
+
+    Supported file types: .json, .pkl, .txt
+    Returns: (processed_count, failed_count)
+    """
+    input_dir = Path(input_folder)
+    output_dir = Path(output_folder)
+
+    if not input_dir.exists() or not input_dir.is_dir():
+        raise ValueError(f"Input folder does not exist or is not a folder: {input_dir}")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    suffixes = {".json", ".pkl", ".txt"}
+    glob_pattern = "**/*" if recursive else "*"
+    files = sorted(
+        p for p in input_dir.glob(glob_pattern)
+        if p.is_file() and p.suffix.lower() in suffixes
+    )
+
+    if not files:
+        raise ValueError(
+            f"No supported input files found in {input_dir}. "
+            f"Expected one of: {sorted(suffixes)}"
+        )
+
+    processed_count = 0
+    failed_count = 0
+    for input_path in files:
+        output_path = output_dir / f"{input_path.stem}_positions.png"
+        try:
+            data = PayloadParser.load_input_data(input_path)
+            plot_request_positions_xy(
+                data,
+                save_path=str(output_path),
+                show=False,
+            )
+            processed_count += 1
+        except Exception as exc:
+            failed_count += 1
+            print(f"Failed for {input_path}: {exc}")
+
+    print(
+        f"Batch XY plotting done. Processed: {processed_count}, "
+        f"Failed: {failed_count}, Output: {output_dir}"
+    )
+    return processed_count, failed_count
+
 
 if __name__ == "__main__":
-    from rtv_solver.parser.li_lim_parser import LiLimParser
-    from rtv_solver.parser.sartori_parser import SartoriParser
-
-    # other data parsers 
-    # parser = LiLimParser()       # swap this one line to change parser
-    # input_file = 'inputs/li_lim/pdp_100/lc102.txt'
-    # data = parser.parse_file(input_file)
-    # plot_request_time_windows_timematrix(data, save_path=None, show=True)
-
-    # parser = SartoriParser()
-    # input_file = 'inputs/sartori/n100/bar-n100-2.txt'
-    # data = parser.parse_file(input_file)
-    # plot_request_time_windows_timematrix(data, save_path=None, show=True)
 
     # wilson as it does not have the time matrix
     import argparse
@@ -303,9 +534,37 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     
     parser = argparse.ArgumentParser(description='Arguments for the PayloadParser main script')
-    parser.add_argument('--input_file', type=str, default='inputs/wilson/random_weekeday_2.pkl', help='Path to the input file')
+    parser.add_argument('--input_file', type=str, default='solutions/li_lim/manifests/lc101.json', help='Path to one input file')
+    parser.add_argument('--input_folder', type=str) #default='solutions/li_lim/manifests/', help='Optional folder with input files to process in batch')
+    parser.add_argument('--output_folder', type=str, default='/Users/jw/Desktop/master_thesis/mt_presentation/li_lim/', help='Output folder for saved batch plots')
+    parser.add_argument('--recursive', action='store_true', help='Scan input_folder recursively')
+    parser.add_argument(
+        '--visual',
+        type=str,
+        default='request_pairs_xy',
+        choices=['request_pairs_xy', 'time_windows'],
+        help="Select visual: 'request_pairs_xy' or 'time_windows'.",
+    )
     args = parser.parse_args()
 
-    data = PayloadParser.load_input_data(args.input_file)
-
-    plot_request_time_windows_woTimematrix(data, save_path=None, show=True)
+    if args.input_folder:
+        if args.visual == 'request_pairs_xy':
+            batch_plot_request_positions_xy(
+                input_folder=args.input_folder,
+                output_folder=args.output_folder,
+                recursive=args.recursive,
+            )
+        else:
+            batch_plot_request_time_windows_timematrix(
+                input_folder=args.input_folder,
+                output_folder=args.output_folder,
+                recursive=args.recursive,
+            )
+    else:
+        data = PayloadParser.load_input_data(args.input_file)
+        if args.visual == 'request_pairs_xy':
+            print(f"Plotting request pairs XY for {args.input_file}")
+            plot_request_positions_xy(data, save_path=None, show=True)
+        else:
+            print(f"Plotting request time windows without time matrix for {args.input_file}")
+            plot_request_time_windows_woTimematrix(data, save_path=None, show=True, step_size=10)

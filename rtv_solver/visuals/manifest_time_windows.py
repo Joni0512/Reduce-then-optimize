@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.lines import Line2D
 import numpy as np
+from rtv_solver.handlers.payload_parser import PayloadParser
 
 
 PICKUP_COLOR = "#2ecc71"
@@ -285,14 +286,14 @@ def plot_manifest_time_windows(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Plot manifest time windows from a result_driver_runs.json file"
+        description="Plot manifest time windows from a payload file (json/pkl/txt)"
     )
     _project_root = Path(__file__).parent.parent.parent
     parser.add_argument(
         "--result_file",
         type=str,
-        default=str(_project_root / "outputs/storage/optimal_solutions/run_20260302_131028_020e69/result_driver_runs.json"), # or _project_root / "outputs/storage/comp_v1/run_20260224_142551_rhML_extendedCard/result_driver_runs.json"),
-        help="Path to result_driver_runs.json",
+        default=str(_project_root / "solutions/li_lim/manifests/lc101.json"), # or _project_root / "outputs/storage/optimal_solutions/run_20260302_131028_020e69/result_driver_runs.json"), # or _project_root / "outputs/storage/comp_v1/run_20260224_142551_rhML_extendedCard/result_driver_runs.json"),
+        help="Path to payload input file (json/pkl/txt)",
     )
     parser.add_argument(
         "--title",
@@ -303,7 +304,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--time_grid_interval",
         type=int,
-        default=500,
+        default=400,
         help="Draw vertical dashed lines every N seconds from the earliest time (default: 600). "
              "Pass 0 to disable.",
     )
@@ -313,16 +314,34 @@ if __name__ == "__main__":
         default=None,
         help="Optional path to save the figure (e.g. output.png)",
     )
-    parser.add_argument(
-        "--no_show",
+    show_group = parser.add_mutually_exclusive_group()
+    show_group.add_argument(
+        "--show",
+        dest="show",
         action="store_true",
+        help="Show the plot window",
+    )
+    show_group.add_argument(
+        "--no_show",
+        dest="show",
+        action="store_false",
         help="Skip plt.show() (useful for batch/headless runs)",
     )
+    parser.set_defaults(show=True)
     args = parser.parse_args()
 
     result_path = Path(args.result_file)
-    with open(result_path, "r") as f:
-        data = json.load(f)
+    data = PayloadParser.load_input_data(result_path)
+    driver_runs = data.get("driver_runs", [])
+    if len(driver_runs) == 0:
+        raise ValueError(f"No driver_runs found in payload: {result_path}")
+
+    # Preserve existing manifests as loaded; fail fast if none are available to plot.
+    has_manifest_entries = any(len(run.get("manifest", [])) > 0 for run in driver_runs)
+    if not has_manifest_entries:
+        raise ValueError(
+            "No manifest entries found. Li-Lim benchmark instance files contain requests but no solved manifests. Provide a solved payload with non-empty driver manifests."
+        )
 
     grid_interval = args.time_grid_interval if args.time_grid_interval != 0 else None
 
@@ -331,5 +350,5 @@ if __name__ == "__main__":
         title=args.title,
         time_grid_interval=grid_interval,
         save_path=args.save_path,
-        show=not args.no_show,
+        show=args.show,
     )
