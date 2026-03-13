@@ -249,6 +249,11 @@ pip uninstall rtv-solver
 pip install -e . (from rtv-solver directory)
 ```
 
+## Calculation of optimal results
+
+For results based on LiLimParser in the right data format in order for us to use it, we transformed the data.
+The data is too big for Github but can easily be recreated by calling the '__main__' in [`rtv_solver/parser/li_lim_parser.py`](rtv_solver/parser/li_lim_parser.py)
+
 ## Set up OSRM backend server
 
 Depending on the input data, you are using and the main operating area, you have to adapt the basis of the OpenStreetMap routing data for the backend server.

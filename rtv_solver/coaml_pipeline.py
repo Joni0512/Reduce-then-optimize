@@ -261,7 +261,7 @@ class COAMLPipeline():
         """
         if self.config.Y_STAR_TYPE == TYPE_BEST_ORDERED_MATCH:
             return ImitationHandler.get_y_star_best_ordered_match(imitation_scores)
-        if self.config.Y_STAR_TYPE == TYPE_BEST_UNORDERED_MATCH:
+        if self.config.Y_STAR_TYPE == TYPE_BEST_UNORDERED_MATCH: # not implemented
             return ImitationHandler.get_y_star_best_unordered_match(imitation_scores)
         raise ValueError(f"Invalid y_star type: {self.config.Y_STAR_TYPE}")
     
@@ -358,7 +358,7 @@ class COAMLPipeline():
                     reject_action_scores=reject_action_scores.detach().cpu().numpy(),
                     reject_vehicle_ids=reject_vehicle_ids,
                 )
-                score_result = self.default_optimizer.transform_solution_to_assignment(
+                score_result = self.coaml_optimizer.transform_solution_to_assignment(
                     ilp_model,
                     x_t,
                     x_r,
@@ -380,19 +380,6 @@ class COAMLPipeline():
                     reject_vehicle_ids=reject_vehicle_ids,
                 )
 
-                for idx, (ml_score, tc, imitation_score) in enumerate[TripCost](
-                    zip(feature_scores, trip_costs, imitation_scores_with_reject[:len(trip_costs)])
-                ):
-                    print(f"{tc.trip_no}: x_t {x_t[idx].X}, score: {ml_score:3.3f}, imit:{imitation_score.item()}, tc: {tc.get_ordered_request_ids()}")
-                if len(reject_vehicle_ids) > 0:
-                    reject_imitation_scores = imitation_scores_with_reject[-len(reject_vehicle_ids):]
-                    for idx, vehicle_id in enumerate(reject_vehicle_ids):
-                        # Debug print to compare model score vs imitation placeholder
-                        # and selected reject-action variable for each vehicle.
-                        reject_score = reject_action_scores[idx]
-                        reject_imit = reject_imitation_scores[idx]
-                        reject_selected = x_reject[vehicle_id].X if vehicle_id in x_reject else 0.0
-                        print(f"r{vehicle_id}: x_r {reject_selected}, score: {reject_score}, imit {reject_imit}")
                 console_logger.info(f"Score result: {score_result.request_assignment}, cost: {score_result.added_distance}, rejected: {score_result.unassigned_trip_count}")
                 console_logger.info(f"Optimal result: {optimal_result.request_assignment}, cost: {optimal_result.added_distance}, rejected: {optimal_result.unassigned_trip_count}")
             
@@ -407,7 +394,6 @@ class COAMLPipeline():
                 active_requests, 
                 penalty=self.config.ILP_PENALTY, 
                 keep_active=self.config.KEEP_ACTIVE)
-            console_logger.info(f"Default ILP solved in {default_ilp_model.Runtime:.3f} s.")
             default_result = self.default_optimizer.transform_solution_to_assignment(
                 default_ilp_model,
                 default_x_t,
@@ -419,7 +405,52 @@ class COAMLPipeline():
             console_logger.info(f"Default result: {default_result.request_assignment}, cost: {default_result.added_distance}, rejected: {default_result.unassigned_trip_count}")
             console_logger.info(f"Complete solution: {self.imitation_handler.optimal_solution}")
             
+            # NOTE this is code to check results more easily from terminal - no priority to keep this code 
+            if len(feature_tensor_with_reject) > 0:
+                for idx, (ml_score, tc, imitation_score) in enumerate[TripCost](
+                    zip(feature_scores, trip_costs, imitation_scores_with_reject[:len(trip_costs)])
+                ):  
+                    # print each score from the three different result assignments (score, optimal, default)
+                    selected_by_score = x_t[idx].X > 0.5
+                    selected_by_optimal = y_star[idx].item() > 0.5
+                    selected_by_default = default_x_t[idx].X > 0.5
+                    if not (selected_by_score or selected_by_optimal or selected_by_default):
+                        continue
+                    selected_from = "|".join(
+                        name for name, selected in (
+                            ("score", selected_by_score),
+                            ("optimal", selected_by_optimal),
+                            ("default", selected_by_default),
+                        ) if selected
+                    )
+                    print(
+                        f"{selected_from} - TC {tc.trip_no} score: {ml_score:3.3f}, "
+                        f"imit: {imitation_score.item()}, tc: {tc.get_ordered_request_ids()}"
+                    )
+
+                if len(reject_vehicle_ids) > 0:
+                    reject_imitation_scores = imitation_scores_with_reject[-len(reject_vehicle_ids):]
+                    for idx, vehicle_id in enumerate(reject_vehicle_ids):
+                        # Print reject rows only if selected by score or optimal.
+                        reject_selected_by_score = (x_reject[vehicle_id].X > 0.5 if vehicle_id in x_reject else False)
+                        reject_selected_by_optimal = (y_star[len(trip_costs) + idx].item() > 0.5)
+                        if not (reject_selected_by_score or reject_selected_by_optimal):
+                            continue
+                        reject_selected_from = "|".join(
+                            name for name, selected in (
+                                ("score", reject_selected_by_score),
+                                ("optimal", reject_selected_by_optimal),
+                            ) if selected
+                        )
+                        reject_score = reject_action_scores[idx]
+                        reject_imit = reject_imitation_scores[idx]
+                        print(
+                            f"r{vehicle_id}: from {reject_selected_from}, "
+                            f"score: {reject_score}, imit {reject_imit}"
+                        )
+            
             # train mode, keep on right track - decide which run should move forward
+            # NOTE this needs a change when we decide what to do with training or if we want to use the default or score solution from NN
             result = optimal_result 
 
             # compute Fenchel-Young loss from known optimal solution

@@ -78,7 +78,7 @@ class CO(ABC):
         x_reject = x_reject or {}
 
         if model.Status == GRB.OPTIMAL or model.Status == GRB.SUBOPTIMAL:
-            console_logger.info(f"ILP solved in {model.Runtime:.3f} s.")
+            console_logger.info(f"[{self.__class__.__name__}] ILP solved in {model.Runtime:.3f} s.")
 
             for vehicle_id in self.vehicle_to_trips_cost_map:
                 for i in self.vehicle_to_trips_cost_map[vehicle_id]:
@@ -95,8 +95,8 @@ class CO(ABC):
                                 trips.append(self.trips[sub_trip_no])
                         trip_sizes.append(len(trips))
                         vehicle_assignment[vehicle_id] = (trips, trip_cost.sequence)
-                        console_logger.debug(f"Assignment: {trip_cost}")
-                        console_logger.info(f"Assignment: {trip_cost.simple_str()}")
+                        console_logger.debug(f"[{self.__class__.__name__}] Assignment: {trip_cost}")
+                        console_logger.info(f"[{self.__class__.__name__}] Assignment: {trip_cost.simple_str()}")
 
                 # Optional reject-action sanity check for CO variants that expose x_reject.
                 if vehicle_id in reject_vehicle_ids and vehicle_id in x_reject:
@@ -124,7 +124,7 @@ class CO(ABC):
             unassigned_trip_count = request_count
             self._handle_infeasibility(model)
             
-        console_logger.info(f'Assignment: new requests / unassigned / assigned: {request_count} / {unassigned_trip_count} / {trip_count}')
+        console_logger.info(f'[{self.__class__.__name__}] Assignment: new requests / unassigned / assigned: {request_count} / {unassigned_trip_count} / {trip_count}')
         # TODO make information better, some requests are re-assigned although they were already assigned
         return AssignmentResult(
             vehicle_assignment,
@@ -251,7 +251,7 @@ class CO(ABC):
         unassigned_trip_count = request_count - trip_count
 
         console_logger.info(
-            f'Optimal assignment: new requests / unassigned / assigned: '
+            f'[{self.__class__.__name__}] Optimal assignment: new requests / unassigned / assigned: '
             f'{request_count} / {unassigned_trip_count} / {trip_count}'
         )
         return AssignmentResult(

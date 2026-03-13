@@ -305,6 +305,16 @@ class PayloadParser:
         return (len(payload[PayloadKeys.DRIVERS]))
 
     @staticmethod
+    def clear_vehicle_manifests(payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        Return a payload copy where each vehicle manifest is empty.
+        """
+        updated_payload = copy.deepcopy(payload)
+        for driver_run in updated_payload.get(PayloadKeys.DRIVERS, []):
+            driver_run[PayloadKeys.DRIVER_MANIFEST] = []
+        return updated_payload
+
+    @staticmethod
     def _build_request_from_manifest_index(manifest, pick_up_index):
         stop = manifest[pick_up_index]
         booking_id = stop[PayloadKeys.MANIFEST_BOOKING_ID]

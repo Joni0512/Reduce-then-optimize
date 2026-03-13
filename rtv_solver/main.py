@@ -45,7 +45,7 @@ if __name__ == "__main__":
     parser.add_argument('--ilp_timeout', type=int,          default=120, help='ILP solver timeout in seconds')
     parser.add_argument('--ilp_penalty', type=int,          default=100_000, help='Penalty for not serving a trip')
     # experiment parameters
-    parser.add_argument('--max_cardinality', type=int,      default=8, help='Maximum trips to be shared when creating trips in one batch_interval') # alt: total trips in same vehicle
+    parser.add_argument('--max_cardinality', type=int,      default=5, help='Maximum trips to be shared when creating trips in one batch_interval') # alt: total trips in same vehicle
     parser.add_argument('--largest_tsp', type=int,          default=16, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
     parser.add_argument('--share_cost_factor', type=int,    default=5, help='Shareable cost factor in factor of original single cost [???]') # TODO originally the value was 10, that value is extremely high and thus too many trips are considered feasible (ideally we would apply this earlier to reduce the amount of trips / tripCosts generated)
     parser.add_argument('--rebalancing', type=str,          default='False', choices=['True', 'False'], help='(NOT WOKRING 12.02.2026) Vehicles are rebalanced if the need arises based on missed requests and idling vehicles.')
@@ -63,9 +63,8 @@ if __name__ == "__main__":
     parser.add_argument('--travel_time_margin', type=int,   default=5, help='Error margin for travel time in stats calculation')
     # random_seed, training parameters, NN parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility') 
-    parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'coaml', 'plot', 'optimal_solution', 'hexaly_solution'], default='offline', help='Mode on how the programme should solve the PDPTW')
+    parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'coaml', 'plot', 'optimal_solution', 'hexaly_solution'], default='coaml', help='Mode on how the programme should solve the PDPTW')
     parser.add_argument('--debug', type= str, default='True', choices=['True', 'False'], help='Run in debug mode (# reduces number of vehicles and requests for easier debugging)')
-    parser.add_argument('--imitation_solution_file', type=str, default='outputs/test_nc/solution_10r_1v_repeat6_simple/result_driver_runs.json', help='Path to the imitation solution file with the complete manifest of all trips for all vehicles')
     parser.add_argument('--y_star_type', type=str, choices=[TYPE_BEST_ORDERED_MATCH, TYPE_BEST_UNORDERED_MATCH], default=TYPE_BEST_ORDERED_MATCH, help='Type of y_star to be used for the Fenchel-Young loss during imitation learning')
     parser.add_argument('--epochs', type=int, default=1, help='Number of training epochs over the same payload for COAML mode')
     parser.add_argument('--learning_rate', type=float, default=5e-3, help='Learning rate for the ML model')
@@ -75,12 +74,12 @@ if __name__ == "__main__":
     # TODO FIXME fix chattanooga input (violations after offline run) - no priority to fix this at end of thesis
     # parser.add_argument('--input_file', type=str,           default="localDB_payload_oct.pkl", help='Request input file')  # chattanooga dataset
     
-    parser.add_argument('--input_file', type=str,           default="li_lim/pdp_100/lc101.txt", help='Request input file') # alternative: rtv-solver/inputs/localDB_payload_oct.pkl;inputs/
+    parser.add_argument('--input_file', type=str,           default="solutions/li_lim/manifests/lc101.json", help='Request input file') # alternative: rtv-solver/inputs/localDB_payload_oct.pkl;inputs/
     # parser.add_argument('--input_file', type=str,           default="test_nc/ttm/test_10r_1v_repeat6_simple.pkl", help='Request input file') 
     # parser.add_argument('--input_file', type=str,           default="wilson_nc_initial.pkl", help='Request input file') 
 
     # TODO make sure when COAML is selected, the right optimal solution is also selected to run the experiments automatically with the right setttings
-    
+    parser.add_argument('--imitation_solution_file', type=str, default='solutions/li_lim/manifests/lc101.json', help='Path to the imitation solution file with the complete manifest of all trips for all vehicles')
     # implement configurations
     arguments = parser.parse_args()
     config = Config.from_args(arguments)
@@ -96,7 +95,7 @@ if __name__ == "__main__":
     console_logger.info(f'Arguments: {config}')
 
     # load data from file and update to canonical format for the entire system
-    data = PayloadParser.load_input_data(Path(__file__).resolve().parent.parent / "inputs" / config.INPUT_FILE)
+    data = PayloadParser.load_input_data(Path(__file__).resolve().parent.parent / config.INPUT_FILE)
 
     set_seed(config.SEED, config.DEBUG)
     
@@ -129,7 +128,7 @@ if __name__ == "__main__":
         #         selected_requests.append(request)
 
         # COUNT_BASED SELECTION OF REQUESTS: add code that just takes the first n requests out of the payload
-        selected_requests = data[PayloadKeys.REQUESTS][:4]
+        selected_requests = data[PayloadKeys.REQUESTS][:10]
 
         # create a new payload with selected requests
         payload = {
@@ -164,8 +163,11 @@ if __name__ == "__main__":
                 print(f"Epoch iteration losses: {training_result.epoch_iteration_losses}")
                 print(f"All iteration losses: {training_result.all_iteration_losses}")
             else:
-                rh_solver = COAMLPipeline(config, payload)
-                updated_driver_runs = rh_solver.solve_pdptw(payload)
+                # NOTE experiment with a single loop and later run the loop with multiple files based on a folder that is iterated over
+                cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
+
+                rh_solver = COAMLPipeline(config, cleared_payload)
+                updated_driver_runs = rh_solver.solve_pdptw(cleared_payload)
                 print(f"Loss history: {rh_solver.loss_history}")
         elif config.MODE == 'optimal_solution':
             # change the settings in order for the online solver to find the actual optimal solution (if possible)
