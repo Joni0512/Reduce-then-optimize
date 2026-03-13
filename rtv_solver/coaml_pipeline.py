@@ -240,31 +240,59 @@ class COAMLPipeline():
         trip_costs: list[TripCost],
         request_batch: list,
         reject_vehicle_ids: list[int] | None = None,
-    ) -> torch.Tensor:
+        vehicle_to_trips_cost_map: dict[int, list[int]] | None = None,
+    ) -> tuple[torch.Tensor, list[int]]:
         """
-        Build imitation scores for current trip options and append reject-action
-        entries in a single, shared place.
+        Build vehicle-aware imitation scores and append reject-action scores.
+
+        Returns:
+            - imitation_scores_with_reject: score vector with layout `[trip_scores..., reject_scores...]`
+            - trip_vehicle_ids: vehicle id per trip score entry, aligned with the first `len(trip_costs)` indices
         """
-        trip_combinations = self.imitation_handler.tripCosts_to_request_combinations(trip_costs)
-        optimal_solution = self.imitation_handler.get_optimal_request_solution_for_batch(request_batch)
-        imitation_scores = self.imitation_handler.score_combinations_against_solution(
-            trip_combinations, optimal_solution
+        trip_scores, trip_vehicle_ids = self.imitation_handler.score_trip_costs_against_optimal_by_vehicle(
+            trip_costs=trip_costs,
+            request_batch=request_batch,
+            vehicle_to_trips_cost_map=vehicle_to_trips_cost_map,
         )
         imitation_scores_with_reject = self.imitation_handler.append_reject_action_scores(
-            imitation_scores,
+            trip_scores,
             reject_vehicle_ids or [],
-            trip_vehicle_ids=[tc.vehicle_id for tc in trip_costs],
+            trip_vehicle_ids=trip_vehicle_ids,
         )
-        return imitation_scores_with_reject
+        if trip_scores.shape[0] != len(trip_costs):
+            raise ValueError(
+                "Trip imitation-score length mismatch: "
+                f"got {trip_scores.shape[0]}, expected {len(trip_costs)}."
+            )
+        expected_total = len(trip_costs) + len(reject_vehicle_ids or [])
+        if imitation_scores_with_reject.shape[0] != expected_total:
+            raise ValueError(
+                "Imitation-score vector length mismatch after reject append: "
+                f"got {imitation_scores_with_reject.shape[0]}, expected {expected_total}."
+            )
+        return imitation_scores_with_reject, trip_vehicle_ids
 
-    def _build_y_star_from_imitation_scores(self, imitation_scores: torch.Tensor) -> torch.Tensor:
+    def _build_y_star_from_imitation_scores(
+        self,
+        imitation_scores: torch.Tensor,
+        trip_vehicle_ids: list[int],
+        reject_vehicle_ids: list[int] | None = None,
+    ) -> torch.Tensor:
         """
         Convert imitation scores into binary y* according to configured strategy.
         """
+        reject_vehicle_ids = reject_vehicle_ids or []
         if self.config.Y_STAR_TYPE == TYPE_BEST_ORDERED_MATCH:
-            return ImitationHandler.get_y_star_best_ordered_match(imitation_scores)
-        if self.config.Y_STAR_TYPE == TYPE_BEST_UNORDERED_MATCH: # not implemented
-            return ImitationHandler.get_y_star_best_unordered_match(imitation_scores)
+            y_star = ImitationHandler.build_y_star_per_vehicle_from_imit_scores(
+                imitation_scores_with_reject=imitation_scores,
+                trip_vehicle_ids=trip_vehicle_ids,
+                reject_vehicle_ids=reject_vehicle_ids,
+            )
+            if y_star.shape[0] != imitation_scores.shape[0]:
+                raise ValueError(f"y_star shape mismatch: got {y_star.shape[0]}, expected {imitation_scores.shape[0]}.")
+            if not torch.all((y_star == 0) | (y_star == 1)):
+                raise ValueError("y_star must be binary (0/1).")
+            return y_star
         raise ValueError(f"Invalid y_star type: {self.config.Y_STAR_TYPE}")
     
     def solve_iteration(self, subset_payload, iteration = 0, mode: str = "train"):
@@ -368,12 +396,17 @@ class COAMLPipeline():
                     x_reject=x_reject,
                     reject_vehicle_ids=reject_vehicle_ids,
                 )
-                imitation_scores_with_reject = self._build_imitation_scores_with_reject(
+                imitation_scores_with_reject, trip_vehicle_ids = self._build_imitation_scores_with_reject(
                     trip_costs=trip_costs,
                     request_batch=request_batch,
                     reject_vehicle_ids=reject_vehicle_ids,
+                    vehicle_to_trips_cost_map=vehicle_to_trips_cost_map,
                 )
-                y_star = self._build_y_star_from_imitation_scores(imitation_scores_with_reject)
+                y_star = self._build_y_star_from_imitation_scores(
+                    imitation_scores=imitation_scores_with_reject,
+                    trip_vehicle_ids=trip_vehicle_ids,
+                    reject_vehicle_ids=reject_vehicle_ids,
+                )
 
                 # calculate the true optimal solution based on the imitation scores
                 optimal_result = self.coaml_optimizer.transform_optimal_solution_to_assignment(
@@ -418,17 +451,17 @@ class COAMLPipeline():
                     selected_by_default = default_x_t[idx].X > 0.5
                     if not (selected_by_score or selected_by_optimal or selected_by_default):
                         continue
-                    selected_from = "|".join(
-                        name for name, selected in (
-                            ("score", selected_by_score),
-                            ("optimal", selected_by_optimal),
-                            ("default", selected_by_default),
-                        ) if selected
-                    )
-                    print(
-                        f"{selected_from} - TC {tc.trip_no} score: {ml_score:3.3f}, "
-                        f"imit: {imitation_score.item()}, tc: {tc.get_ordered_request_ids()}"
-                    )
+                    for selected_from, selected in (
+                        ("score", selected_by_score),
+                        ("optimal", selected_by_optimal),
+                        ("default", selected_by_default),
+                    ):
+                        if not selected:
+                            continue
+                        print(
+                            f"{selected_from} - TC {tc.trip_no} vehicle {tc.vehicle_id} score: {ml_score:3.3f}, "
+                            f"imit: {imitation_score.item()}, tc: {tc.get_ordered_request_ids()}"
+                        )
 
                 if len(reject_vehicle_ids) > 0:
                     reject_imitation_scores = imitation_scores_with_reject[-len(reject_vehicle_ids):]
@@ -612,12 +645,17 @@ class COAMLPipeline():
             Sets self.last_loss.
         """
         reject_vehicle_ids = reject_vehicle_ids or []
-        imitation_scores = self._build_imitation_scores_with_reject(
+        imitation_scores, trip_vehicle_ids = self._build_imitation_scores_with_reject(
             trip_costs=trip_costs,
             request_batch=request_batch,
             reject_vehicle_ids=reject_vehicle_ids,
+            vehicle_to_trips_cost_map=vehicle_to_trips_cost_map,
         )
-        y_star = self._build_y_star_from_imitation_scores(imitation_scores)
+        y_star = self._build_y_star_from_imitation_scores(
+            imitation_scores=imitation_scores,
+            trip_vehicle_ids=trip_vehicle_ids,
+            reject_vehicle_ids=reject_vehicle_ids,
+        )
 
         if y_star.sum().item() == 0:
             console_logger.warning("FY loss skipped: Optimizer did not assign any RTVs.")

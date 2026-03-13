@@ -2,6 +2,7 @@ import json
 import itertools
 import numpy as np
 import torch
+from pathlib import Path
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -26,9 +27,16 @@ TYPE_BEST_UNORDERED_MATCH = "best_unordered_match"
 
 class ImitationHandler:
     """
-    Handles the generation of the y* list of the correct solution for the CO-layer. Based on the correct order of request pickups as we do not have more control over the order of dropoffs.
+    Build imitation scores and y* targets for the CO layer.
 
-    # TODO add handling for multiple vehicles
+    The key invariant across all methods is index stability:
+    - `trip_costs[i]` always maps to `imitation_scores[i]` and `y_star[i]`
+    - reject-action scores (if enabled) are appended after trip scores in the
+      exact order of `reject_vehicle_ids`
+
+    This class supports both:
+    - legacy single-vehicle scoring (`get_optimal_request_solution_for_batch`)
+    - vehicle-aware multi-vehicle scoring/y* construction
     """
     # The current ImitationHandler cannot handle multiple vehicles in many methods or at least we do not have the methods that handle multiple vehicles. We can generate the optimal solution and have a dictionary of vehicles {vehicle_id: optimal_solution}.
     # However, turning the current trips into solutions requires new methods that are not yet implemented.
@@ -39,19 +47,33 @@ class ImitationHandler:
         self.config = config
         self.optimal_solution = self._load_complete_optimal_solution()
 
-    def get_optimal_request_solution_for_batch(self, request_batch: list[Request]) -> list[int]:
+    @staticmethod
+    def _validate_unique_request_ids(request_batch: list[Request]) -> list[int]:
         """
-        Get the optimal solution for a given batch of requests.
-        """        
-        # TODO fix this for multiple vehicles
-        request_ids = [request.id for request in request_batch]
+        Extract request IDs and reject duplicate IDs in the same batch.
 
-        # Duplicates in the same batch are ambiguous for subsequence matching.
+        Duplicate IDs would make subsequence matching ambiguous during scoring.
+        """
+        request_ids = [request.id for request in request_batch]
         assert len(request_ids) == len(set(request_ids)), (
             f"Duplicate request IDs in batch are not supported: {request_ids}"
         )
+        return request_ids
 
-        optimal_sequence = self.optimal_solution[0] # TODO fix this for multiple vehicles
+    def get_optimal_request_solution_for_batch(self, request_batch: list[Request]) -> list[int]:
+        """
+        Legacy single-vehicle helper.
+
+        For backward compatibility this selects one vehicle sequence and filters it to the current batch. Multi-vehicle paths should use  `get_optimal_request_solution_for_batch_by_vehicle`.
+        """
+        request_ids = self._validate_unique_request_ids(request_batch)
+        if not self.optimal_solution:
+            raise ValueError("No optimal solution loaded.")
+
+        # Keep historical behavior where vehicle 0 is preferred if present.
+        # Fallback to the smallest vehicle id to keep this deterministic.
+        selected_vehicle_id = 0 if 0 in self.optimal_solution else min(self.optimal_solution.keys())
+        optimal_sequence = self.optimal_solution[selected_vehicle_id]
         request_ids_set = set(request_ids)
 
         # Keep order by iterating over the full optimal sequence and filtering for active requests.
@@ -68,6 +90,33 @@ class ImitationHandler:
         )
         return part_optimal_sequence
 
+    def get_optimal_request_solution_for_batch_by_vehicle(
+        self,
+        request_batch: list[Request],
+        vehicle_ids: list[int],
+    ) -> dict[int, list[int]]:
+        """
+        Return per-vehicle ordered optimal pickup subsequences for the batch.
+
+        The resulting dictionary maps each vehicle ID to the list of request IDs
+        that are active in the current batch, preserving each vehicle's manifest
+        pickup order from `self.optimal_solution`.
+        """
+        request_ids = self._validate_unique_request_ids(request_batch)
+        request_ids_set = set(request_ids)
+        result: dict[int, list[int]] = {}
+        for vehicle_id in vehicle_ids:
+            if vehicle_id not in self.optimal_solution:
+                raise KeyError(
+                    f"Vehicle {vehicle_id} has no entry in loaded optimal solution."
+                )
+            optimal_sequence = self.optimal_solution[vehicle_id]
+            subsequence = [
+                request_id for request_id in optimal_sequence if request_id in request_ids_set
+            ]
+            result[vehicle_id] = subsequence
+        return result
+
     def get_optimal_stop_sequence_for_batch(self, request_batch: list[Request]) -> list[int]:
         pass
 
@@ -80,7 +129,7 @@ class ImitationHandler:
         if self.config.IMITATION_SOLUTION_FILE is None:
             raise ValueError("No imitation solution file provided.")
         
-        with open(self.config.IMITATION_SOLUTION_FILE, "r") as f:
+        with open(Path(__file__).resolve().parent.parent.parent / self.config.IMITATION_SOLUTION_FILE, "r") as f:
             payload_data = json.load(f)
         
         # driverID: solution list of request IDs
@@ -278,6 +327,103 @@ class ImitationHandler:
         return combinations
 
     @staticmethod
+    def build_trip_vehicle_index_map(trip_costs: list[TripCost]) -> dict[int, list[int]]:
+        """
+        Build a deterministic vehicle -> global tripCost-index mapping.
+
+        This helper mirrors `TripHandler.vehicle_to_trips_cost_map` but can be reconstructed locally from `trip_costs` for isolated unit tests and defensive validation.
+        """
+        vehicle_to_indices: dict[int, list[int]] = {}
+        for trip_idx, trip_cost in enumerate(trip_costs):
+            vehicle_to_indices.setdefault(trip_cost.vehicle_id, []).append(trip_idx)
+        return vehicle_to_indices
+
+    @staticmethod
+    def _validate_vehicle_index_map(
+        trip_costs: list[TripCost],
+        vehicle_to_trips_cost_map: dict[int, list[int]],
+    ) -> None:
+        """
+        Validate that a vehicle->indices map is consistent with `trip_costs`.
+        """
+        expected_indices = set(range(len(trip_costs)))
+        seen_indices: set[int] = set()
+        for vehicle_id, indices in vehicle_to_trips_cost_map.items():
+            for idx in indices:
+                if idx < 0 or idx >= len(trip_costs):
+                    raise ValueError(
+                        f"Vehicle {vehicle_id} contains out-of-range trip index {idx}."
+                    )
+                if idx in seen_indices:
+                    raise ValueError(
+                        f"Trip index {idx} appears in multiple vehicle groups."
+                    )
+                seen_indices.add(idx)
+                if trip_costs[idx].vehicle_id != vehicle_id:
+                    raise ValueError(
+                        "Vehicle index map disagrees with trip_costs vehicle IDs "
+                        f"at index {idx}: map={vehicle_id}, trip={trip_costs[idx].vehicle_id}."
+                    )
+        if seen_indices != expected_indices:
+            missing = sorted(expected_indices - seen_indices)
+            raise ValueError(
+                f"Vehicle index map does not cover all trip indices. Missing: {missing}"
+            )
+
+    def score_trip_costs_against_optimal_by_vehicle(
+        self,
+        trip_costs: list[TripCost],
+        request_batch: list[Request],
+        vehicle_to_trips_cost_map: dict[int, list[int]] | None = None,
+    ) -> tuple[torch.Tensor, list[int]]:
+        """
+        Score each trip against the corresponding vehicle's optimal subsequence.
+
+        Returns:
+        - `trip_scores`: tensor of shape `(len(trip_costs),)` aligned 1:1 with global `trip_costs` order.
+        - `trip_vehicle_ids`: list of vehicle IDs with the same global ordering.
+
+        Design details:
+        - Scoring is computed per vehicle to avoid cross-vehicle contamination.
+        - Results are written back to the original global indices.
+        - If no external map is provided, grouping is reconstructed locally via `build_trip_vehicle_index_map`.
+        """
+        if not trip_costs:
+            return torch.empty(0, dtype=torch.int64), []
+
+        trip_vehicle_ids = [trip_cost.vehicle_id for trip_cost in trip_costs]
+        grouping = (
+            vehicle_to_trips_cost_map
+            if vehicle_to_trips_cost_map is not None
+            else self.build_trip_vehicle_index_map(trip_costs)
+        )
+        self._validate_vehicle_index_map(trip_costs, grouping)
+
+        vehicle_ids = [vehicle_id for vehicle_id, indices in grouping.items() if len(indices) > 0]
+        optimal_by_vehicle = self.get_optimal_request_solution_for_batch_by_vehicle(
+            request_batch=request_batch,
+            vehicle_ids=vehicle_ids,
+        )
+
+        trip_scores = torch.zeros(len(trip_costs), dtype=torch.int64)
+        for vehicle_id, global_indices in grouping.items():
+            if len(global_indices) == 0:
+                continue
+            # Keep the external map order if provided so debugging can mirror TripHandler's index lists exactly.
+            ordered_global_indices = list(global_indices)
+            combinations = [
+                tuple(trip_costs[global_idx].get_ordered_request_ids())
+                for global_idx in ordered_global_indices
+            ]
+            local_scores = self.score_combinations_against_solution(
+                combinations=combinations,
+                optimal_solution=optimal_by_vehicle[vehicle_id],
+            )
+            for local_idx, global_idx in enumerate(ordered_global_indices):
+                trip_scores[global_idx] = local_scores[local_idx]
+        return trip_scores, trip_vehicle_ids
+
+    @staticmethod
     def append_reject_action_scores(
         imitation_scores: torch.Tensor,
         reject_vehicle_ids: list[int],
@@ -337,11 +483,20 @@ class ImitationHandler:
     @staticmethod
     def get_y_star_best_ordered_match(imitation_scores: torch.Tensor) -> torch.Tensor:
         """
-        return a tensor with only 0s and 1s based on the imitation scores, the maximum value is 1 and all other values are considered 0.
+        Legacy global y* builder.
+
+        Global maxima/minima are selected similarly to the historical behavior, but ties on non-zero maxima are treated as invalid and raise, because they indicate ambiguous supervision.
+
+        Multi-vehicle flows should prefer `build_y_star_per_vehicle_from_scores`.
         """
-        # TODO this will not be able to handle multiple vehicles
+        # NOTE this will not be able to handle multiple vehicles if the scores are not separated by vehicle.
         max_value = torch.max(imitation_scores)
         max_indices = torch.where(imitation_scores == max_value)[0]
+        if float(max_value.item()) != 0.0 and len(max_indices) > 1:
+            raise ValueError(
+                "Ambiguous imitation scores: multiple non-zero global maxima found "
+                f"(value={float(max_value.item())}, indices={max_indices.tolist()})."
+            )
         # assert that there is only one maximum value
         # assert len(max_indices) == 1, f"There should be only one maximum value. {imitation_scores}"  
         # not required anymore as we have a negative value for the reject action per vehicle 
@@ -357,12 +512,81 @@ class ImitationHandler:
         return y_star
 
     @staticmethod
-    def get_y_star_best_unordered_match(imitation_scores: torch.Tensor) -> torch.Tensor:
+    def build_y_star_per_vehicle_from_imit_scores(
+        imitation_scores_with_reject: torch.Tensor,
+        trip_vehicle_ids: list[int],
+        reject_vehicle_ids: list[int],
+    ) -> torch.Tensor:
         """
-        return a tensor with only 0s and 1s based on the imitation scores, the minimum value is 1 and all other values are considered 0.
-        """
-        raise NotImplementedError("This function is not implemented yet as the score calculation does not support unordered matches.")
+        Build a binary y* with exactly one selected action per vehicle.
 
+        Inputs follow the shared layout contract:
+        - first `len(trip_vehicle_ids)` entries are trip scores
+        - tail entries are reject scores ordered by `reject_vehicle_ids`
+
+        Selection rule for each vehicle:
+        - choose max candidate score among that vehicle's trip indices and its reject index (if available)
+        - when all candidate scores are non-positive, choose minimum value (preserves existing reject-penalty semantics)
+        - if there are multiple non-zero maxima imitation scores for the same vehicle, raise a ValueError because imitation learning would be ambiguous
+        """
+        trip_count = len(trip_vehicle_ids)
+        if imitation_scores_with_reject.ndim != 1:
+            raise ValueError(
+                f"imitation_scores_with_reject must be a 1D tensor. Got {imitation_scores_with_reject.ndim} dimensions."
+            )
+        expected_length = trip_count + len(reject_vehicle_ids)
+        if imitation_scores_with_reject.shape[0] != expected_length:
+            raise ValueError(
+                "Invalid score vector length for per-vehicle y* construction: "
+                f"got {imitation_scores_with_reject.shape[0]}, "
+                f"expected {expected_length}."
+            )
+
+        trip_indices_by_vehicle: dict[int, list[int]] = {}
+        for trip_idx, vehicle_id in enumerate(trip_vehicle_ids):
+            trip_indices_by_vehicle.setdefault(vehicle_id, []).append(trip_idx)
+
+        reject_index_by_vehicle = {
+            vehicle_id: trip_count + reject_idx
+            for reject_idx, vehicle_id in enumerate(reject_vehicle_ids)
+        }
+
+        all_vehicle_ids = set(trip_indices_by_vehicle.keys()) | set(reject_vehicle_ids)
+        y_star = torch.zeros_like(imitation_scores_with_reject)
+        for vehicle_id in sorted(all_vehicle_ids):
+            candidate_indices = list(trip_indices_by_vehicle.get(vehicle_id, []))
+            if vehicle_id in reject_index_by_vehicle:
+                candidate_indices.append(reject_index_by_vehicle[vehicle_id])
+            if not candidate_indices:
+                continue
+
+            candidate_indices.sort()
+            candidate_scores = imitation_scores_with_reject[candidate_indices]
+            max_candidate_value = torch.max(candidate_scores)
+            max_candidate_indices_local = torch.where(candidate_scores == max_candidate_value)[0]
+            if float(max_candidate_value.item()) != 0.0 and len(max_candidate_indices_local) > 1:
+                tied_global_indices = [candidate_indices[idx] for idx in max_candidate_indices_local.tolist()]
+                raise ValueError(
+                    "Ambiguous imitation scores for vehicle: multiple non-zero maxima found "
+                    f"(vehicle_id={vehicle_id}, value={float(max_candidate_value.item())}, "
+                    f"indices={tied_global_indices})."
+                )
+            if torch.all(candidate_scores <= 0):
+                target_value = torch.min(candidate_scores)
+            else:
+                target_value = torch.max(candidate_scores)
+
+            selected_index = None
+            for global_idx in candidate_indices:
+                if float(imitation_scores_with_reject[global_idx].item()) == float(target_value.item()):
+                    selected_index = global_idx
+                    break
+            if selected_index is None:
+                raise RuntimeError(
+                    f"Failed to select y* action for vehicle {vehicle_id}."
+                )
+            y_star[selected_index] = 1
+        return y_star
 
 
 if __name__ == "__main__":

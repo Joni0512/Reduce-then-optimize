@@ -153,11 +153,13 @@ if __name__ == "__main__":
             on_solver = OnlineRTVSolver(config)
             updated_driver_runs, _ = on_solver.solve_pdptw_rtv(payload)
         elif config.MODE == 'offline':
+            cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
             off_solver = OfflineRTVSolver(config)
-            updated_driver_runs = off_solver.solve_rtv(payload, config.BATCH_INTERVAL, config.STEP_SIZE)
+            updated_driver_runs = off_solver.solve_rtv(cleared_payload, config.BATCH_INTERVAL, config.STEP_SIZE)
         elif config.MODE == 'coaml':
             if config.EPOCHS > 1:
-                training_loop = COAMLTrainingLoop(config, payload)
+                cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
+                training_loop = COAMLTrainingLoop(config, cleared_payload)
                 training_result = training_loop.run()
                 updated_driver_runs = training_result.updated_driver_runs
                 print(f"Epoch iteration losses: {training_result.epoch_iteration_losses}")

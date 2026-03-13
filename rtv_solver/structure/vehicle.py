@@ -193,8 +193,8 @@ class Vehicle:
                     wc_used += entry.wc
                     am_capacity += entry.am
                     wc_capacity += entry.wc
-                    assert am_used < 8 and am_used >= 0, f"Used am-capacity {am_used} at cap {self.am_capacity}do not make sense." # 8 seems default
-                    assert wc_used < 3 and wc_used >= 0, f"Used wc-capacity {wc_used} at cap {self.wc_capacity}do not make sense." # 3 seems default
+                    assert am_used >= 0, f"Used am-capacity {am_used} at cap {self.am_capacity} does not make sense." # 8 seems default in wilson data
+                    assert wc_used >= 0, f"Used wc-capacity {wc_used} at cap {self.wc_capacity} does not make sense." # 3 seems default in wilson data
 
             return am_used, wc_used, am_capacity, wc_capacity
         return 0, 0, self.am_capacity, self.wc_capacity

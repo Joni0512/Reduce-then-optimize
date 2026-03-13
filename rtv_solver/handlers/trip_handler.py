@@ -75,7 +75,7 @@ class TripHandler:
             )
             self._rebuild_mappings()
 
-        console_logger.info(f"{len(self.trips)} RTV combos generated: {time.time() - self.starting_time:.3f}s")
+        console_logger.info(f"{len(self.trips)} RTV combos / {len(TripHandler.trip_costs)} feasible trip costs generated: {time.time() - self.starting_time:.3f}s")
         return self.ondemand_only_trip_map, self.trips, TripHandler.trip_costs, self.vehicle_to_trips_cost_map, self.trip_to_vehicle_cost_map
 
 
