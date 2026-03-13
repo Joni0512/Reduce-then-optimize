@@ -9,6 +9,7 @@ from gurobipy import GRB
 
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.schema.payload_keys import PayloadKeys
 
 from rtv_solver.structure.node import Node
 from rtv_solver.structure.vehicle_stop import VehicleStop
