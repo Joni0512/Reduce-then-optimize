@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import argparse
 import json
 import numpy as np
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from collections import defaultdict
+from pathlib import Path
 
 from rtv_solver.schema.payload_keys import PayloadKeys
 from rtv_solver.handlers.network_handler import NetworkHandler
+from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.structure.node import Node
 from rtv_solver.structure.vehicle_stop import VehicleStop
 
@@ -418,3 +421,34 @@ class StatsParser:
             return Node(loc["lat"], loc["lon"], loc.get("node_id", None))
         else:
             return Node(loc["lat"], loc["lon"], loc.get("id", None))
+
+
+# TODO add the main script here to just run the stats parser on a given payload and output the results to a file
+if __name__ == "__main__":
+    from rtv_solver.structure.config import Config
+    
+    parser = argparse.ArgumentParser(description="Arguments for the StatsParser main script")
+    parser.add_argument(
+        "--result_dir",
+        type=str,
+        default="outputs/storage/ml_run/run_20260313_170534_25b654",
+        help="Path to run results directory containing config.json and result_driver_runs.json",
+    )
+    args = parser.parse_args()
+
+    run_dir = Path(args.result_dir).expanduser().resolve()
+
+    config_file = run_dir / "config.json"
+    result_manifest_file = run_dir / "result_driver_runs.json"
+
+    with open(config_file, "r", encoding="utf-8") as f:
+        config_json = json.load(f)
+    config = Config.from_dict(config_json["config_dict"])
+    config.OUTPUT_DIR = run_dir
+
+    data = PayloadParser.load_input_data(result_manifest_file)
+
+    stats_parser = StatsParser(config=config, payload=data)
+    feasible, stats, violations = stats_parser.evaluate(data)
+    print(stats)
+    print(f"feasible={feasible}, violations={len(violations)}")
