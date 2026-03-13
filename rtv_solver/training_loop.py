@@ -68,6 +68,7 @@ class COAMLTrainingLoop:
                 self.payload,
                 mode="train",
                 optimizer=optimizer,
+                epoch=epoch_num,
             )
 
             # Keep per-iteration losses from this epoch as produced by the pipeline.

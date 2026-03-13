@@ -55,6 +55,7 @@ class COAMLPipeline():
             config: Config,
             offline_payload: dict,
             model: ScoringMLP | None = None,
+            epoch: int = 1,
         ):
         """
         Initialize the COAML pipeline solver.
@@ -78,7 +79,8 @@ class COAMLPipeline():
         
         self.last_loss: Optional[torch.Tensor] = None
         self.loss_history: list[Optional[float]] = []
-        
+        self.epoch = epoch
+
         if sys.platform == "darwin": # required to run correctly on MacOS
             try:
                 # it is required here as we do not call OnlineRTVSolver as an object
@@ -136,7 +138,7 @@ class COAMLPipeline():
         driver_runs = payload[PayloadKeys.DRIVERS]
 
         while current_time < end_time:
-            console_logger.info(f"=== Iteration {iteration} offline RTV Solver at time {current_time} ===")
+            console_logger.info(f"=== Iteration {self.epoch}-{iteration} offline RTV Solver at time {current_time} ===")
             
             # select requests that are to be considered in the current interval with pickup_window [current_time, current_time + interval]
             selected_requests = {}
