@@ -189,11 +189,15 @@ if __name__ == "__main__":
             raise ValueError('No solution as no correct config.MODE provided.')
 
         # calculate statistics of each iteration; for now only the first vehicle
-        stats_payload = {PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
-                        PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
-                        PayloadKeys.DRIVERS: updated_driver_runs}
         tt_matrix = payload.get(PayloadKeys.TIME_MATRIX, None)
-        stats_evaluator = StatsParser(config, tt_matrix = tt_matrix)
+        stats_payload = {
+            PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
+            PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
+            PayloadKeys.DRIVERS: updated_driver_runs,
+            PayloadKeys.TIME_MATRIX: tt_matrix
+        }
+        
+        stats_evaluator = StatsParser(config, payload = stats_payload)
         total_time = time.time() - start_time
         feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
         stats_evaluator.add_total_time(total_time = total_time)

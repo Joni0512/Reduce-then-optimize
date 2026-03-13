@@ -178,7 +178,7 @@ class StatsParser:
 
             # turn stop into VehicleStop and compare with those variables after the fact that handles manifest operations
             action = stop[PayloadKeys.MANIFEST_ACTION]
-            scheduled_time = stop[PayloadKeys.MANIFEST_SCHED_TIME]
+            scheduled_time = float(stop[PayloadKeys.MANIFEST_SCHED_TIME])
             tw_start = stop[PayloadKeys.MANIFEST_TIME_WINDOW_START]
             tw_end = stop[PayloadKeys.MANIFEST_TIME_WINDOW_END]
 
@@ -192,20 +192,52 @@ class StatsParser:
             if action == VehicleStop.ACT_REBALANCE:
                 self.stats.rebalancing_vmt += travel_time
             
-            arrival_time = current_time + travel_time
+            computed_arrival_time = current_time + travel_time
+            # backward compatibile with old manifests
+            # some additional checks to make sure manifest is valid (developed after calculating LiLimParser solutions)
+            manifest_arrival_time = float(
+                stop.get(PayloadKeys.MANIFEST_ARRIVAL_TIME, computed_arrival_time)
+            )
+            # scheduled_time remains the canonical service start for backward compatibility
+            service_start = float(
+                stop.get(PayloadKeys.MANIFEST_SERVICE_START_TIME, scheduled_time)
+            )
+
+            if action == VehicleStop.ACT_PICKUP:
+                dwell_fallback = self.config.DWELL_PICKUP
+            elif action == VehicleStop.ACT_DROPOFF:
+                dwell_fallback = self.config.DWELL_ALIGHT
+            else:
+                dwell_fallback = 0
+            # take dwell time stores in manifest for that stop if available, otherwise use fallback
+            dwell_time = float(stop.get(PayloadKeys.MANIFEST_DWELL, dwell_fallback))
+            service_end = float(
+                stop.get(PayloadKeys.MANIFEST_SERVICE_END_TIME, service_start + dwell_time)
+            )
 
             # check "schedule impossible" (arrival after scheduled_time + margin)
-            if arrival_time > scheduled_time + self.config.TRAVEL_TIME_MARGIN:
+            if computed_arrival_time > service_start + self.config.TRAVEL_TIME_MARGIN:
                 self._add_violation(
                     "Scheduled time is impossible given travel time", booking_id, run_id, stop, details={
-                        "arrival_time": arrival_time,
-                        "scheduled_time": scheduled_time,
+                        "computed_arrival_time": computed_arrival_time,
+                        "manifest_arrival_time": manifest_arrival_time,
+                        "service_start_time": service_start,
                         "margin": self.config.TRAVEL_TIME_MARGIN,
-                        "lateness": arrival_time - scheduled_time,
+                        "lateness": computed_arrival_time - service_start,
                     })
 
-            # allow waiting until scheduled_time (mirrors your original behavior)
-            service_start = max(arrival_time, scheduled_time)
+            if service_end < service_start:
+                self._add_violation(
+                    "Service end before service start",
+                    booking_id,
+                    run_id,
+                    stop,
+                    details={
+                        "service_start_time": service_start,
+                        "service_end_time": service_end,
+                    },
+                )
+                service_end = service_start
 
             # time window checks (NOTE: old code checked scheduled_time, not actual service_start)
             if service_start < tw_start:
@@ -225,17 +257,15 @@ class StatsParser:
                 # update load
                 current_load_am += am_delta
                 current_load_wc += wc_delta
-                service_end = service_start + self.config.DWELL_PICKUP
 
                 # store pickup stop
                 if self.request_stops[booking_id].pickup is not None:
                     self._add_violation("Pickup already exists", booking_id, run_id, stop)
                 self.request_stops[booking_id].pickup = stop
-                self.request_stops[booking_id].pickup_time = scheduled_time
+                self.request_stops[booking_id].pickup_time = service_start
             elif action == VehicleStop.ACT_DROPOFF: 
                 current_load_am -= am_delta
                 current_load_wc -= wc_delta
-                service_end = service_start + self.config.DWELL_ALIGHT
 
                 # dropoff ordering constraints
                 if self.request_stops[booking_id].dropoff is not None:
@@ -243,7 +273,7 @@ class StatsParser:
                 if self.request_stops[booking_id].pickup is None:
                     self._add_violation("Dropoff before pickup", booking_id, run_id, stop)
                 self.request_stops[booking_id].dropoff = stop
-                self.request_stops[booking_id].dropoff_time = scheduled_time
+                self.request_stops[booking_id].dropoff_time = service_start
             elif action == VehicleStop.ACT_REBALANCE:
                 self.stats.rebalancing_movements += 1
             elif action == VehicleStop.ACT_DEPOT:
@@ -295,9 +325,9 @@ class StatsParser:
             direct_travel_time = NetworkHandler.travel_time(origin, destination)
             self.stats.pmt += direct_travel_time
 
-            pickup_time = pickup[PayloadKeys.MANIFEST_SCHED_TIME]
+            pickup_time = pair.pickup_time
             pickup_tw_start = pickup[PayloadKeys.MANIFEST_TIME_WINDOW_START]
-            dropoff_time = dropoff[PayloadKeys.MANIFEST_SCHED_TIME]
+            dropoff_time = pair.dropoff_time
 
             self.stats.wait_time.append(pickup_time - pickup_tw_start)
             self.stats.detour.append((dropoff_time - pickup_time) - direct_travel_time)

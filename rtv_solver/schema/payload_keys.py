@@ -51,6 +51,10 @@ class PayloadKeys:
     MANIFEST_AMBULATORY = "am"
     MANIFEST_WHEELCHAIR = "wc"
     MANIFEST_SCHED_TIME = "scheduled_time"
+    MANIFEST_DWELL = "dwell"
+    MANIFEST_ARRIVAL_TIME = "arrival_time"
+    MANIFEST_SERVICE_START_TIME = "service_start_time"
+    MANIFEST_SERVICE_END_TIME = "service_end_time"
     MANIFEST_TIME_WINDOW_START = "time_window_start"
     MANIFEST_TIME_WINDOW_END = "time_window_end"
 

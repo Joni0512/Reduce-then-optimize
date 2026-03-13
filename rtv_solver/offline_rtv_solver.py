@@ -60,7 +60,6 @@ class OfflineRTVSolver:
                 new_payload[PayloadKeys.TIME_MATRIX] = payload[PayloadKeys.TIME_MATRIX]
             else:
                 new_payload[PayloadKeys.TIME_MATRIX] = None
-                console_logger.warning("Time matrix is not available. Solution run on server, but time_matrix is missing - leading to no possibility of running this dataset without backend server.") 
 
             # solve the RTV problem and update manifests
             if len(selected_requests) == 0:
