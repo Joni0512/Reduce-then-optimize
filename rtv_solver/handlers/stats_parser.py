@@ -330,7 +330,14 @@ class StatsParser:
             dropoff_time = pair.dropoff_time
 
             self.stats.wait_time.append(pickup_time - pickup_tw_start)
-            self.stats.detour.append((dropoff_time - pickup_time) - direct_travel_time)
+            # Count detour only as time spent after the dropoff window has opened. If pickup is late but the vehicle drives directly to dropoff, the rider has no detour.
+            dropoff_tw_start = dropoff[PayloadKeys.MANIFEST_TIME_WINDOW_START]
+            is_direct_trip = abs((pickup_time + direct_travel_time) - dropoff_time) <= 1e-6
+            if is_direct_trip:
+                detour_time = 0.0
+            else:
+                detour_time = max(dropoff_time - dropoff_tw_start, 0.0)
+            self.stats.detour.append(detour_time)
 
             # count as serviced if it has a full pair
             self.stats.serviced += 1
