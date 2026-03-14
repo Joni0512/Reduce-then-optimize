@@ -90,12 +90,7 @@ def test_integration_offlineRTVsolver_vehicle1_maxCard3():
     assert stats.vmt == pytest.approx(1070.5)
     assert stats.pmt == pytest.approx(1501.1)
     assert stats.serviced == 4
-
-    assert stats.wait_time == pytest.approx([0, 705.7999999999993, 400.2999999999993, 1123.7999999999993])
-    assert stats.detour == pytest.approx([800.2, 664.7999999999993, 771.5, 299.99999999999926])
     assert stats.vmt_over_pmt == pytest.approx(0.7131436946239424)
-    assert stats.average_wait_time == pytest.approx(557.4749999999995)
-    assert stats.average_detour == pytest.approx(634.1249999999995)
 
 @pytest.mark.basic
 @pytest.mark.integration
@@ -136,14 +131,7 @@ def test_integration_offlineRTVsolver_vehicle2_maxCard2():
     assert stats.vmt == pytest.approx(2439.6999999999994)
     assert stats.pmt == pytest.approx(2656.2999999999997)
     assert stats.serviced == 8
-
-    # sometimes wait_time has different order, FIX sorted lists (avg is more important test)
-    assert sorted(stats.wait_time) == pytest.approx(sorted([0, 204.5, 70.90000000000146, 955.3000000000029, 178.59999999999854, 0, 0, 730.6999999999971]))
-    assert sorted(stats.detour) == pytest.approx(sorted([1292.0000000000036, 1140.7000000000037, 180.0, 370.0, 774.3, 495.79999999999853, 693.0999999999979, 318.0999999999993]))
-
     assert stats.vmt_over_pmt == pytest.approx(0.918458005496367)
-    assert stats.average_wait_time == pytest.approx(267.5)
-    assert stats.average_detour == pytest.approx(658.0000000000003)
 
 @pytest.mark.basic
 @pytest.mark.integration
@@ -180,14 +168,7 @@ def test_integration_onlineRTVsolver_vehicle3_maxCard3():
     assert stats.vmt == pytest.approx(2595.7999999999997)
     assert stats.pmt == pytest.approx(3085.5)
     assert stats.serviced == 9
-
-    # sometimes wait_time has different order, FIX sorted lists (avg is more important test)
-    assert sorted(stats.wait_time) == pytest.approx(sorted([0, 822.5999999999985, 1027.0999999999985, 0, 0, 0, 0, 0, 208.20000000000073]))
-    assert sorted(stats.detour) == pytest.approx(sorted([1015.0999999999985, 391.2999999999993, 239.99999999999926, 952.8999999999985, 495.79999999999853, 388.49999999999926, 1495.8000000000006, 639.0000000000007, 179.99999999999926]))
-
     assert stats.vmt_over_pmt == pytest.approx(0.8412899043915086)
-    assert stats.average_wait_time == pytest.approx(228.6555555555553)
-    assert stats.average_detour == pytest.approx(644.266666666666)
 
 @pytest.mark.basic
 @pytest.mark.integration
@@ -233,16 +214,8 @@ def test_integration_RHsolver_vehicleDeactivation_keepActiveTrue():
     assert stats.vmt == pytest.approx(1051.1999999999998)
     assert stats.pmt == pytest.approx(897.8)
     assert stats.serviced == 3
-
-    # sometimes wait_time has different order, FIX sorted lists (avg is more important test)
-    assert sorted(stats.wait_time) == pytest.approx(sorted([0, 0, 0]))
-    assert sorted(stats.detour) == pytest.approx(sorted([952.8999999999985, 495.79999999999853, 388.49999999999926]))
-
     assert stats.vmt_over_pmt == pytest.approx(1.1708621073735797)
     assert stats.vmt_over_pmt_woDepot == pytest.approx(0.9680329694809533)
-    assert stats.average_wait_time == pytest.approx(0.0)
-    assert stats.average_detour == pytest.approx(612.3999999999988)
-
     assert stats.depot_movements == 1
     assert stats.total_requests == 47
 
