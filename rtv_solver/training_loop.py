@@ -63,12 +63,11 @@ class COAMLTrainingLoop:
             )
             # Recreate the pipeline each epoch to keep run-level state isolated,
             # while injecting the same model instance so parameters persist.
-            pipeline = COAMLPipeline(self.config, self.payload, model=self.model)
+            pipeline = COAMLPipeline(self.config, self.payload, model=self.model, epoch=epoch_num)
             updated_driver_runs = pipeline.solve_pdptw(
                 self.payload,
                 mode="train",
-                optimizer=optimizer,
-                epoch=epoch_num,
+                optimizer=optimizer
             )
 
             # Keep per-iteration losses from this epoch as produced by the pipeline.
