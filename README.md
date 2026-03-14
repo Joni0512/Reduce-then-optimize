@@ -112,12 +112,12 @@ The value `node_id` might not be part of the original data object, but is genera
             "pickup_pt":{
                 "lon":-77.930793762,
                 "lat":35.780387878,
-                "node_id": 12
+                "node_id": 12 (otional)
             },
             "dropoff_pt":{
                 "lon":-77.893867493,
                 "lat":35.719944,
-                "node_id": 13
+                "node_id": 13 (optional)
             },
             "pickup_time_window_start":20043,
             "pickup_time_window_end":21843,
