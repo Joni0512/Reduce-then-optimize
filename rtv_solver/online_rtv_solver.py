@@ -610,12 +610,14 @@ class OnlineRTVSolver:
     @staticmethod
     def finalize_driverRuns(config: Config, driver_runs: dict, depot_dict: dict) -> dict:
         """
-        if config.return_depot finalize the vehicles by adding a depot stop to each ride, otherwise return input
+        If `config.RETURN_DEPOT` is enabled, finalize vehicles by appending a depot stop.
+        Otherwise, return the input unchanged.
 
         Behaviour: Depot_returns will be added straight from the last position of the vehicle where it finalized a previous trip, i.e., some vehicles might return already early during the day back to the depot despite more requests coming in. Our offline approach however has assigned all requests and thus, it is already fixed that no further requests have been accepted. 
         Alternative behaviour: Get back to the depot right before the final_end_time of each driver-run (condition depot_feasible confirms the options), but then depot_arrival_time would just be driver_run.state.end_time
+
+        Idempotency behaviour: if a run already ends with `VehicleStop.ACT_DEPOT`, this method will not append another depot stop.
         """
-        # TODO if manifest is already completed with DEPOT, it should not fail and maybe return a warning
         if not config.RETURN_DEPOT:
             return driver_runs
         else: 
@@ -633,6 +635,12 @@ class OnlineRTVSolver:
                     manifest_time = last_entry.scheduled_time
                     manifest_location = last_entry.loc
                     manifest_action = last_entry.action
+
+                    # If depot was already appended earlier, keep manifest unchanged. This makes finalize_driverRuns idempotent and prevents duplicate artificial depot stops when finalize_driverRuns is called twice.
+                    if manifest_action == VehicleStop.ACT_DEPOT:
+                        updated_driver_runs.append(driver_run.to_dict())
+                        continue
+
                     assert manifest_action == VehicleStop.ACT_DROPOFF, f"Last stop {manifest_action} in run {driver_run.state.run_id} and {last_entry.booking_id} should have been a dropoff"
 
                     # TODO remove dwell time for ACT_DEPOT wherever that is
