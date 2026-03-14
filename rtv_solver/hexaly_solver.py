@@ -43,7 +43,7 @@ class HexalySolver:
             depot_node_id = NetworkHandler.get_next_node_id(depot["pt"]["lat"],depot["pt"]["lon"])
         else:
             depot_node_id = depot["pt"]["node_id"]
-        depot_node = Node(depot["pt"]["lat"],depot["pt"]["lon"], id=depot_node_id)
+        depot_node = Node(depot["pt"]["lat"],depot["pt"]["lon"], node_id=depot_node_id)
         
         requests: list = copy.deepcopy(payload["requests"])
         unserved = []
@@ -236,7 +236,7 @@ class HexalySolver:
 
         # distances between depot and among each customer node ((nb_customers+1) × (nb_customers+1))
         dist_matrix_data = [[0] * (nb_customers+1) for i in range(nb_customers+1)]
-        depot_id = depot_node.id
+        depot_id = depot_node.node_id
         for i in range(nb_customers):
             for j in range(nb_customers):
                 dist_matrix_data[i+1][j+1] = time_matrix[reverse_node_map[i]][reverse_node_map[j]]

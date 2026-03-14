@@ -222,7 +222,7 @@ class NetworkHandler:
 
     @staticmethod
     def get_location(source: Node, destination: Node) -> int:
-        return int(source.id * no_of_nodes.value + destination.id)
+        return int(source.node_id * no_of_nodes.value + destination.node_id)
 
     @staticmethod
     def travel_time(source: Node, destination: Node) -> float:
@@ -322,9 +322,3 @@ class NetworkHandler:
             index2 = node_indices[(node2.lon, node2.lat)]
             return matrix[index1, index2]
         return NetworkHandler.travel_time(node1, node2)
-
-    @staticmethod
-    def get_node_from_manifest_location(location: dict[str, float], node_id: int =None) -> Node:
-        if 'node_id' in location and node_id is None:
-            node_id = location['node_id']
-        return Node(location["lat"], location["lon"], node_id)

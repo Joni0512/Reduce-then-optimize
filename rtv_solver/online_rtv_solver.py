@@ -321,7 +321,7 @@ class OnlineRTVSolver:
                     next_immediate_node, target_node, next_immediate_time, current_time)
                 next_immediate_loc = {"lat":next_immediate_node.lat,
                                       "lon":next_immediate_node.lon,
-                                      "node_id":next_immediate_node.id}
+                                      "node_id":next_immediate_node.node_id}
 
             state[PayloadKeys.DRIVER_STATE_DT_SEC] = next_immediate_time
             state[PayloadKeys.DRIVER_STATE_LOC] = next_immediate_loc
@@ -426,7 +426,7 @@ class OnlineRTVSolver:
             stop_location = stop[PayloadKeys.MANIFEST_LOC]
             next_node = Node(stop_location["lat"], 
                              stop_location["lon"],
-                             id = stop_location["node_id"])
+                             node_id = stop_location["node_id"])
             travel_time = NetworkHandler.travel_time(current_node, next_node)
             cost += travel_time
             current_node = next_node
@@ -468,7 +468,7 @@ class OnlineRTVSolver:
         depot_node = Node(
             depot_pt["lat"], 
             depot_pt["lon"], 
-            id =depot_node_id)
+            node_id =depot_node_id)
 
         pickup_stop = {
             PayloadKeys.MANIFEST_RUN_ID: None, 
@@ -518,7 +518,7 @@ class OnlineRTVSolver:
             node_id = NetworkHandler.get_next_node_id(state_loc["lat"],state_loc["lon"])
             state_loc["node_id"] = node_id
         state_loc["node_id"] = node_id
-        start_node = Node(state_loc["lat"], state_loc["lon"], id =node_id)
+        start_node = Node(state_loc["lat"], state_loc["lon"], node_id =node_id)
         start_time = state[PayloadKeys.DRIVER_STATE_DT_SEC]
         completed_stops = []
         remaining_stops = []
@@ -547,7 +547,7 @@ class OnlineRTVSolver:
             stop_loc = stop[PayloadKeys.MANIFEST_LOC]
             next_node = Node(stop_loc["lat"],
                              stop_loc["lon"],
-                             id=stop_loc["node_id"])
+                             node_id=stop_loc["node_id"])
             prev_cost += NetworkHandler.travel_time(current_node,next_node)
             current_node = next_node
 

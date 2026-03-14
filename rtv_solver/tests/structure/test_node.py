@@ -18,12 +18,12 @@ def test_node_from_dict():
     node = Node.from_dict(data)
     assert node.lat == 48.1351
     assert node.lon == 11.5820
-    assert node.id is None
+    assert node.node_id is None
 
 def test_node_copy_independence():
-    original = Node(34.0, -118.0, id=1)
+    original = Node(34.0, -118.0, node_id=1)
     cloned = original.copy()
-    
+
     assert original == cloned
     assert original is not cloned
-    assert cloned.id == 1
+    assert cloned.node_id == 1

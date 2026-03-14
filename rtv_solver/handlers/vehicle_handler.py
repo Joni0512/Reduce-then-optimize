@@ -173,7 +173,7 @@ class VehicleHandler:
                 PayloadKeys.MANIFEST_LOC: {
                     'lat': node.lat, 
                     'lon': node.lon, 
-                    'node_id': node.id},
+                    'node_id': node.node_id},
                 PayloadKeys.MANIFEST_SCHED_TIME: stop_time, # arrival time at stop
                 PayloadKeys.MANIFEST_AMBULATORY: trip.am_capacity, 
                 PayloadKeys.MANIFEST_WHEELCHAIR: trip.wc_capacity, 

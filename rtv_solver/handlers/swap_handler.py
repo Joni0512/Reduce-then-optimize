@@ -39,7 +39,7 @@ class SwapHandler:
         
         self.depot = payload_object.depot
         depot_node_id = NetworkHandler.get_next_node_id(self.depot.lat, self.depot.lon)
-        self.depot.id = depot_node_id
+        self.depot.node_id = depot_node_id
 
         # add node_id to request pickup and dropoff spots
         for request in requests:
@@ -270,7 +270,7 @@ class SwapHandler:
         stop_loc = stop[PayloadKeys.MANIFEST_LOC]
         return Node(stop_loc["lat"],
                     stop_loc["lon"],
-                    id = stop_loc["node_id"])
+                    node_id = stop_loc["node_id"])
 
     @staticmethod
     def _remove_request_from_driver_run(driver_run, booking_id, DWELL_PICKUP, DWELL_ALIGHT):
