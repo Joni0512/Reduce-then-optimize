@@ -213,11 +213,14 @@ class VehicleHandler:
         vehicle.started = True
         # retrieves next position and time there # TODO does this work as we always initialize the vehicleLocation as depot
         time_at_next_immediate_node = state[PayloadKeys.DRIVER_STATE_DT_SEC]
-        next_immediate_node = NetworkHandler.get_node_from_manifest_location(
-            state_loc, 
-            node_id = NetworkHandler.get_next_node_id(
-                state_loc['lat'], 
-                state_loc['lon']))
+
+        node_dict = {
+            "lat": state_loc['lat'],
+            "lon": state_loc['lon'],
+            "node_id": state_loc.get('node_id', None)
+        }
+        node_id = NetworkHandler.get_next_node_id_from_dict(node_dict)
+        next_immediate_node = Node.get_node_from_manifest_location(state_loc, node_id)
 
         # iterate over manifest to update all variables
         manifest = driver_run[PayloadKeys.DRIVER_MANIFEST]

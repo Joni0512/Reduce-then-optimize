@@ -315,8 +315,8 @@ class OnlineRTVSolver:
                 
             if len(manifest) > current_order and next_immediate_time < current_time and INTERMEDIATE_LOCATION:
                 # if manifest is longer than final stop (according to time limit) AND next_immediate_time is still smaller than current_time AND we want to have the location in between stops, we will get that location here
-                next_immediate_node = NetworkHandler.get_node_from_manifest_location(next_immediate_loc)
-                target_node = NetworkHandler.get_node_from_manifest_location(manifest[current_order][PayloadKeys.MANIFEST_LOC])
+                next_immediate_node = Node.get_node_from_manifest_location(next_immediate_loc)
+                target_node = Node.get_node_from_manifest_location(manifest[current_order][PayloadKeys.MANIFEST_LOC])
                 next_immediate_time, next_immediate_node = NetworkHandler.get_current_location_time(
                     next_immediate_node, target_node, next_immediate_time, current_time)
                 next_immediate_loc = {"lat":next_immediate_node.lat,
@@ -649,6 +649,7 @@ class OnlineRTVSolver:
                         "lon": depot_dict[PayloadKeys.DEPOT_PT]["lon"],
                         "lat": depot_dict[PayloadKeys.DEPOT_PT]["lat"], 
                         "node_id": depot_dict["node_id"]})
+                    # FIXME time_at_last_node is currently dependent on the vehicle_time but not the time at the last stop. the change would add the final depot stop after the last stop has been serviced and as we run it offline, we know that no other stop will be added. (no priority and no reason to change for now)
                     depot_arrival_time = time_at_last_node + NetworkHandler.travel_time(last_node, depot_node)
                     artificial_request_id = -(driver_run.state.run_id + 1)
 

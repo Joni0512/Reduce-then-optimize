@@ -39,20 +39,30 @@ class RequestHandler:
     def _build_request_dict(req, dwell_pickup, dwell_alight):
         # simplified code to build a single request dictionary from the raw request data
         pickup = req[PayloadKeys.REQ_PICKUP_PT]
-        pickup_lat, pickup_lon = pickup['lat'], pickup['lon']
+        pickup_lat, pickup_lon, pickup_node_id = pickup['lat'], pickup['lon'], pickup.get('node_id', None)
         dropoff = req[PayloadKeys.REQ_DROPOFF_PT]
-        dropoff_lat, dropoff_lon = dropoff['lat'], dropoff['lon']
+        dropoff_lat, dropoff_lon, dropoff_node_id = dropoff['lat'], dropoff['lon'], dropoff.get('node_id', None)
+        pickup_dict = {
+            "lat": pickup_lat,
+            "lon": pickup_lon,
+            "node_id": pickup_node_id
+        }
+        dropoff_dict = {
+            "lat": dropoff_lat,
+            "lon": dropoff_lon,
+            "node_id": dropoff_node_id
+        }
 
-        return {
+        request_dict = {
             PayloadKeys.REQ_BOOKING_ID: req[PayloadKeys.REQ_BOOKING_ID],
 
             PayloadKeys.REQ_PICKUP_LAT: pickup_lat,
             PayloadKeys.REQ_PICKUP_LON: pickup_lon,
-            PayloadKeys.REQ_PICKUP_NODE_ID: NetworkHandler.get_next_node_id(pickup_lat, pickup_lon),
+            PayloadKeys.REQ_PICKUP_NODE_ID: NetworkHandler.get_next_node_id_from_dict(pickup_dict),
 
             PayloadKeys.REQ_DROPOFF_LAT: dropoff_lat,
             PayloadKeys.REQ_DROPOFF_LON: dropoff_lon,
-            PayloadKeys.REQ_DROPOFF_NODE_ID: NetworkHandler.get_next_node_id(dropoff_lat, dropoff_lon),
+            PayloadKeys.REQ_DROPOFF_NODE_ID: NetworkHandler.get_next_node_id_from_dict(dropoff_dict),
 
             PayloadKeys.REQ_PICKUP_WINDOW_START: req[PayloadKeys.REQ_PICKUP_WINDOW_START],
             PayloadKeys.REQ_PICKUP_WINDOW_END: req[PayloadKeys.REQ_PICKUP_WINDOW_END],
@@ -64,6 +74,7 @@ class RequestHandler:
             PayloadKeys.REQ_DWELL_PICKUP: dwell_pickup,
             PayloadKeys.REQ_DWELL_ALIGHT: dwell_alight,
         }
+        return request_dict
 
     @staticmethod
     def get_request(request_data) -> Request:

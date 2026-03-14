@@ -23,7 +23,7 @@ travel_time_matrix = None
 no_of_nodes = None
 
 class NetworkHandler:
-    NODE_INDEX = 0
+    NODE_INDEX = 0 # only used for increment to give nodes strictly increasing ids
     node_data = []
 
     @staticmethod
@@ -100,9 +100,26 @@ class NetworkHandler:
 
     @staticmethod
     def get_next_node_id(lat: float, lon: float) -> int:
+        """handles creation of new nodes when the server is used"""
         NetworkHandler.node_data.append({"lat": lat, "lon": lon})
-        NetworkHandler.NODE_INDEX += 1
-        return NetworkHandler.NODE_INDEX - 1
+        node_id = NetworkHandler.NODE_INDEX # get next node_id
+        NetworkHandler.NODE_INDEX += 1 # increment for next one
+        return node_id
+        
+    @staticmethod
+    def get_next_node_id_from_dict(location_dict: dict) -> int:
+        """
+        This must differentiate between the use of the server or a time_matrix as we should never update the node_id in that case.
+        If the node_id is already set, we return it directly.
+        """
+        if SERVER_BASED is None:
+            raise RuntimeError("NetworkHandler.init() must be called before travel_time()")
+        if SERVER_BASED.value:
+            # TODO what would be the behaviour if the node_id is alreay set in the dictionary?
+            return NetworkHandler.get_next_node_id(location_dict["lat"], location_dict["lon"])
+        else:
+            NetworkHandler.node_data.append(location_dict)
+            return location_dict.get("node_id", None)
 
     @staticmethod
     def initialize_travel_time_matrix():

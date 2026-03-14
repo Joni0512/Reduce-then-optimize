@@ -1,4 +1,5 @@
 from rtv_solver.structure.payload import Payload
+from rtv_solver.structure.node import Node
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.structure.vehicle_stop import VehicleStop
 
@@ -182,10 +183,15 @@ class PayloadParser:
         # get depot location
         depot_data = payload[PayloadKeys.DEPOT]
         depot_location = depot_data.get("loc") or depot_data.get("pt") # depends on payload input
-        node_id = NetworkHandler.get_next_node_id(depot_location["lat"], depot_location["lon"])
-        depot = NetworkHandler.get_node_from_manifest_location(depot_location, node_id)
+        node_dict = {
+            "lat": depot_location["lat"],
+            "lon": depot_location["lon"],
+            "node_id": depot_data.get('node_id', None)
+        }
+        node_id = NetworkHandler.get_next_node_id_from_dict(node_dict)
+        depot_node = Node.get_node_from_manifest_location(depot_location, node_id)
 
-        return Payload(travel_time_matrix, current_time, requests, boarded_requests_keys, active_requests_keys, driver_runs, depot)
+        return Payload(travel_time_matrix, current_time, requests, boarded_requests_keys, active_requests_keys, driver_runs, depot_node)
 
     @staticmethod
     def get_request_count(payload) -> int:
