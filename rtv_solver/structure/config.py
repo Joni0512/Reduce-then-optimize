@@ -52,7 +52,7 @@ class Config:
     WALK_DISTANCE_CUTOFF: int = 0
     STEP_SIZE: int = 300
     BATCH_INTERVAL: int = 1200
-    #backup default values
+    # backup default values, NOTE currently not the case as it is sometimes the overriding default
     DWELL_PICKUP: int = 180
     DWELL_ALIGHT: int = 60
     # stats parameters

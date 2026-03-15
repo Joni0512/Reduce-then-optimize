@@ -9,8 +9,9 @@ import json
 from pathlib import Path
 from typing import Any
 import numpy as np
-
 from rtv_solver.schema.payload_keys import PayloadKeys
+from rtv_solver.structure.request import Request
+
 from rtv_solver.parser.li_lim_parser import LiLimParser
 from rtv_solver.parser.sartori_parser import SartoriParser
 
@@ -116,7 +117,7 @@ class PayloadParser:
         return None
 
     @staticmethod
-    def get_payload_object(payload: dict[str: Any], online: bool=True) -> Payload:
+    def get_payload_object(payload: dict[str: Any],  dwell_pickup_default: int, dwell_alight_default: int, online: bool = True) -> Payload:
         """
         Based on the inserted payload data, a new payload is created.
         Specific attention to requests as these are combined from new requests and still active or boarded requests stored in the vehicleManifests."""
@@ -172,7 +173,7 @@ class PayloadParser:
         
         # combine requests from new payload and add active and boarded requests from manifests (see preparation above)
         raw_requests = payload.get(PayloadKeys.REQUESTS, [])
-        requests = [PayloadParser._build_request(request) for request in raw_requests]
+        requests = [PayloadParser._build_request(request, dwell_pickup_default, dwell_alight_default) for request in raw_requests]
         for req_id in active_requests_data: # request must be handled as they were already accepted
             requests.append(active_requests_data[req_id])
         active_requests_keys = list(active_requests_data.keys())
@@ -331,6 +332,7 @@ class PayloadParser:
     @staticmethod
     def _build_request_from_stops(pickup_stop, dropoff_stop):
         """builds request from two separate stops out of manifest"""
+        # TODO add dwell times here as well
         request = {
             PayloadKeys.REQ_BOOKING_ID:               pickup_stop[PayloadKeys.MANIFEST_BOOKING_ID],
             PayloadKeys.REQ_AMBULATORY:               pickup_stop[PayloadKeys.MANIFEST_AMBULATORY],
@@ -345,18 +347,21 @@ class PayloadParser:
         return request
 
     @staticmethod
-    def _build_request(request_data):
+    def _build_request(request_data, dwell_pickup_default: int, dwell_alight_default: int) -> dict:
         """no changes due to this method, but makes it easier to read"""
+        dwell_pickup, dwell_alight = Request.resolve_dwell_times(request_data, dwell_pickup_default, dwell_alight_default)
         request = {
             PayloadKeys.REQ_BOOKING_ID:           request_data[PayloadKeys.REQ_BOOKING_ID],
             PayloadKeys.REQ_AMBULATORY:           request_data[PayloadKeys.REQ_AMBULATORY],
             PayloadKeys.REQ_WHEELCHAIR:           request_data[PayloadKeys.REQ_WHEELCHAIR],
-            PayloadKeys.REQ_PICKUP_WINDOW_START:  request_data[PayloadKeys.REQ_PICKUP_WINDOW_START], 
+            PayloadKeys.REQ_PICKUP_WINDOW_START:  request_data[PayloadKeys.REQ_PICKUP_WINDOW_START],
             PayloadKeys.REQ_PICKUP_WINDOW_END:    request_data[PayloadKeys.REQ_PICKUP_WINDOW_END],
             PayloadKeys.REQ_PICKUP_PT:            request_data[PayloadKeys.REQ_PICKUP_PT],
-            PayloadKeys.REQ_DROPOFF_WINDOW_START: request_data[PayloadKeys.REQ_DROPOFF_WINDOW_START], 
+            PayloadKeys.REQ_DROPOFF_WINDOW_START: request_data[PayloadKeys.REQ_DROPOFF_WINDOW_START],
             PayloadKeys.REQ_DROPOFF_WINDOW_END:   request_data[PayloadKeys.REQ_DROPOFF_WINDOW_END],
             PayloadKeys.REQ_DROPOFF_PT:           request_data[PayloadKeys.REQ_DROPOFF_PT],
+            PayloadKeys.REQ_DWELL_PICKUP:         dwell_pickup,
+            PayloadKeys.REQ_DWELL_ALIGHT:         dwell_alight,
         }
         return request
 

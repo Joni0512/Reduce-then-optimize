@@ -160,7 +160,7 @@ class VehicleHandler:
                 action = VehicleStop.ACT_DEPOT
                 time_window_start = trip.earliest_arrival_time
                 time_window_end = trip.latest_arrival_time
-                dwell = trip.dwell_pickup
+                dwell = 0
             current_order += 1 # increment order in manifest
             stop_time = time_at_last_node + NetworkHandler.travel_time(last_node, node)
             if stop_time <= time_window_start:
@@ -185,7 +185,7 @@ class VehicleHandler:
 
         return manifest
   
-    def add_manifest_to_vehicles(self, driver_runs, boarded_requests, boarded_trips, dwell_alight, dwell_pickup):
+    def add_manifest_to_vehicles(self, driver_runs, boarded_requests, boarded_trips):
         """
         iterate over all manifests to update each vehicle based on its manifest and previously boarded requests
         """
@@ -197,10 +197,10 @@ class VehicleHandler:
                 if int(run[PayloadKeys.DRIVER_STATE][PayloadKeys.DRIVER_STATE_RUN_ID]) == vehicle_id:
                     driver_run = run 
                     break # select the right driver_run
-            self.add_manifest_to_vehicle(vehicle, driver_run, boarded_requests, boarded_trips, dwell_alight, dwell_pickup)
+            self.add_manifest_to_vehicle(vehicle, driver_run, boarded_requests, boarded_trips)
     
     @staticmethod
-    def add_manifest_to_vehicle(vehicle: Vehicle, driver_run: dict, boarded_requests: dict[int, Request], boarded_trips: list[Trip], dwell_alight, dwell_pickup):
+    def add_manifest_to_vehicle(vehicle: Vehicle, driver_run: dict, boarded_requests: dict[int, Request], boarded_trips: list[Trip]):
         """
         translate the manifest of a vehicle into its current position and update the vehicle accordingly
         
@@ -481,7 +481,7 @@ class VehicleHandler:
         best_last_node, best_time_at_last_node = None, None
         # if len(trips_to_drop_off) - len(trips_to_pick_up) < max_capacity:
         for trip_id in trips_to_pick_up:
-            trip = trips[trip_id]
+            trip: Trip = trips[trip_id]
             new_am_capacity = max_am_capacity - trip.am_capacity
             new_wc_capacity = max_wc_capacity - trip.wc_capacity
             if new_am_capacity < 0 or new_wc_capacity < 0:
@@ -589,7 +589,7 @@ class VehicleHandler:
             return existing_sequence, cost, True, current_last_node, current_last_time
 
         for trip_id in trips_not_in_sequence:
-            new_trip = trips[trip_id]
+            new_trip: Trip = trips[trip_id]
             feasible = False
             best_sequence = None
             current_lowest_cost = -1
@@ -635,7 +635,7 @@ class VehicleHandler:
         current_node = last_node
         current_am_capacity, current_wc_capacity = max_am_capacity, max_wc_capacity
         for stop in new_sequence:
-            trip = trips[stop.trip_id]
+            trip: Trip = trips[stop.trip_id]
             travel_time = NetworkHandler.travel_time_from_matrix(current_node, stop.node, tt_matrix, node_indices)
             cost +=  NetworkHandler.travel_distance(current_node,stop.node)
             current_time = current_time + travel_time

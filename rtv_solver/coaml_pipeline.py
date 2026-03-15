@@ -307,10 +307,8 @@ class COAMLPipeline():
             server_url=self.config.SERVER_URL,
         )
         
-        payload_object = PayloadParser.get_payload_object(subset_payload, False)
-        request_handler = RequestHandler(payload_object.requests, 
-                                         self.config.DWELL_PICKUP, 
-                                         self.config.DWELL_ALIGHT)
+        payload_object = PayloadParser.get_payload_object(subset_payload, dwell_pickup_default=self.config.DWELL_PICKUP, dwell_alight_default=self.config.DWELL_ALIGHT, online=False)
+        request_handler = RequestHandler(payload_object.requests, config=self.config)
         request_batch, active_requests, boarded_requests = request_handler.get_request_batches(payload_object)
         vehicle_handler = VehicleHandler(payload_object.depot, 
                                          payload_object.driver_runs,
@@ -323,9 +321,7 @@ class COAMLPipeline():
         # update vehicle position/trips/times along its path according to all data stored in the manifest
         vehicle_handler.add_manifest_to_vehicles(payload_object.driver_runs,
                                                  boarded_requests,
-                                                 boarded_trips, 
-                                                 self.config.DWELL_ALIGHT, 
-                                                 self.config.DWELL_PICKUP)
+                                                 boarded_trips)
         if needs_server_matrix_build:
             NetworkHandler.initialize_travel_time_matrix()
         iteration += 1  # increase iteration as the prior step was just rebuilding from the last iteration (if there was a prior step)

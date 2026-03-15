@@ -27,8 +27,11 @@ class PayloadKeys:
     REQ_DROPOFF_WINDOW_END = 'dropoff_time_window_end'
     REQ_AMBULATORY = 'am'
     REQ_WHEELCHAIR = 'wc'
+    # dwell times have been defined differently in the manifests, for LiLim we need to align this information with the new keys in order to be able to reach optimum parity
     REQ_DWELL_PICKUP = 'dwell_pickup'
     REQ_DWELL_ALIGHT = 'dwell_alight'
+    REQ_PICKUP_SERVICE_TIME = 'pickup_service_time'
+    REQ_DROPOFF_SERVICE_TIME = 'dropoff_service_time'
 
     DRIVERS = "driver_runs"
     DRIVER_STATE = "state"

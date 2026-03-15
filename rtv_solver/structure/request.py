@@ -1,4 +1,6 @@
 from rtv_solver.structure.node import Node
+from rtv_solver.schema.payload_keys import PayloadKeys
+
 
 class Request:
     # TODO add type hints
@@ -51,6 +53,23 @@ class Request:
             f")"
         )
     
+    @staticmethod
+    def resolve_dwell_times(
+        req: dict,
+        default_pickup: int = 180,
+        default_alight: int = 60,
+    ) -> tuple[int, int]:
+        """
+        Resolve dwell pickup and dwell alight from request payload or defaults.
+        Priority: REQ_PICKUP_SERVICE_TIME/REQ_DROPOFF_SERVICE_TIME > REQ_DWELL_PICKUP/REQ_DWELL_ALIGHT > defaults.
+        """
+        pk = PayloadKeys
+        if pk.REQ_PICKUP_SERVICE_TIME in req and pk.REQ_DROPOFF_SERVICE_TIME in req:
+            return req[pk.REQ_PICKUP_SERVICE_TIME], req[pk.REQ_DROPOFF_SERVICE_TIME]
+        if pk.REQ_DWELL_PICKUP in req and pk.REQ_DWELL_ALIGHT in req:
+            return req[pk.REQ_DWELL_PICKUP], req[pk.REQ_DWELL_ALIGHT]
+        return default_pickup, default_alight
+
     def get_direct_travel_time(self):
         return self.earliest_arrival_time - self.earliest_pickup_time
 

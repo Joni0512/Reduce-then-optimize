@@ -4,6 +4,7 @@ from rtv_solver.structure.request import Request
 from rtv_solver.structure.node import Node
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.schema.payload_keys import PayloadKeys
+from rtv_solver.structure.config import Config
 
 from datetime import timedelta
 
@@ -21,9 +22,10 @@ class RequestHandler:
     """
     process request data from a list and handle a sorted dataframe for further processing
     """
-    def __init__(self, request_data, dwell_pickup, dwell_alight):
+    def __init__(self, request_data, config: Config):
         """create a list of all requests in a pd.dataframe, sorted by the start of the pickup time window"""
-        requests = [self._build_request_dict(req, dwell_pickup, dwell_alight) for req in request_data] 
+        self.config = config
+        requests = [self._build_request_dict(req) for req in request_data] 
         len_requests_initial = len(requests)
         self.requests = pd.DataFrame(requests).astype({PayloadKeys.REQ_BOOKING_ID: 'Int64'}).sort_values(by = [PayloadKeys.REQ_PICKUP_WINDOW_START])
         self.requests.drop_duplicates(subset=PayloadKeys.REQ_BOOKING_ID, keep="first")
@@ -35,8 +37,7 @@ class RequestHandler:
         booking_ids = self.requests[PayloadKeys.REQ_BOOKING_ID].tolist()
         console_logger.info(f'{self.count} new and already assigned request(s) in payload - {booking_ids}')
 
-    @staticmethod
-    def _build_request_dict(req, dwell_pickup, dwell_alight):
+    def _build_request_dict(self, req):
         # simplified code to build a single request dictionary from the raw request data
         pickup = req[PayloadKeys.REQ_PICKUP_PT]
         pickup_lat, pickup_lon, pickup_node_id = pickup['lat'], pickup['lon'], pickup.get('node_id', None)
@@ -52,7 +53,7 @@ class RequestHandler:
             "lon": dropoff_lon,
             "node_id": dropoff_node_id
         }
-
+        dwell_pickup, dwell_alight = self._resolve_dwell_times(req)
         request_dict = {
             PayloadKeys.REQ_BOOKING_ID: req[PayloadKeys.REQ_BOOKING_ID],
 
@@ -75,6 +76,10 @@ class RequestHandler:
             PayloadKeys.REQ_DWELL_ALIGHT: dwell_alight,
         }
         return request_dict
+
+    def _resolve_dwell_times(self, req: dict) -> tuple[int, int]:
+        """Delegate to shared helper with config defaults."""
+        return Request.resolve_dwell_times(req, self.config.DWELL_PICKUP, self.config.DWELL_ALIGHT)
 
     @staticmethod
     def get_request(request_data) -> Request:

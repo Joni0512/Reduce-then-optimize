@@ -31,8 +31,8 @@ class SwapHandler:
         NetworkHandler.init_from_source(server_url)
         payload_object = PayloadParser.get_payload_object({
             PayloadKeys.DRIVERS: driver_runs,
-            PayloadKeys.DEPOT: depot, 
-            PayloadKeys.REQUESTS: []})
+            PayloadKeys.DEPOT: depot,
+            PayloadKeys.REQUESTS: []}, dwell_pickup_default=config.DWELL_PICKUP, dwell_alight_default=config.DWELL_ALIGHT)
         self.active_requests = set(payload_object.active_requests_keys)
         
         requests = payload_object.requests

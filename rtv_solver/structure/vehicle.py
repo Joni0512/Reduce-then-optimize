@@ -7,7 +7,7 @@ from rtv_solver.structure.driver_run import ManifestEntry
 from rtv_solver.structure.trip_insertion_plan import TripInsertionPlan
 
 from rtv_solver.handlers.network_handler import NetworkHandler
-from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.schema.payload_keys import PayloadKeys
 
 
 class Vehicle:

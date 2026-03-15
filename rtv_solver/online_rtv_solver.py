@@ -90,9 +90,9 @@ class OnlineRTVSolver:
         #     NetworkHandler.init_from_source(server_url=self.config.SERVER_URL, tt_matrix=None)
         # else:
         #     NetworkHandler.init_from_source(server_url=self.config.SERVER_URL, tt_matrix=payload[PayloadKeys.TIME_MATRIX])
-        payload_object = PayloadParser.get_payload_object(payload)
+        payload_object = PayloadParser.get_payload_object(payload, dwell_pickup_default=self.config.DWELL_PICKUP, dwell_alight_default=self.config.DWELL_ALIGHT, online=True)
         # get all requests of payload, add 
-        request_handler = RequestHandler(payload_object.requests, self.config.DWELL_PICKUP, self.config.DWELL_ALIGHT)
+        request_handler = RequestHandler(payload_object.requests, self.config)
         temp_batch = request_handler.get_all_requests()
         
         # filter active and boarded requests for subsequent action as they need to be integrated when handling new trip generation
@@ -117,9 +117,7 @@ class OnlineRTVSolver:
         # update vehicle position/trips/times along its path according to all data stored in the manifest
         vehicle_handler.add_manifest_to_vehicles(payload_object.driver_runs,
                                                  boarded_requests,
-                                                 boarded_trips, 
-                                                 self.config.DWELL_ALIGHT, 
-                                                 self.config.DWELL_PICKUP)
+                                                 boarded_trips)
 
         # TODO add depot node with id, so it can be calculated later on using the travel_time_matrix
         
@@ -555,8 +553,8 @@ class OnlineRTVSolver:
         st_th = time.time()
 
         pool = Pool(processes=max(1,min(len(remaining_stops), 8)))
-        args_list = [(i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective, depot_node, end_time, self.config.DWELL_PICKUP,
-                    self.config.DWELL_ALIGHT) 
+        # TODO fix config DWELL values as we want to the clean ones here from the actual requests if possible
+        args_list = [(i, j, remaining_stops, pickup_stop, dropoff_stop, start_time, start_node, load, state, objective, depot_node, end_time, self.config.DWELL_PICKUP, self.config.DWELL_ALIGHT) 
                     for i in range(len(remaining_stops) + 1) 
                     for j in range(i + 1, len(remaining_stops) + 2)]
         results = pool.map(OnlineRTVSolver._evaluate_insertion, args_list)

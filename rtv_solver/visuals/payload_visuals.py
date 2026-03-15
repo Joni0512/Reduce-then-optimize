@@ -5,6 +5,7 @@ from matplotlib.lines import Line2D
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.request_handler import RequestHandler
 from rtv_solver.schema.payload_keys import PayloadKeys
+from rtv_solver.structure.config import Config
 import numpy as np
 
 from typing import Any
@@ -315,7 +316,7 @@ def plot_request_time_windows_woTimematrix(
     Plot the request time windows if the time matrix is not part of the data
     """
     # TODO can possible be combined with the function above, but no priority
-    payload = PayloadParser.get_payload_object(data, online = True)
+    payload = PayloadParser.get_payload_object(data, dwell_pickup_default=15, dwell_alight_default=30, online = True)
     request_handler = RequestHandler(payload.requests, 180, 60)
 
     requests = request_handler.get_all_requests()

@@ -79,6 +79,7 @@ if __name__=="__main__":
     with open(args.input_file, 'rb') as f:
         payload = pickle.load(f)
     start_of_the_day = datetime.strptime(payload['date'], '%Y-%m-%d')
+    # TODO these should be defined by arguments instead of hardcoded
     dwell_pickup = 180
     dwell_alight = 60
 
@@ -88,8 +89,8 @@ if __name__=="__main__":
 
     NetworkHandler.init(True, config.SERVER_URL) # initialize it once so everything else can access it
 
-    payload_object = PayloadParser.get_payload_object(payload,False)
-    request_handler = RequestHandler(payload_object.requests, dwell_pickup, dwell_alight)      
+    payload_object = PayloadParser.get_payload_object(payload, dwell_pickup_default=dwell_pickup, dwell_alight_default=dwell_alight, online=False)
+    request_handler = RequestHandler(payload_object.requests, config)      
     vehicle_handler = VehicleHandler(payload_object.depot, payload_object.driver_runs, config)
     output_handler = OutputHandler(OUTPUT_DIR)
 
