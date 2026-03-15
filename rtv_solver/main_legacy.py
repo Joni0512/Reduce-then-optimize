@@ -6,6 +6,7 @@ from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.network_handler import NetworkHandler
 
 from rtv_solver.structure.config import Config
+from rtv_solver.schema.payload_keys import PayloadKeys
 from rtv_solver.pipeline import CO_TripCostMinimization
 
 import argparse
