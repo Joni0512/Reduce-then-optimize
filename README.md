@@ -97,12 +97,12 @@ There exist two separate payload format that work with the existing codebase on 
 - `wilson`
 - `chattanooga`
 
-Each format can be used as there is an automatic detection and conversion of the payloads when using the `main.py` script.
+Each format can be used as there is an automatic detection and conversion of the payloads when using the `main.py` script. Each format unfortunately has a few intricacies that we try to explain for each one separately.
 
 ### Wilson
 
 The JSON format is mainly for documentation purposes and facilitates understanding instead of usability. For `wilson`, the following format applies (example `inputs/wilson_nc_initial.pkl`):
-The value `node_id` might not be part of the original data object, but is generally added wherever locations are handled.
+The value `node_id` might not be part of the original data object, but is generally added wherever locations are handled. The original file does not have a travel_time matrix or node_ids per location. Further, it does not define a dwell_times for pickups or stops, which are then defaulted to config values.
 
 ``` js 
 {
@@ -112,12 +112,10 @@ The value `node_id` might not be part of the original data object, but is genera
             "pickup_pt":{
                 "lon":-77.930793762,
                 "lat":35.780387878,
-                "node_id": 12 (otional)
             },
             "dropoff_pt":{
                 "lon":-77.893867493,
                 "lat":35.719944,
-                "node_id": 13 (optional)
             },
             "pickup_time_window_start":20043,
             "pickup_time_window_end":21843,
@@ -219,6 +217,95 @@ The structure used in Chattanooga is different to the one used in `wilson`'.
         "node_id":0
     },
     "date": "2023-10-19",
+    "time_matrix": [
+        [
+            0,
+            575,
+            ...
+        ],
+        [
+            527,
+            0,
+            ...
+        ]
+    ]
+}
+```
+
+### Li-Lim benchmark
+
+After transitioning the original `.txt`-files into our json format, some changes apply as we did not want to remove valuable information. Further, this information is required to match the global optimum and use these results as actual benchmarks.
+
+```js
+{
+   "requests": [ list of requests
+        {
+            "booking_id": "1", 
+            "pickup_pt":{
+                "lon":-77.930793762,
+                "lat":35.780387878,
+                "node_id": 20
+            },
+            "dropoff_pt":{
+                "lon":-77.893867493,
+                "lat":35.719944,
+                "node_id": 14
+            },
+            "pickup_time_window_start":20043,
+            "pickup_time_window_end":21843,
+            "dropoff_time_window_start":20654.9,
+            "dropoff_time_window_end":22454.9,
+            "am":1,
+            "wc":0,
+            "pickup_service_time": 90,
+            "dropoff_service_time": 90
+        }
+   ],
+   "depot": {
+        "pt":{
+            "lat":35.723017652422435,
+            "lon":-77.90871990823223
+        },
+        "node_id":0
+    },
+    "driver_runs": [ list of vehicles
+        {
+        "state": { initial state
+            "run_id":0,
+            "start_time":18000,
+            "end_time":72000,
+            "am_capacity":8,
+            "wc_capacity":3,
+            "locations_already_serviced":0,
+            "location_dt_seconds":0,
+            "total_locations": 4,
+            "loc":{
+                "lat":35.723017652422435,
+                "lon":-77.90871990823223,
+                "node-id": 0
+            }
+        },
+        "manifest":[ list of all actual stops of that vehicle
+            "run_id": 0 (corresponding vehicleID),
+            "order": 5 (order in trip),
+            "action": ["pickup", "dropoff", "depot"] (options),
+            "booking_id": 1 (corresponding requestID),
+            "loc": {
+                "lat":35.723017652422435,
+                "lon":-77.90871990823223,
+                'node_id': 1
+            }
+            "am":1,
+            "wc":0,
+            "scheduled_time": 20567 (actual arrival time at the stop),
+            %%% following items for debugging and checks, not completely supported
+            "arrival_time": 20567 (arrival time at location),
+            "service_start_time": 20567 (begin of service, earliest tw-window),
+            "service_end_time": 20700 (addition of service_start + dwell),
+            "time_window_start": 20000 (range of arrival_time, copied from time windows),
+            "time_window_end": 21000 (range of arrival_time),
+            "dwell": 90.0 (time for service)
+        ]}],
     "time_matrix": [
         [
             0,
