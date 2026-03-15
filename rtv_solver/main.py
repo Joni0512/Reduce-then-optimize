@@ -53,8 +53,8 @@ if __name__ == "__main__":
     parser.add_argument('--keep_active', type=str,          default='False', choices=['True', 'False'], help='Active requests from an ILP solution in a prior iteration must be kept.')
     parser.add_argument('--return_depot', type=str,         default='True', choices=['True', 'False'], help="Vehicles must return to the originating depot.")
     parser.add_argument('--intermediate_location', type=str, default='False', choices=['True', 'False'], help='Intermediate locations are considered for the solver.')
-    parser.add_argument('--dwell_pickup', type=int,         default=1, help='Dwell time at pickup in seconds (backup defaults)')
-    parser.add_argument('--dwell_alight', type=int,         default=2, help='Dwell time at alight (dropoff) in seconds (backup defaults)')
+    parser.add_argument('--dwell_pickup', type=int,         default=180, help='Dwell time at pickup in seconds (backup defaults)')
+    parser.add_argument('--dwell_alight', type=int,         default=90, help='Dwell time at alight (dropoff) in seconds (backup defaults)')
     # TODO add dwell time again as we have taken it out for specific testing purposes
     parser.add_argument('--walk_distance_cutoff', type=int, default=0, help="Walking distance between dropoff and final destination.")
     parser.add_argument('--step_size', type=int,            default=100, help='Step size in seconds for rolling horizon')
@@ -67,7 +67,7 @@ if __name__ == "__main__":
     parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'coaml', 'plot', 'optimal_solution', 'hexaly_solution'], default='coaml', help='Mode on how the programme should solve the PDPTW')
     parser.add_argument('--debug', type= str, default='False', choices=['True', 'False'], help='Run in debug mode (# reduces number of vehicles and requests for easier debugging)')
     parser.add_argument('--y_star_type', type=str, choices=[TYPE_BEST_ORDERED_MATCH], default=TYPE_BEST_ORDERED_MATCH, help='Type of y_star to be used for the Fenchel-Young loss during imitation learning')
-    parser.add_argument('--epochs', type=int, default=2, help='Number of training epochs over the same payload for COAML mode')
+    parser.add_argument('--epochs', type=int, default=10, help='Number of training epochs over the same payload for COAML mode')
     parser.add_argument('--learning_rate', type=float, default=5e-3, help='Learning rate for the ML model')
 
     # TODO FIXME fix input file handling for Sartori datasets (result does not work as expected and has many violations) - no priority to fix this at end of thesis
@@ -149,13 +149,7 @@ if __name__ == "__main__":
         payload[PayloadKeys.TIME_MATRIX] = None
         console_logger.warning("Time matrix is not available. Solution run on server, but time_matrix is missing - leading to no possibility of running this dataset without backend server.") 
 
-    # FIXME while running the training loop or an offline call of the LiLim dataset, we have found the following issue that might not be fixed by the end of this thesis: (we need this in order to replicate optimal solutions, giving us the option to actually learn the behavior and get better results)
-    # - manifests change the node_id when using a travel_time_matrix leading to issues with the calculation of distance and possibly leading to issues; the travel_time_matrix is clearly not updated and thus must lead to wrong travel_times and infeasible solutions under way (we do not match the lon-lat values but just the node-ids)
-    # - why are the location nodes stored in manifest with instead of 'node_id' which should be the correct key that we have previously quickfixed (this needs to be solved)
-    # - dwell times need to be custom to the pickup_service_time and dropoff_service_time as these are the times that are used for the calculation of the dwell times in the location (basically waiting until they can leave) - the current approach with fixed values in the config is too unstable and leads to issues in the calculation of routes
-    # presumably because of the problems above, we are missing certain pickups of the optimal solution that are completely missed as no other vehicle picks them up only following their own optimal solution (as they should) --> 8 requests in total missing as they are not serviced.
-    # - in the solver from COAMLPipeline, the state-location of a vehicle at the end of its trip is not located at the final position (depot) but at the last dropoff location of the manifest; (possibly as we do not simulate the manifest after finalizing the mainfest and thus do not have the final location - this needs to be solved as it probably fixes other issues as well)
-    # TODO assertion in finalizeDriverRuns is not correct if we already have the depot return in the manifest, it should not check for the last stop to be a dropoff but also a depot return action should be correct.
+    # TODO for items run with the server, the final travel_time_matrix should be stored with the complete dataset in order to easily replay it in the future (no priority for thesis as we only used LiLimParser as input)
 
     if config.MODE != 'plot':
         # Initialize RTV solver

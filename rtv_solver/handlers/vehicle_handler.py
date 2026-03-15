@@ -178,7 +178,8 @@ class VehicleHandler:
                 PayloadKeys.MANIFEST_AMBULATORY: trip.am_capacity, 
                 PayloadKeys.MANIFEST_WHEELCHAIR: trip.wc_capacity, 
                 PayloadKeys.MANIFEST_TIME_WINDOW_START: time_window_start, 
-                PayloadKeys.MANIFEST_TIME_WINDOW_END: time_window_end}
+                PayloadKeys.MANIFEST_TIME_WINDOW_END: time_window_end,
+                PayloadKeys.MANIFEST_DWELL: dwell}
             manifest.append(stop)
             # local update for vehicle state to create complete manifest over next iteration
             last_node, time_at_last_node = node, stop_time + dwell 

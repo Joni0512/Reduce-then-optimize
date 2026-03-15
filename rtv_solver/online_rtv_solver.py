@@ -299,14 +299,10 @@ class OnlineRTVSolver:
                 next_stop = manifest[current_order]
                 next_immediate_time = next_stop[PayloadKeys.MANIFEST_SCHED_TIME]
                 next_immediate_loc = next_stop[PayloadKeys.MANIFEST_LOC]
-                action = next_stop[PayloadKeys.MANIFEST_ACTION]
-                # apply dwell time if applicable, why do we have this 
-                if action == VehicleStop.ACT_PICKUP:
-                    next_immediate_time += config.DWELL_PICKUP
-                elif action == VehicleStop.ACT_DROPOFF:
-                    next_immediate_time += config.DWELL_ALIGHT
-                else: # no extra time for depot or rebalance
-                    next_immediate_time += 0
+                action = next_stop[PayloadKeys.MANIFEST_ACTION] # NOTE action does not make a difference during simulation, keep it for now
+                dwell = next_stop[PayloadKeys.MANIFEST_DWELL]
+                
+                next_immediate_time += dwell # if dwell does not exist, there is an issue: pickup and dropoff from request or defaults, rebalance or depot 0
                 current_order += 1
                 if next_immediate_time > current_time:
                     break
@@ -623,7 +619,7 @@ class OnlineRTVSolver:
             updated_driver_runs = []
             for run in driver_runs_c:
                 driver_run = DriverRun.from_dict(run)
-                if driver_run.manifest: # # manifest is not empty
+                if driver_run.manifest: # manifest is not empty
                     # TODO check if those numbers are right
                     # Location are same, manifest seems to be more correct though
                     last_node = driver_run.state.loc
@@ -641,13 +637,12 @@ class OnlineRTVSolver:
 
                     assert manifest_action == VehicleStop.ACT_DROPOFF, f"Last stop {manifest_action} in run {driver_run.state.run_id} and {last_entry.booking_id} should have been a dropoff"
 
-                    # TODO remove dwell time for ACT_DEPOT wherever that is
                     # turn depot_dict into a Node object with node_id
                     depot_node = Node.from_dict({
                         "lon": depot_dict[PayloadKeys.DEPOT_PT]["lon"],
                         "lat": depot_dict[PayloadKeys.DEPOT_PT]["lat"], 
                         "node_id": depot_dict["node_id"]})
-                    # FIXME time_at_last_node is currently dependent on the vehicle_time but not the time at the last stop. the change would add the final depot stop after the last stop has been serviced and as we run it offline, we know that no other stop will be added. (no priority and no reason to change for now)
+                    # FIXME time_at_last_node is currently dependent on the vehicle_time but not the time at the last stop. the change would add the final depot stop after the last stop has been serviced and as we run it offline, we know that no other stop will be added. (no priority for thesis and no reason to change for now as it only adds wait time for the depot return)
                     depot_arrival_time = time_at_last_node + NetworkHandler.travel_time(last_node, depot_node)
                     artificial_request_id = -(driver_run.state.run_id + 1)
 
@@ -661,11 +656,14 @@ class OnlineRTVSolver:
                             PayloadKeys.MANIFEST_AMBULATORY: 0, 
                             PayloadKeys.MANIFEST_WHEELCHAIR: 0, 
                             PayloadKeys.MANIFEST_TIME_WINDOW_START: depot_arrival_time-10, 
-                            PayloadKeys.MANIFEST_TIME_WINDOW_END: depot_arrival_time+10
+                            PayloadKeys.MANIFEST_TIME_WINDOW_END: depot_arrival_time+10,
+                            PayloadKeys.MANIFEST_DWELL: 0
                             })
+                    driver_run.manifest.append(depot_stop)
+                    # update state
                     driver_run.state.total_locations += 1
                     driver_run.state.locations_already_serviced += 1
-                    driver_run.manifest.append(depot_stop)
+                    driver_run.state.loc = depot_node
 
                 updated_driver_runs.append(driver_run.to_dict())
             OnlineRTVSolver._check_consistency_of_manifests(driver_runs_c, updated_driver_runs, [], [], keep_active=config.KEEP_ACTIVE, return_depot=config.RETURN_DEPOT, check_depot=True)

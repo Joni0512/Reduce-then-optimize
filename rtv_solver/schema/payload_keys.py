@@ -27,11 +27,8 @@ class PayloadKeys:
     REQ_DROPOFF_WINDOW_END = 'dropoff_time_window_end'
     REQ_AMBULATORY = 'am'
     REQ_WHEELCHAIR = 'wc'
-    # dwell times have been defined differently in the manifests, for LiLim we need to align this information with the new keys in order to be able to reach optimum parity
     REQ_DWELL_PICKUP = 'dwell_pickup'
     REQ_DWELL_ALIGHT = 'dwell_alight'
-    REQ_PICKUP_SERVICE_TIME = 'pickup_service_time'
-    REQ_DROPOFF_SERVICE_TIME = 'dropoff_service_time'
 
     DRIVERS = "driver_runs"
     DRIVER_STATE = "state"
@@ -56,11 +53,7 @@ class PayloadKeys:
     MANIFEST_SCHED_TIME = "scheduled_time"
     MANIFEST_TIME_WINDOW_START = "time_window_start"
     MANIFEST_TIME_WINDOW_END = "time_window_end"
-    # TODO add these changes to the creation of stops from manifests in the parser (otherwise we cannot reach par with LiLimParser solutions) - in LiLim solutions we have pickup_service_time and dropoff_service_time
     MANIFEST_DWELL = "dwell"
-    MANIFEST_ARRIVAL_TIME = "arrival_time"
-    MANIFEST_SERVICE_START_TIME = "service_start_time"
-    MANIFEST_SERVICE_END_TIME = "service_end_time"
     
 
     STATS_ASSIGNMENT_DEVELOPMENT = "stats_assign_dev"   

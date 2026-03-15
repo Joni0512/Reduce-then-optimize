@@ -326,26 +326,23 @@ class StatsParser:
                 self.stats.rebalancing_vmt += travel_time
             
             # scheduled_time remains the canonical service start for backward compatibility
-            service_start = float(stop.get(PayloadKeys.MANIFEST_SERVICE_START_TIME, scheduled_time))
+            service_start = scheduled_time
             # On first leg (depot -> first stop): vehicle waits at depot until necessary to reach stop on time
             if previous_stop_label == "depot(start)":
                 actual_departure = max(current_time, service_start - travel_time)
                 computed_arrival_time = actual_departure + travel_time
             else:
                 computed_arrival_time = current_time + travel_time
-            # backward compatibile with old manifests
-            manifest_arrival_time = float(stop.get(PayloadKeys.MANIFEST_ARRIVAL_TIME, computed_arrival_time))
 
             if action == VehicleStop.ACT_PICKUP:
-                # NOTE FIXME this should be better, we need the dwell time from the trip and stops itself, not from the config; at least for LiLim it is part of the pickup_service_time and dropoff_service_time
                 dwell_fallback = getattr(self.config, "DWELL_PICKUP", 180)
             elif action == VehicleStop.ACT_DROPOFF:
                 dwell_fallback = getattr(self.config, "DWELL_ALIGHT", 60)
-            else:
+            else: # DEPOT + REBALANCE
                 dwell_fallback = 0
             # take dwell time stores in manifest for that stop if available, otherwise use fallback
             dwell_time = float(stop.get(PayloadKeys.MANIFEST_DWELL, dwell_fallback))
-            service_end = float(stop.get(PayloadKeys.MANIFEST_SERVICE_END_TIME, service_start + dwell_time))
+            service_end = service_start + dwell_time
 
             if service_start < computed_arrival_time:
                 console_logger.error("presumably the issue lies in the transition of node_ids which should never happen as then the travel_time between nodes changes and the simulation breaks. Current deep dive into the issue.")
@@ -379,7 +376,6 @@ class StatsParser:
                 self._add_violation(
                     "Scheduled time is impossible given travel time", booking_id, run_id, stop, details={
                         "computed_arrival_time": computed_arrival_time,
-                        "manifest_arrival_time": manifest_arrival_time,
                         "service_start_time": service_start,
                         "margin": travel_time_margin,
                         "lateness": computed_arrival_time - service_start,

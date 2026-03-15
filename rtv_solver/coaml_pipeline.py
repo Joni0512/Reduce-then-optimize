@@ -85,6 +85,7 @@ class COAMLPipeline():
             try:
                 # it is required here as we do not call OnlineRTVSolver as an object
                 multiprocessing.set_start_method("fork")
+                # NOTE if you see issues like this: 'Fatal Python error: Bus error' you might need to introduce spawn context for each Multiprocessing Pool (also depends on the cluster system)
             except RuntimeError: # start method was already set somewhere else -> don't crash
                 pass
 

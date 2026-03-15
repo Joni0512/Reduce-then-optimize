@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from dataclasses import dataclass, asdict
 
 from rtv_solver.schema.payload_keys import PayloadKeys
@@ -52,6 +52,7 @@ class ManifestEntry:
     scheduled_time: int
     time_window_start: int
     time_window_end: int
+    dwell: Optional[int] = None
 
     @classmethod
     def from_dict(cls, data: dict) -> 'ManifestEntry':
@@ -65,7 +66,8 @@ class ManifestEntry:
             wc                  = data[PayloadKeys.MANIFEST_WHEELCHAIR],
             scheduled_time      = data[PayloadKeys.MANIFEST_SCHED_TIME],
             time_window_start   = data[PayloadKeys.MANIFEST_TIME_WINDOW_START],
-            time_window_end     = data[PayloadKeys.MANIFEST_TIME_WINDOW_END]
+            time_window_end     = data[PayloadKeys.MANIFEST_TIME_WINDOW_END],
+            dwell               = data.get(PayloadKeys.MANIFEST_DWELL)
         )
     
     def to_dict(self) -> dict:

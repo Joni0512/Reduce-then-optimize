@@ -330,9 +330,8 @@ class PayloadParser:
                 return PayloadParser._build_request_from_stops(stop, drop_off_stop)
 
     @staticmethod
-    def _build_request_from_stops(pickup_stop, dropoff_stop):
+    def _build_request_from_stops(pickup_stop: dict, dropoff_stop: dict) -> dict:
         """builds request from two separate stops out of manifest"""
-        # TODO add dwell times here as well
         request = {
             PayloadKeys.REQ_BOOKING_ID:               pickup_stop[PayloadKeys.MANIFEST_BOOKING_ID],
             PayloadKeys.REQ_AMBULATORY:               pickup_stop[PayloadKeys.MANIFEST_AMBULATORY],
@@ -343,6 +342,8 @@ class PayloadParser:
             PayloadKeys.REQ_DROPOFF_WINDOW_START:     dropoff_stop[PayloadKeys.MANIFEST_TIME_WINDOW_START],
             PayloadKeys.REQ_DROPOFF_WINDOW_END:       dropoff_stop[PayloadKeys.MANIFEST_TIME_WINDOW_END],
             PayloadKeys.REQ_DROPOFF_PT:               dropoff_stop[PayloadKeys.MANIFEST_LOC],
+            PayloadKeys.REQ_DWELL_PICKUP:             pickup_stop[PayloadKeys.MANIFEST_DWELL],
+            PayloadKeys.REQ_DWELL_ALIGHT:             dropoff_stop[PayloadKeys.MANIFEST_DWELL],
         }
         return request
 

@@ -61,11 +61,11 @@ class Request:
     ) -> tuple[int, int]:
         """
         Resolve dwell pickup and dwell alight from request payload or defaults.
-        Priority: REQ_PICKUP_SERVICE_TIME/REQ_DROPOFF_SERVICE_TIME > REQ_DWELL_PICKUP/REQ_DWELL_ALIGHT > defaults.
+        Priority: "pickup_service_time"/"dropoff_service_time" (inital transfer from LiLimParser) > REQ_DWELL_PICKUP/REQ_DWELL_ALIGHT > defaults.
         """
         pk = PayloadKeys
-        if pk.REQ_PICKUP_SERVICE_TIME in req and pk.REQ_DROPOFF_SERVICE_TIME in req:
-            return req[pk.REQ_PICKUP_SERVICE_TIME], req[pk.REQ_DROPOFF_SERVICE_TIME]
+        if "pickup_service_time" in req and "dropoff_service_time" in req:
+            return req["pickup_service_time"], req["dropoff_service_time"]
         if pk.REQ_DWELL_PICKUP in req and pk.REQ_DWELL_ALIGHT in req:
             return req[pk.REQ_DWELL_PICKUP], req[pk.REQ_DWELL_ALIGHT]
         return default_pickup, default_alight
