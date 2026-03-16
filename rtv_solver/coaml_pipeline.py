@@ -69,9 +69,9 @@ class COAMLPipeline():
         self.offline_payload = offline_payload
         self.feature_builder = FeatureBuilder(offline_payload, self.config)
         self.model = model if model is not None else ScoringMLP(
-            feature_dim=FeatureBuilder.FEATURE_SIZE, hidden_dim=64
+            feature_dim=FeatureBuilder.FEATURE_SIZE, hidden_dim=config.HIDDEN_DIM
         )
-        self.fy_loss = FenchelYoungLoss(num_samples=20, sigma=0.2) # alternative 0.1 or 0.05 for less variance
+        self.fy_loss = FenchelYoungLoss(num_samples=config.NUM_SAMPLES, sigma=config.SIGMA) # alternative 0.1 or 0.05 for less variance
         self.imitation_handler = ImitationHandler(config)
         
         self.coaml_optimizer = CO_ScoreMaximization(config)

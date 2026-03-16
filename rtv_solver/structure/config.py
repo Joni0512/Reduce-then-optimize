@@ -64,6 +64,9 @@ class Config:
     Y_STAR_TYPE: str = "best_ordered_match" # TODO somehow we have circular imports if we imported this from the pipeline module
     EPOCHS: int = 1
     LEARNING_RATE: float = 1e-3
+    HIDDEN_DIM: int = 64
+    NUM_SAMPLES: int = 20
+    SIGMA: float = 0.2
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -142,7 +145,10 @@ class Config:
             IMITATION_SOLUTION_FILE = args.imitation_solution_file,
             Y_STAR_TYPE = args.y_star_type,
             EPOCHS = getattr(args, "epochs", 1),
-            LEARNING_RATE = getattr(args, "learning_rate", 1e-3)
+            LEARNING_RATE = getattr(args, "learning_rate", 1e-3),
+            HIDDEN_DIM = getattr(args, "hidden_dim", 64),
+            NUM_SAMPLES = getattr(args, "num_samples", 20),
+            SIGMA = getattr(args, "sigma", 0.2)
         )
         # some checks to fail early if the config is not valid
         assert config.STEP_SIZE <= config.BATCH_INTERVAL, f"MUST: Step size {config.STEP_SIZE} <= batch interval {config.BATCH_INTERVAL}"

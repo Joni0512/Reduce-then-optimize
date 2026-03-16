@@ -21,22 +21,22 @@ import logging
 console_logger = logging.getLogger(BASIC_LOGGER)
 
 # TODO simplest solution to run training, should probably be improved in the future
-# TRAINING_FILES = [
-#     "lc101", "lc102", "lc103", "lc104", "lc105", "lc106", "lc107",
-#     "lc201", "lc202", "lc203", "lc204", "lc205", "lc206",
-#     "lr101", "lr102", "lr103", "lr104", "lr105", "lr106", "lr107", "lr108", "lr109", "lr110",
-#     "lr201", "lr202", "lr203", "lr204", "lr205", "lr206", "lr207", "lr208", "lr209",
-#     "lrc101", "lrc102", "lrc103", "lrc104", "lrc105", "lrc106",
-#     "lrc201", "lrc202", "lrc203", "lrc204", "lrc205", "lrc206"
-# ]
-# VALIDATION_FILES = [
-#     "lc108", "lc109",
-#     "lc207", "lc208",
-#     "lr111", "lr112",
-#     "lr210", "lr211",
-#     "lrc107", "lrc108",
-#     "lrc207", "lrc208"
-# ]
+TRAINING_FILES = [
+    "lc101", "lc102", "lc103", "lc104", "lc105", "lc106", "lc107",
+    "lc201", "lc202", "lc203", "lc204", "lc205", "lc206",
+    "lr101", "lr102", "lr103", "lr104", "lr105", "lr106", "lr107", "lr108", "lr109", "lr110",
+    "lr201", "lr202", "lr203", "lr204", "lr205", "lr206", "lr207", "lr208", "lr209",
+    "lrc101", "lrc102", "lrc103", "lrc104", "lrc105", "lrc106",
+    "lrc201", "lrc202", "lrc203", "lrc204", "lrc205", "lrc206"
+]
+VALIDATION_FILES = [
+    "lc108", "lc109",
+    "lc207", "lc208",
+    "lr111", "lr112",
+    "lr210", "lr211",
+    "lrc107", "lrc108",
+    "lrc207", "lrc208"
+]
 
 # NOTE DEBUG MODE
 TRAINING_FILES = ["lc101", "lc105"]
@@ -108,7 +108,7 @@ class COAMLTrainingLoop:
         self.config = config
         self.payload = payload
         self.model = model or ScoringMLP(
-            feature_dim=FeatureBuilder.FEATURE_SIZE, hidden_dim=32
+            feature_dim=FeatureBuilder.FEATURE_SIZE, hidden_dim=config.HIDDEN_DIM
         )
 
     def run(self) -> TrainingLoopResult:
