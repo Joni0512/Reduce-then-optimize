@@ -35,6 +35,7 @@ class Config:
     OVERRIDE: List[str] = field(default_factory=list)
     OUTPUT_DIR: Path = Path("outputs") / "debug"
     INPUT_FILE: str = "rtv-solver/inputs/wilson_nc_initial.pkl"
+    INPUT_DIR: str = ""  # coaml mode only: directory of input files to process in batch
     SERVER_URL: str = None # "http://127.0.0.1:5001/"
     MAX_THREAD_CNT: int = 16
     RTV_TIMEOUT: int = 120
@@ -102,7 +103,12 @@ class Config:
 
         # Create new run directory
         ROOT_DIR = Path(__file__).resolve().parent.parent.parent
-        output_directory = cls.create_output_dir(ROOT_DIR / "outputs", args.output_dir)
+        input_dir = getattr(args, "input_dir", "") or ""
+        if args.mode == "coaml" and input_dir:
+            file_name = "batch"
+        else:
+            file_name = args.input_file.split("/")[-1].split(".")[0]
+        output_directory = cls.create_output_dir(ROOT_DIR / "outputs", file_name, args)
         
         # add the change for the input_file
         # if a config is missing an item due to additional config items, one can override it by adding it there and still use the same config settings
@@ -112,6 +118,7 @@ class Config:
             OVERRIDE = args.override, 
             OUTPUT_DIR = output_directory,
             INPUT_FILE = args.input_file,
+            INPUT_DIR = getattr(args, "input_dir", "") or "",
             SERVER_URL = getattr(args, "server_url", None), # args.server_url,
             MODE = args.mode,
             MAX_THREAD_CNT = args.max_thread_cnt,
@@ -175,16 +182,16 @@ class Config:
         return cls.from_dict(config_dict)
 
     @staticmethod
-    def create_output_dir(base_dir: Path, experiment_dir: Path | str) -> Path:
+    def create_output_dir(base_dir: Path, file_name: str, args: argparse.Namespace) -> Path:
         """Create a unique output directory with timestamp or UUID."""
-        unique_dir = base_dir / experiment_dir / f"run_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        unique_dir = base_dir / args.output_dir / f"run_{file_name}_mc{args.max_cardinality}_bi{args.batch_interval}_ss{args.step_size}_{time.strftime('%Y%m%d_%H%M%S')}"
         unique_dir.mkdir(parents=True, exist_ok=True)
         return unique_dir
     
     @staticmethod
     def derive_base_output_dir(old_output_dir: str | Path) -> Path:
         old = Path(old_output_dir)
-        return old.parent   # ← drop the run_* directory if loaded from a config
+        return old.parent   # drop the run_* directory if loaded from a config
     
     @staticmethod
     def apply_overrides(cfg: dict, overrides: list[str]):
