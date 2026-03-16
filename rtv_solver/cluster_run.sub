@@ -17,17 +17,24 @@ echo "Starting job $SLURM_JOB_ID"
 REPO_ROOT=$HOME/rtv-solver
 PYTHON=$HOME/.conda/envs/coaml/bin/python
 
-INPUT_FILE="$REPO_ROOT/solutions/li_lim/manifests/lc101.json"
-IMITATION_FILE="$INPUT_FILE"
-OUTPUT_DIR="$REPO_ROOT/outputs/experiments"
+INPUT_FILE="solutions/li_lim/manifests/lc101.json"
+IMITATION_SOLUTION_FILE="$INPUT_FILE"
 
-### EXPERIMENT PARAMETERS
-BATCH_INTERVAL=400
-STEP_SIZE=100
+### EXPERIMENT PARAMETERS (from run_main.sh)
+OUTPUT_DIR_NAME="experiments"
+MAX_THREAD_CNT=128
 RTV_TIMEOUT=3600
 ILP_TIMEOUT=120
-MAX_CARIDINALITY=3
-MODE="offline"
+ILP_PENALTY=100000
+MAX_CARDINALITY=3
+LARGEST_TSP=16
+SHARE_COST_FACTOR=5
+STEP_SIZE=100
+BATCH_INTERVAL=400
+SEED=42
+MODE=offline
+EPOCHS=1
+LEARNING_RATE=5e-3
 
 export GRB_LICENSE_FILE="$HOME/gurobi_web.lic"
 ulimit -c unlimited
@@ -39,13 +46,21 @@ python -c "import rtv_solver; print(rtv_solver.__file__)"
 cd $REPO_ROOT
 $PYTHON rtv_solver/main.py \
   --input_file $INPUT_FILE \
-  --imitation_file $IMITATION_FILE \
-  --output_dir $OUTPUT_DIR \
+  --imitation_solution_file $IMITATION_SOLUTION_FILE \
+  --output_dir $OUTPUT_DIR_NAME \
+  --max_thread_cnt $MAX_THREAD_CNT \
   --rtv_timeout $RTV_TIMEOUT \
+  --ilp_timeout $ILP_TIMEOUT \
+  --ilp_penalty $ILP_PENALTY \
   --max_cardinality $MAX_CARDINALITY \
-  --mode $MODE \
+  --largest_tsp $LARGEST_TSP \
+  --share_cost_factor $SHARE_COST_FACTOR \
+  --step_size $STEP_SIZE \
   --batch_interval $BATCH_INTERVAL \
-  --step_size $STEP_SIZE 
+  --seed $SEED \
+  --mode $MODE \
+  --epochs $EPOCHS \
+  --learning_rate $LEARNING_RATE 
 
 echo "Job $SLURM_JOB_ID completed"
 
