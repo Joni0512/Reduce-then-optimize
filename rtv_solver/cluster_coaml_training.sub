@@ -18,7 +18,6 @@ REPO_ROOT=$HOME/rtv-solver
 PYTHON=$HOME/.conda/envs/coaml/bin/python
 
 INPUT_DIR="solutions/li_lim/manifests"
-IMITATION_SOLUTION_FILE="$INPUT_FILE"
 
 ### EXPERIMENT PARAMETERS (from run_main.sh)
 OUTPUT_DIR_NAME="experiments"
@@ -28,8 +27,9 @@ STEP_SIZE=100
 BATCH_INTERVAL=400
 SEED=42
 MODE="coaml"
-EPOCHS=1
-LEARNING_RATE=5e-3
+EPOCHS=40
+LEARNING_RATE=5e-4
+
 
 export GRB_LICENSE_FILE="$HOME/gurobi.lic"
 ulimit -c unlimited
@@ -40,8 +40,7 @@ python -c "import rtv_solver; print(rtv_solver.__file__)"
 
 cd $REPO_ROOT
 $PYTHON rtv_solver/main.py \
-  --input_file $INPUT_FILE \
-  --imitation_solution_file $IMITATION_SOLUTION_FILE \
+  --input_dir $INPUT_DIR \
   --output_dir $OUTPUT_DIR_NAME \
   --max_thread_cnt $MAX_THREAD_CNT \
   --max_cardinality $MAX_CARDINALITY \
