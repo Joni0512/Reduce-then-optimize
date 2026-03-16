@@ -162,7 +162,7 @@ class COAMLTrainingLoop:
                     self.config.OUTPUT_DIR / f"coaml_model_weights_epoch_{epoch_num}.pt",
                 )
 
-        # Validate: run model on val files once after training, store results per file per epoch
+        # Validate: run model on val files after complete training, store results per file
         for v_path in val_files:
             v_cleared = _load_and_clear_payload(v_path)
             out_dir = self.config.OUTPUT_DIR / "val" / v_path.stem
@@ -174,7 +174,7 @@ class COAMLTrainingLoop:
             driver_runs = pipeline.solve_pdptw(v_cleared, mode="eval")
             _save_validation_results(file_cfg, v_cleared, driver_runs)
 
-        # validate the training files once after training, store results per file per epoch
+        # Validate training files after complete training, store results per file per epoch
         for t_path in train_files:
             t_cleared = _load_and_clear_payload(t_path)
             out_dir = self.config.OUTPUT_DIR / "train_val" / t_path.stem

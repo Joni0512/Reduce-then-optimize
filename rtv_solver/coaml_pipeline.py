@@ -139,7 +139,7 @@ class COAMLPipeline():
         driver_runs = payload[PayloadKeys.DRIVERS]
 
         while current_time < end_time:
-            console_logger.info(f"=== Iteration {self.epoch}-{iteration} offline RTV Solver at time {current_time} ===")
+            console_logger.info(f"=== Iteration {self.epoch}-{iteration} COAML Solver (mode: {mode}) at time {current_time} ===")
             
             # select requests that are to be considered in the current interval with pickup_window [current_time, current_time + interval]
             selected_requests = {}
