@@ -30,7 +30,7 @@ def is_server_running():
     try:
         requests.get(SERVER_URL, timeout=1)
         return True
-    except requests.ConnectionError:
+    except (requests.ConnectionError, requests.exceptions.Timeout):
         return False
 
 def pytest_collection_modifyitems(config, items):
