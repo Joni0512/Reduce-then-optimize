@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J rtv-coaml-offline            # Job name
+#SBATCH -J cluster_test            # Job name
 #SBATCH -o /home/jiw42/slurm_logs/exp_%x_%j.out             # output file (%j expands to jobID)
 #SBATCH -e /home/jiw42/slurm_logs/exp_%x_%j.err             # error log file (%j expands to jobID)
 #SBATCH --mail-type=ALL                 # Request status by email 
@@ -13,39 +13,19 @@
 
 echo "Starting job $SLURM_JOB_ID"
 
-### PATHS ###
 REPO_ROOT=$HOME/rtv-solver
 PYTHON=$HOME/.conda/envs/coaml/bin/python
 
-INPUT_FILE="$REPO_ROOT/solutions/li_lim/manifests/lc101.json"
-IMITATION_FILE="$INPUT_FILE"
-OUTPUT_DIR="$REPO_ROOT/outputs/experiments"
+cd $REPO_ROOT
 
-### EXPERIMENT PARAMETERS
-BATCH_INTERVAL=400
-STEP_SIZE=100
-RTV_TIMEOUT=3600
-ILP_TIMEOUT=120
-MAX_CARIDINALITY=3
-MODE="offline"
+export GRB_LICENSE_FILE=$HOME/gurobi_web.lic
 
-export GRB_LICENSE_FILE="$HOME/gurobi_web.lic"
 ulimit -c unlimited
 
-echo "Python used:"
-which python
-python -c "import rtv_solver; print(rtv_solver.__file__)"
-
-cd $REPO_ROOT
 $PYTHON rtv_solver/main.py \
   --input_file $INPUT_FILE \
-  --imitation_file $IMITATION_FILE \
-  --output_dir $OUTPUT_DIR \
-  --rtv_timeout $RTV_TIMEOUT \
-  --max_cardinality $MAX_CARDINALITY \
+  --max_cardinality $MAX_CARIDINALITY \
   --mode $MODE \
   --batch_interval $BATCH_INTERVAL \
-  --step_size $STEP_SIZE 
-
-echo "Job $SLURM_JOB_ID completed"
+  --step_size $STEP_SIZE
 
