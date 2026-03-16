@@ -184,7 +184,13 @@ class Config:
     @staticmethod
     def create_output_dir(base_dir: Path, file_name: str, args: argparse.Namespace) -> Path:
         """Create a unique output directory with timestamp or UUID."""
-        unique_dir = base_dir / args.output_dir / f"run_{file_name}_mc{args.max_cardinality}_bi{args.batch_interval}_ss{args.step_size}_{time.strftime('%Y%m%d_%H%M%S')}"
+        if args.mode == 'coaml':
+            runs_folder = f"batch_lilim_{args.mode}_seed{args.seed}_{time.strftime('%Y%m%d_%H%M%S')}"
+            file_folder = f"mc{args.max_cardinality}_bi{args.batch_interval}_ss{args.step_size}"
+        else:
+            runs_folder = f"run_{args.mode}_{time.strftime('%Y%m%d_%H%M%S')}"
+            file_folder = f"{file_name}_mc{args.max_cardinality}_bi{args.batch_interval}_ss{args.step_size}"
+        unique_dir = base_dir / args.output_dir / runs_folder / file_folder
         unique_dir.mkdir(parents=True, exist_ok=True)
         return unique_dir
     
