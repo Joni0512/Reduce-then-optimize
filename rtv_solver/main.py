@@ -77,7 +77,7 @@ if __name__ == "__main__":
 
     # FILE MANAGEMENT
     parser.add_argument('--input_file', type=str,           default="solutions/li_lim/manifests/lc101.json", help='Path to a single input file (used for offline mode and coaml single-file runs)')
-    parser.add_argument('--input_dir', type=str,            default="", help='Path to directory of input files (coaml mode only; runs pipeline across all .json/.pkl/.txt files and saves each to a separate subfolder)')
+    parser.add_argument('--input_dir', type=str,            default="", help='directory of training files for COAML mode')
     parser.add_argument('--imitation_solution_file', type=str, default='solutions/li_lim/manifests/lc101.json', help='Path to the imitation solution file with the complete manifest of all trips for all vehicles')
     parser.add_argument('--output_dir', type=str,           default="debug", help='Output directory')
     
@@ -101,105 +101,113 @@ if __name__ == "__main__":
 
     console_logger.info(f"Input file: {config.INPUT_FILE}")
     if config.INPUT_DIR:
-        console_logger.info(f"Input directory: {config.INPUT_DIR}")
+        console_logger.info(f"Input dir (train): {config.INPUT_DIR}")
     console_logger.info(f"Output directory: {config.OUTPUT_DIR}")
     console_logger.info(f' --- Start: RTV simulation --- mode > {config.MODE}')
     console_logger.info(f'Arguments: {config}')
-    
-    # load data from file and update to canonical format for the entire system
-    data = PayloadParser.load_input_data(Path(__file__).resolve().parent.parent / config.INPUT_FILE)
 
-    if config.DEBUG: # check if the basic functionality of the online RTV solver works (foundation for offline RTV solver)
-        console_logger.setLevel(logging.INFO)
-        config.RTV_TIMEOUT = 600000 # clicking through inputs, it should not break due to timeout
-        # reduce the complexity by only considering a small number of vehicles and requests
-        driver_runs_total = data[PayloadKeys.DRIVERS]
-        driver_runs_reduced = driver_runs_total[:3]
-        # test to change the first vehicle to trigger certain situations
-        vehicle_state = driver_runs_reduced[0][PayloadKeys.DRIVER_STATE]
-        vehicle_manifest = driver_runs_reduced[0][PayloadKeys.DRIVER_MANIFEST]
-        # COUNT_BASED SELECTION OF REQUESTS: add code that just takes the first n requests out of the payload
-        fixed_data = copy.deepcopy(data)
-        selected_requests = fixed_data[PayloadKeys.REQUESTS][:20]
-        payload = {
-            PayloadKeys.DEPOT: data[PayloadKeys.DEPOT],
-            PayloadKeys.REQUESTS: selected_requests,
-            PayloadKeys.DRIVERS: driver_runs_reduced}
-    else:
-        payload = data
+    # COAML train/val dirs: training loop handles everything (load, train, validate, store)
+    if config.MODE == 'coaml' and config.INPUT_DIR:
+        training_loop = COAMLTrainingLoop(config)
+        training_result = training_loop.run()
+        console_logger.info(f"All iteration losses: {training_result.all_iteration_losses}")
+        console_logger.info(f"Run complete. Results @ {Path(config.OUTPUT_DIR)}")
+    else: # single file_handling
+        # load data from file and update to canonical format for the entire system
+        data = PayloadParser.load_input_data(Path(__file__).resolve().parent.parent / config.INPUT_FILE)
 
-    # required to run data from other sources without the backend server
-    if data.get(PayloadKeys.TIME_MATRIX) is not None:
-        payload[PayloadKeys.TIME_MATRIX] = data[PayloadKeys.TIME_MATRIX]
-    else:
-        payload[PayloadKeys.TIME_MATRIX] = None
-        console_logger.warning("Time matrix is not available. Solution run on server, but time_matrix is missing - leading to no possibility of running this dataset without backend server.")
-
-    # Initialize RTV solver
-    start_time = time.time()
-    if config.MODE == 'online':
-        on_solver = OnlineRTVSolver(config)
-        updated_driver_runs, _ = on_solver.solve_pdptw_rtv(payload)
-    elif config.MODE == 'offline':
-        cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
-        off_solver = OfflineRTVSolver(config)
-        updated_driver_runs = off_solver.solve_rtv(cleared_payload, config.BATCH_INTERVAL, config.STEP_SIZE)
-    elif config.MODE == 'coaml':
-        cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
-        if config.EPOCHS > 1:
-            training_loop = COAMLTrainingLoop(config, cleared_payload)
-            training_result = training_loop.run()
-            updated_driver_runs = training_result.updated_driver_runs
-            console_logger.info(f"All iteration losses: {training_result.all_iteration_losses}")
+        if config.DEBUG: # check if the basic functionality of the online RTV solver works (foundation for offline RTV solver)
+            console_logger.setLevel(logging.INFO)
+            config.RTV_TIMEOUT = 600000 # clicking through inputs, it should not break due to timeout
+            # reduce the complexity by only considering a small number of vehicles and requests
+            driver_runs_total = data[PayloadKeys.DRIVERS]
+            driver_runs_reduced = driver_runs_total[:3]
+            # test to change the first vehicle to trigger certain situations
+            vehicle_state = driver_runs_reduced[0][PayloadKeys.DRIVER_STATE]
+            vehicle_manifest = driver_runs_reduced[0][PayloadKeys.DRIVER_MANIFEST]
+            # COUNT_BASED SELECTION OF REQUESTS: add code that just takes the first n requests out of the payload
+            fixed_data = copy.deepcopy(data)
+            selected_requests = fixed_data[PayloadKeys.REQUESTS][:20]
+            payload = {
+                PayloadKeys.DEPOT: data[PayloadKeys.DEPOT],
+                PayloadKeys.REQUESTS: selected_requests,
+                PayloadKeys.DRIVERS: driver_runs_reduced}
         else:
-            rh_solver = COAMLPipeline(config, cleared_payload)
-            updated_driver_runs = rh_solver.solve_pdptw(cleared_payload)
-            console_logger.info(f"Loss history: {rh_solver.loss_history}")
-    elif config.MODE == 'optimal_solution':
-        max_cardinality = len(payload[PayloadKeys.REQUESTS])
-        config.MAX_CARDINALITY = max_cardinality
-        config.LARGEST_TSP = max_cardinality * 2
-        config.RTV_TIMEOUT = 3600
-        config.ILP_TIMEOUT = 3600
-        config.SHARE_COST_FACTOR = 5
-        console_logger.info(f"Using settings for optimal solution: MAX_CARDINALITY: {config.MAX_CARDINALITY}, LARGEST_TSP: {config.LARGEST_TSP}, RTV_TIMEOUT: {config.RTV_TIMEOUT}, ILP_TIMEOUT: {config.ILP_TIMEOUT}, SHARE_COST_FACTOR: {config.SHARE_COST_FACTOR}")
-        on_solver = OnlineRTVSolver(config)
-        updated_driver_runs, _ = on_solver.solve_pdptw_rtv(payload)
-    elif config.MODE == 'hexaly_solution':
-        updated_driver_runs = []
-        pass  # not implemented
-        # gurobi and hexaly have same interface for now
-        # updated_driver_runs, _ = GurobiSolver.solve_pdptw(config.SERVER_URL, payload, time_limit=3600, output_dir=config.OUTPUT_DIR, iteration=0, min_truck=False, dwell_pickup=180, dwell_dropoff=60, tt_matrix=None)
-        # data = PayloadParser.load_input_data("/Users/jw/Desktop/master_thesis/mt_sourcecode/rtv-solver/outputs/debug/run_20260226_171939_ef1f99/result_driver_runs.json")
-        # updated_driver_runs, _ = HexalySolver.check_solution(payload, config.SERVER_URL, time_limit=3600, output_dir=config.OUTPUT_DIR)
-        # updated_driver_runs, _ = HexalySolver.solve_pdptw(config.SERVER_URL, payload, time_limit=3600, output_dir=config.OUTPUT_DIR, iteration=0, min_truck=False, dwell_pickup=180, dwell_dropoff=60, tt_matrix=None)
-    else:
-        updated_driver_runs = []
-        raise ValueError('No solution as no correct config.MODE provided.')
+            payload = data
 
-    # calculate statistics and save
-    tt_matrix = payload.get(PayloadKeys.TIME_MATRIX, None)
-    stats_payload = {
-        PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
-        PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
-        PayloadKeys.DRIVERS: updated_driver_runs,
-        PayloadKeys.TIME_MATRIX: tt_matrix
-    }
-    stats_evaluator = StatsParser(config, payload=stats_payload)
-    total_time = time.time() - start_time
-    feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
-    stats_evaluator.add_total_time(total_time=total_time)
-    assignment_history = stats_evaluator.evaluate_development(stats_payload)
+        # required to run data from other sources without the backend server
+        if data.get(PayloadKeys.TIME_MATRIX) is not None:
+            payload[PayloadKeys.TIME_MATRIX] = data[PayloadKeys.TIME_MATRIX]
+        else:
+            payload[PayloadKeys.TIME_MATRIX] = None
+            console_logger.warning("Time matrix is not available. Solution run on server, but time_matrix is missing - leading to no possibility of running this dataset without backend server.")
 
-    console_logger.info(stats)
-    console_logger.info(f'Violations: {violations}')
-    console_logger.info(f"Total time: {stats.total_time:.2f}s")
-    console_logger.info(stats.format_vehicle_leg_report())
+        # Initialize RTV solver
+        start_time = time.time()
+        if config.MODE == 'online':
+            on_solver = OnlineRTVSolver(config)
+            updated_driver_runs, _ = on_solver.solve_pdptw_rtv(payload)
+        elif config.MODE == 'offline':
+            cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
+            off_solver = OfflineRTVSolver(config)
+            updated_driver_runs = off_solver.solve_rtv(cleared_payload, config.BATCH_INTERVAL, config.STEP_SIZE)
+        elif config.MODE == 'coaml':
+            cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
+            if config.EPOCHS > 1:
+                training_loop = COAMLTrainingLoop(config, cleared_payload)
+                training_result = training_loop.run()
+                updated_driver_runs = training_result.updated_driver_runs
+                console_logger.info(f"All iteration losses: {training_result.all_iteration_losses}")
+            else:
+                rh_solver = COAMLPipeline(config, cleared_payload)
+                updated_driver_runs = rh_solver.solve_pdptw(cleared_payload)
+                console_logger.info(f"Loss history: {rh_solver.loss_history}")
+        elif config.MODE == 'optimal_solution':
+            max_cardinality = len(payload[PayloadKeys.REQUESTS])
+            config.MAX_CARDINALITY = max_cardinality
+            config.LARGEST_TSP = max_cardinality * 2
+            config.RTV_TIMEOUT = 3600
+            config.ILP_TIMEOUT = 3600
+            config.SHARE_COST_FACTOR = 5
+            console_logger.info(f"Using settings for optimal solution: MAX_CARDINALITY: {config.MAX_CARDINALITY}, LARGEST_TSP: {config.LARGEST_TSP}, RTV_TIMEOUT: {config.RTV_TIMEOUT}, ILP_TIMEOUT: {config.ILP_TIMEOUT}, SHARE_COST_FACTOR: {config.SHARE_COST_FACTOR}")
+            on_solver = OnlineRTVSolver(config)
+            updated_driver_runs, _ = on_solver.solve_pdptw_rtv(payload)
+        elif config.MODE == 'hexaly_solution':
+            updated_driver_runs = []
+            pass  # not implemented
+            # gurobi and hexaly have same interface for now
+            # updated_driver_runs, _ = GurobiSolver.solve_pdptw(config.SERVER_URL, payload, time_limit=3600, output_dir=config.OUTPUT_DIR, iteration=0, min_truck=False, dwell_pickup=180, dwell_dropoff=60, tt_matrix=None)
+            # data = PayloadParser.load_input_data("/Users/jw/Desktop/master_thesis/mt_sourcecode/rtv-solver/outputs/debug/run_20260226_171939_ef1f99/result_driver_runs.json")
+            # updated_driver_runs, _ = HexalySolver.check_solution(payload, config.SERVER_URL, time_limit=3600, output_dir=config.OUTPUT_DIR)
+            # updated_driver_runs, _ = HexalySolver.solve_pdptw(config.SERVER_URL, payload, time_limit=3600, output_dir=config.OUTPUT_DIR, iteration=0, min_truck=False, dwell_pickup=180, dwell_dropoff=60, tt_matrix=None)
+    
+        else:
+            updated_driver_runs = []
+            raise ValueError('No solution as no correct config.MODE provided.')
 
-    save_json(stats_payload, config.OUTPUT_DIR / "result_driver_runs.json")
-    save_json({"stats": stats, "violations": violations}, config.OUTPUT_DIR / "results.json")
+        # calculate statistics and save
+        tt_matrix = payload.get(PayloadKeys.TIME_MATRIX, None)
+        stats_payload = {
+            PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
+            PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
+            PayloadKeys.DRIVERS: updated_driver_runs,
+            PayloadKeys.TIME_MATRIX: tt_matrix
+        }
+        stats_evaluator = StatsParser(config, payload=stats_payload)
+        total_time = time.time() - start_time
+        feasible, stats, violations = stats_evaluator.evaluate(stats_payload)
+        stats_evaluator.add_total_time(total_time=total_time)
+        assignment_history = stats_evaluator.evaluate_development(stats_payload)
 
-    console_logger.info(f"Run complete. Results can be found @ {Path(config.OUTPUT_DIR)}")
+        console_logger.info(stats)
+        console_logger.info(f'Violations: {violations}')
+        console_logger.info(f"Total time: {stats.total_time:.2f}s")
+        console_logger.info(stats.format_vehicle_leg_report())
+
+        save_json(stats_payload, config.OUTPUT_DIR / "result_driver_runs.json")
+        save_json({"stats": stats, "violations": violations}, config.OUTPUT_DIR / "results.json")
+
+        console_logger.info(f"Run complete. Results can be found @ {Path(config.OUTPUT_DIR)}")
 
     # VISUALISE NOTE (not run during cluster runs)
     # if stats.serviced > 0:
