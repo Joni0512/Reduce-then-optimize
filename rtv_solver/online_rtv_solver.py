@@ -135,7 +135,7 @@ class OnlineRTVSolver:
                 self.config)
             single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
             for trip_cost in trip_costs:
-                console_logger.info(f"trip cost: {trip_cost.trip_no}, {trip_cost.cost}, {trip_cost.get_request_order_str()}")
+                console_logger.debug(f"trip cost: {trip_cost.trip_no}, {trip_cost.cost}, {trip_cost.get_request_order_str()}")
         except RTVTimeoutError as e:
             console_logger.error(f"Error in trip generation: {e}")
             raise e
