@@ -70,14 +70,14 @@ if __name__ == "__main__":
     
     # COAML PARAMETERS
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility') 
-    parser.add_argument('--epochs', type=int, default=10, help='Number of training epochs over the same payload for COAML mode')
+    parser.add_argument('--epochs', type=int, default=5, help='Number of training epochs over the same payload for COAML mode')
     parser.add_argument('--learning_rate', type=float, default=5e-3, help='Learning rate for the ML model')
     parser.add_argument('--y_star_type', type=str, choices=[TYPE_BEST_ORDERED_MATCH], default=TYPE_BEST_ORDERED_MATCH, help='Type of y_star to be used for the Fenchel-Young loss during imitation learning')
     # TODO more parameters can be added here for more control over the training process
 
     # FILE MANAGEMENT
     parser.add_argument('--input_file', type=str,           default="solutions/li_lim/manifests/lc101.json", help='Path to a single input file (used for offline mode and coaml single-file runs)')
-    parser.add_argument('--input_dir', type=str,            default="", help='directory of training files for COAML mode')
+    parser.add_argument('--input_dir', type=str,            default="solutions/li_lim/manifests/", help='directory of training files for COAML mode')
     parser.add_argument('--imitation_solution_file', type=str, default='solutions/li_lim/manifests/lc101.json', help='Path to the imitation solution file with the complete manifest of all trips for all vehicles')
     parser.add_argument('--output_dir', type=str,           default="debug", help='Output directory')
     

@@ -483,7 +483,12 @@ class COAMLPipeline():
             
             # train mode, keep on right track - decide which run should move forward
             # NOTE this needs a change when we decide what to do with training or if we want to use the default or score solution from NN
-            result = optimal_result 
+            if mode == "train": # keep on optimal track
+                result = optimal_result 
+            elif mode == "eval": # use score solution from NN to decide which run should move forward
+                result = score_result
+            else:
+                raise ValueError(f"Invalid mode: {mode}")
 
             # compute Fenchel-Young loss from known optimal solution
             if True and len(feature_tensor_with_reject) > 0:
