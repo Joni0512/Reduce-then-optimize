@@ -3,7 +3,6 @@ from rtv_solver.schema.payload_keys import PayloadKeys
 
 
 class Request:
-    # TODO add type hints
     def __init__(self, 
                  identifier: int, 
                  earliest_pickup_time: float, 

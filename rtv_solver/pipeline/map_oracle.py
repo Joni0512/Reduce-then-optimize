@@ -103,7 +103,7 @@ def make_map_oracle(
             reject_scores_np = None
 
         gurobi_model, x_t, _x_r, x_reject = optimizer.solve_ilp(
-            trip_scores_np, # TODO make this generic for all COs, add solve_ilp to all COs
+            trip_scores_np, # TODO make this generic for all COs, add solve_ilp to all COs, including the reject actions
             requests,
             active_requests,
             keep_active=config.KEEP_ACTIVE,

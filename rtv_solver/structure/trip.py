@@ -9,7 +9,6 @@ if TYPE_CHECKING:
 class Trip:
     """
     Trip-related information
-    TODO typing?, 
     NOTE cost double? <> relation to TripCost?
     """
     def __init__(

@@ -1,6 +1,5 @@
 #!/bin/sh
 # shell script to run main.py (possibly does not work atm, but main.py has feature parity)
-# TODO not sure whether this script currently works, specifically argparse might be corrupted due to integration of config to get it running quickly
 RH=0 #rolling horizen
 INTERVAL=600
 echo "Debug Run"

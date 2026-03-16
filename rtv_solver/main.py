@@ -76,8 +76,6 @@ if __name__ == "__main__":
     parser.add_argument('--num_samples', type=int, default=20, help='Number of samples for the Fenchel-Young loss')
     parser.add_argument('--sigma', type=float, default=0.2, help='Sigma for the Fenchel-Young loss')
     parser.add_argument('--y_star_type', type=str, choices=[TYPE_BEST_ORDERED_MATCH], default=TYPE_BEST_ORDERED_MATCH, help='Type of y_star to be used for the Fenchel-Young loss during imitation learning')
-    # TODO move parameters from their definition
-    # TODO more parameters can be added here for more control over the training process
 
     # FILE MANAGEMENT
     parser.add_argument('--input_file', type=str,           default="solutions/li_lim/manifests/lc101.json", help='Path to a single input file (used for offline mode and coaml single-file runs)')

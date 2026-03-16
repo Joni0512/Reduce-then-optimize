@@ -41,7 +41,7 @@ DEBUG_BOOL = True
 """
 Main script of the simulation approach, not maintained anymore. Last working version is unknown, but `rtv_solver/main.py` covers the same functionality with minor utility functions being not yet supported.
 """
-# TODO delete this file
+# TODO delete this file as it is not used any very much behind development
 
 if __name__=="__main__":
     """

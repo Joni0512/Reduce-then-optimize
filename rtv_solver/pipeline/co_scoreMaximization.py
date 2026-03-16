@@ -78,7 +78,6 @@ class CO_ScoreMaximization(CO):
             model = gp.Model('RTV assignment - Service rate + Minimum distance', env=env)
             model.Params.OutputFlag = 0
 
-            # TODO implement the ILP solver for the score maximization
             x_t = model.addVars(trip_count,
                                 lb=0,
                                 ub=1,

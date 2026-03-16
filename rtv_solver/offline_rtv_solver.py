@@ -14,7 +14,6 @@ class OfflineRTVSolver:
     def __init__(self, config: Config):
         """container for the offline RTV solver that uses the online RTV solver in batches over a rolling horizon"""
         self.config = config
-        # TODO fix calls with or without server URL
         # does not require multiprocessing scheme for MacoS as we do call OnlineRTVSolver as an object; it would break when being called for the second time
 
     def solve_rtv(self, payload, interval, step_size):
@@ -42,7 +41,7 @@ class OfflineRTVSolver:
                     ):
                     selected_requests[request[PayloadKeys.REQ_BOOKING_ID]] = request
             
-            # remove requests that are already part of vehicles; covered by PayloadParser in OnlineRTVsolver # TODO check
+            # remove requests that are already part of vehicles; covered by PayloadParser in OnlineRTVsolver
             for dr in driver_runs:
                 manifest = dr[PayloadKeys.DRIVER_MANIFEST]
                 for stop in manifest:
@@ -67,8 +66,6 @@ class OfflineRTVSolver:
             else:    
                 new_driver_runs, assignment_status = online_rtv_solver.solve_pdptw_rtv(new_payload, iteration)
             
-            # TODO i want the status development of requests (active, boarded, unserved, delivered) 
-            # TODO how do I get the status for already delivered requests
             data_logger.info("Status", extra={"timestamp": current_time, "status": assignment_status})                
             # increment time (might not be the size of the batch) and iteration
             current_time += step_size 
@@ -83,5 +80,5 @@ class OfflineRTVSolver:
             driver_runs = simulated_driver_runs
 
         final_driver_runs = OnlineRTVSolver.finalize_driverRuns(self.config, driver_runs, payload[PayloadKeys.DEPOT])
-        # TODO update assignment_devlopment calculation. based on the data stores to JSONL instead of handing it over here
+        
         return final_driver_runs

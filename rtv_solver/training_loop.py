@@ -20,7 +20,7 @@ import logging
 
 console_logger = logging.getLogger(BASIC_LOGGER)
 
-# TODO simplest solution to run training, should probably be improved in the future
+# TODO simplest solution to run training, should probably be improved in the future and more flexible for other instances etc.
 TRAINING_FILES = [
     "lc101", "lc102", "lc103", "lc104", "lc105", "lc106", "lc107",
     "lc201", "lc202", "lc203", "lc204", "lc205", "lc206",
