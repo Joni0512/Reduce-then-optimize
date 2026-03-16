@@ -451,6 +451,11 @@ class OnlineRTVSolver:
         return cost, new_manifest
 
     def _insert_request_to_driver_run(self, depot, driver_run, request, objective="vmt"):
+        """
+        Insert a request into a driver run and return the cost of the insertion.
+        
+        # TODO add function that it uses real dwell times and does not default to the config backup values
+        """
         if NetworkHandler.needs_runtime_matrix_build():
             NetworkHandler.init_from_source(server_url=self.config.SERVER_URL)
         driver_run_c = copy.deepcopy(driver_run)
