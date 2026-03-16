@@ -1,7 +1,10 @@
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
-def plot_loss(loss_history, iterations):
+
+def plot_loss(loss_history, iterations, output_dir):
     """Plot training loss over iterations with background iteration markers."""
     num_points = len(loss_history)
     x_values = range(1, num_points + 1)
@@ -28,4 +31,6 @@ def plot_loss(loss_history, iterations):
     plt.ylabel("Loss")
     plt.legend()
     plt.grid(True)
-    plt.show()
+    plot_filename = "training_loss.png"
+    plt.savefig(Path(output_dir) / plot_filename)
+    plt.close()
