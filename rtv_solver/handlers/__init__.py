@@ -1,4 +1,4 @@
-# TODO update all handler imports to clean up imports
+# # TODO update all handler imports to clean up imports (first try failed due to circular import issues)
 # from .network_handler import NetworkHandler
 # from .output_handler import OutputHandler
 # from .payload_parser import PayloadParser

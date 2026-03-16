@@ -55,7 +55,6 @@ def setup_loggers(output_dir: str):
     basic_logger.setLevel(LOG_LEVEL)
     basic_logger.propagate = False
     # basic_logger.propagate = False
-    # TODO how to import the output file here
     basic_logger_fileHandler = FileHandler(output_dir / "main.log")
     basic_logger_fileHandler.setFormatter(Formatter(LOG_FORMAT))
     basic_logger.addHandler(basic_logger_fileHandler)
@@ -64,10 +63,7 @@ def setup_loggers(output_dir: str):
     basic_logger_streamHandler.setFormatter(Formatter(LOG_FORMAT))
     basic_logger.addHandler(basic_logger_streamHandler)
 
-    # TODO add a third fileHandler for all errors into an .err file
-
-    # TODO Create a JSON logger that collects data during the runtime that we can later use to analyse behavior, trip generation, which trips were available, which requests were active in that moment in addition to the manifest, with timestamp of current_time of iteration, so we can rerun the behavior visibly in geoJson and possbily folium.plugins.Timeline and understand it better on a small scale.
-
+    # JSON logger that collects data during the runtime that we can later use to analyse behavior, trip generation, which trips were available, which requests were active in that moment in addition to the manifest, with timestamp of current_time of iteration, so we can rerun the behavior visibly in geoJson and possbily folium.plugins.Timeline and understand it better on a small scale.
     behavior_logger = logging.getLogger(DATA_LOGGER)
     behavior_logger.setLevel(LOG_LEVEL)
     behavior_logger.propagate = False

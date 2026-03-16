@@ -54,18 +54,14 @@ class Stats:
     """
     TODO add more stats on the use of vehicles: total cars involved (just number of driver_runs), average capacity usage (complex?: how many vehicles are in the car for how long?)
 
-    TODO add rolling horizon stats: average backlog (complex: vehicles to be picked up), 
+    TODO add rolling horizon stats: average backlog (complex: vehicles to be picked up), we are missing a lot of analytical capability to track the behaviour and influence of the rolling horizon on the system
 
     TODO alternative stats on RTV generation, cannot be handled by this class as this is not tracked in the dictionary at the moment
     """
     vmt: float = 0.0        # vehicle miles traveled (TODO seems like we only consider time in seconds)
     pmt: float = 0.0        # passenger miles traveled (TODO seems like we only consider time in seconds)
     serviced: int = 0       # total serviced requests, higher is better
-
-    wait_time: List[float] = field(default_factory=list)                # list of wait times per vehicle before initial pickup
-    detour: List[float] = field(default_factory=list)                   # list of detour times per vehicle after pickup compared to direct travel
-    direct_travel_time: List[float] = field(default_factory=list)      # list of direct travel times between pickup and dropoff per request
-    dropoff_goal_lateness: List[float] = field(default_factory=list)    # list of times after dropoff window has opened (no direct impact on stats but useful for debugging)
+    total_distance_m: float = 0.0
 
     vmt_over_pmt: float = 0.0           # higher is better
     vmt_over_pmt_woDepot: float = 0.0   # accounts for depot trips    
@@ -73,6 +69,7 @@ class Stats:
     average_detour: float = 0.0         # lower is better
     average_dropoff_goal_lateness: float = 0.0
 
+    total_vehicles: int = 0       # total vehicles that were part of original payload
     total_requests: int = 0       # total requests that were part of original payload
     serviced_requests: list[float] = field(default_factory=list)  # list of serviced requests 
     
@@ -83,12 +80,17 @@ class Stats:
     rebalancing_vmt: float = 0.0    # lower is better
 
     total_time: float = 0.0
+
+    wait_time: List[float] = field(default_factory=list)                # list of wait times per vehicle before initial pickup
+    detour: List[float] = field(default_factory=list)                   # list of detour times per vehicle after pickup compared to direct travel
+    direct_travel_time: List[float] = field(default_factory=list)      # list of direct travel times between pickup and dropoff per request
+    dropoff_goal_lateness: List[float] = field(default_factory=list)    # list of times after dropoff window has opened (no direct impact on stats but useful for debugging)
+
     # Diagnostics for better interpretability:
     # - per vehicle totals in meters
     # - leg-by-leg decomposition of timing between service starts
     per_vehicle_distance_m: Dict[int, float] = field(default_factory=dict)
     per_vehicle_legs: Dict[int, List[dict]] = field(default_factory=dict)
-    total_distance_m: float = 0.0
 
     def finalize(self) -> None:
         if self.pmt > 0:
@@ -215,7 +217,7 @@ class StatsParser:
     def __init__(self, config: Config | None = None, payload: dict | None = None):
         self.config = config
         self._network_initialized = False
-        # TODO clean this up, giving the payload either here or nowhere
+        # TODO clean this up, giving the payload once instead of twice
         self._init_network(payload)
 
         # request booking_id -> StopPair(pickup=..., dropoff=...)
@@ -253,6 +255,7 @@ class StatsParser:
 
         feasible = len(self.violations) == 0
         self.stats.total_requests = len(requests)
+        self.stats.total_vehicles = len(driver_runs)
         self.stats.finalize()
 
         self._print_per_request_stats(driver_runs)

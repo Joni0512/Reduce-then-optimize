@@ -112,14 +112,12 @@ class OnlineRTVSolver:
         vehicle_handler = VehicleHandler(payload_object.depot, 
                                          payload_object.driver_runs,
                                          self.config)
-        # create trips of all already boarded requests # TODO these are not always boarded at this point
+        # create trips of all already boarded requests
         boarded_trips = TripHandler.create_trip_for_picked_requests(boarded_requests, iteration)
         # update vehicle position/trips/times along its path according to all data stored in the manifest
         vehicle_handler.add_manifest_to_vehicles(payload_object.driver_runs,
                                                  boarded_requests,
                                                  boarded_trips)
-
-        # TODO add depot node with id, so it can be calculated later on using the travel_time_matrix
         
         if needs_server_matrix_build:
             NetworkHandler.initialize_travel_time_matrix()
@@ -180,7 +178,7 @@ class OnlineRTVSolver:
                                             payload[PayloadKeys.REQUESTS],
                                             keep_active=self.config.KEEP_ACTIVE,
                                             return_depot=self.config.RETURN_DEPOT)
-        # TODO remove this complex data structure to move data up the stack; integrate JSON logger that records information to a standardized JSON file and can later be rebuilt and analyzed using that JSON file (probably requires something similar to OutputHandler that was used in the simulation)
+
         assignment_status = {PayloadKeys.STATS_ASSIGNED: result.request_assignment, 
                             PayloadKeys.STATS_UNSERVED: list(unserved_requests)}
         return updated_driver_runs, assignment_status # ,trip_handler, vehicle_handler, request_handler, payload_object
@@ -307,7 +305,7 @@ class OnlineRTVSolver:
                 if next_immediate_time > current_time:
                     break
                 
-            if len(manifest) > current_order and next_immediate_time < current_time and INTERMEDIATE_LOCATION:
+            if len(manifest) > current_order and next_immediate_time < current_time and INTERMEDIATE_LOCATION: # turned off when server is online
                 # if manifest is longer than final stop (according to time limit) AND next_immediate_time is still smaller than current_time AND we want to have the location in between stops, we will get that location here
                 next_immediate_node = Node.get_node_from_manifest_location(next_immediate_loc)
                 target_node = Node.get_node_from_manifest_location(manifest[current_order][PayloadKeys.MANIFEST_LOC])
@@ -359,9 +357,8 @@ class OnlineRTVSolver:
 
     def solve_pdptw(self, payload, skip_swapping=True):
         """
-        takes payload and decides which solver to run (heuristic or RTV)
+        takes payload and decides which solver to run (heuristic or RTV); does not use RTV approach
         """
-        # NOTE what is the difference to PDPTW_RTV
         # TODO currently not working due to the changes of the return values of solve-pdptw-rtv
         remaining_requests = []
         for driver_run in payload[PayloadKeys.DRIVERS]:
@@ -585,7 +582,7 @@ class OnlineRTVSolver:
         
         DO NOT USE IT for RTV generation process or COAML pipeline
         """
-        # TODO check when this is valuable
+        # TODO check whether this is valuable
         unserved_requests = []
         updated_driver_runs = copy.deepcopy(payload[PayloadKeys.DRIVERS])
         NetworkHandler.init_from_payload(payload=payload, server_url=self.config.SERVER_URL)
@@ -625,10 +622,9 @@ class OnlineRTVSolver:
             for run in driver_runs_c:
                 driver_run = DriverRun.from_dict(run)
                 if driver_run.manifest: # manifest is not empty
-                    # TODO check if those numbers are right
                     # Location are same, manifest seems to be more correct though
                     last_node = driver_run.state.loc
-                    time_at_last_node = driver_run.state.location_dt_seconds # TODO why is this time_at_last_node different and this looks like an issue in the simulation?
+                    time_at_last_node = driver_run.state.location_dt_seconds
                     # get last position and time from manifest
                     last_entry = driver_run.manifest[-1]
                     manifest_time = last_entry.scheduled_time

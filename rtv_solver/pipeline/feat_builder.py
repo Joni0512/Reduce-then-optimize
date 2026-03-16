@@ -29,6 +29,7 @@ FeatureVector = Dict[str, Union[int, float]]
 """
 using the dataclasses, we can easily add padding with empty items as the default values are already defined"""
 # TODO we need a single place where all features are defined and explained and can be easily adjusted in a single place
+# currently it is not very well designed to make the feature set adaptable, maintainable or even testable; if we want to change anything it is quite cumbersome. check online what a good design would look like especially in relatio
 @dataclass
 class StateFeatures:
     """
@@ -47,7 +48,7 @@ class StateFeatures:
 @dataclass
 class VehicleFeatures:
     """start with simple 1D scores for a GLM"""
-    # TODO alternative for position is a positional embedding of all positions on current trip
+    # TODO alternative for position is a positional embedding (with CNN or something similar)of all positions on current trip
     v_norm_lat_next_position: float = 0.5 # middle of the map, should never be valid
     v_norm_lon_next_position: float = 0.5 # middle of the map, should never be valid
     # operating_time: float = 0.0 # total operating time
@@ -517,7 +518,7 @@ class FeatureBuilder:
         features.tc_total_am_demand = float(total_am_demand)
         features.tc_total_wc_demand = float(total_wc_demand)
 
-        # TODO add remaining times in relation to the current_time for current dropoffs (basically potential for later detours)
+        # TODO add remaining times in relation to the current_time for current dropoffs or remeinaing pickup times (basically potential for later detours)
 
         # print(trip_cost.trip_no, trip_cost.vehicle_id, features)
         return asdict(features)
@@ -603,7 +604,11 @@ class FeatureBuilder:
     
     @staticmethod       
     def _calc_geo_distance_meter(loc1: tuple[float, float], loc2: tuple[float, float]):
-        """each location must be defined as a tuple with (lat, lon)"""
+        """
+        each location must be defined as a tuple with (lat, lon)
+        
+        # TODO if we use a travel_time_matrix, we should not need the geodesic distance but rather the travel_time_matrix values
+        """
         return geodesic(loc1, loc2).meters
     
     def to_dict(self):

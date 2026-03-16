@@ -5,7 +5,6 @@ class VehicleStop:
     """
     VehicleStop combines the information of when, where and with which action a stop is performed and and how long it waits in the location to fulfill its action.
     """
-    # TODO when code runs cleanly, turn stringLiterals to use Enum
     ACT_PICKUP = 'pickup'
     ACT_DROPOFF = 'dropoff'
     ACT_REBALANCE = 'rebalance'
@@ -39,6 +38,10 @@ class VehicleStop:
         # self.time_window_end: int = None    # MANIFEST_TIME_WINDOW_END
 
     # TODO add create method from_dict or something similar that we can get directly from the dictionary and also move it back to the dictionary again (however we could have transitions and conditions that ensure the right changes)
+    # def to_manifest_entry(self) -> ManifestEntry:
+    #    pass
+    # def from_manifest_entry(self, manifest_entry: ManifestEntry):
+    #     pass
 
     def get_requestID_stripped_iteration(self) -> int:
         """normal structure of trip_id is 'iteration-request_id' """

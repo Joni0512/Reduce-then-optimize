@@ -201,7 +201,7 @@ class SartoriParser(BaseParser):
             Route 5 : 31 14 64 44 35 81 5 55 32 82 19 85 94 69
             Route 6 : 15 27 26 76 24 49 74 65 43 12 18 77 99 62 68 93 37 87
 
-        TODO as the main Sartori does not yet completely work, we postpone this work.
+        TODO as the main Sartori does not yet completely work, we postpone this work (should be very close to LiLim Parser)
         """
         raise NotImplementedError("Sartori parser for solutions is not implemented yet, see LiLim Parser for inspiration.")
         # TODO make sure that return_depot is enabled

@@ -44,7 +44,6 @@ def pytest_collection_modifyitems(config, items):
         if "server" in item.keywords:
             item.add_marker(skip_server)
 
-# TODO add basic structures and use them for tests
 @pytest.fixture
 def single_trip_map_neworder():
     return {1: 0, 2: 1, 3: 2, 4: 3, 5: 4}

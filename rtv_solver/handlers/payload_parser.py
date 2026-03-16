@@ -440,11 +440,13 @@ class PayloadParser:
         return normalized
 
     # TODO
-    # def update_requests(data):
-    """
-    As all requests have exactly 30 minutes of allowed and combined wait + detour time, which does not seem very realistic if the direct travel_time of the trip is below 5 minutes, the data should be updated before usage. The requests should be updated once and for all before data is used.
-     
-    This also offers the option to add randomized versions of the same requests to get more training data sets while keeping realism."""
+    # def update_requests_for_realism(data):
+        """
+        As all requests have exactly 30 minutes of allowed and combined wait + detour time, which does not seem very realistic if the direct travel_time of the trip is below 5 minutes, the data should be updated before usage. The requests should be updated once and for all before data is used.
+        
+        This also offers the option to add randomized versions of the same requests to get more training data sets while keeping realism.
+        """
+        pass
 
     @staticmethod
     def build_test_case(
@@ -538,7 +540,6 @@ if __name__ == "__main__":
 
     quick script to check the changes
     """
-    # TODO move this into a visual function
     import argparse
     import pandas as pd
     import matplotlib.pyplot as plt

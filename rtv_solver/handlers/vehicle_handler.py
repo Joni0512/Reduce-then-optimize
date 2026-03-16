@@ -204,15 +204,13 @@ class VehicleHandler:
     def add_manifest_to_vehicle(vehicle: Vehicle, driver_run: dict, boarded_requests: dict[int, Request], boarded_trips: list[Trip]):
         """
         translate the manifest of a vehicle into its current position and update the vehicle accordingly
-        
-        TODO move this to the vehicle object in order to collect everything there
         """
         # retrieve information from dictionary
         state = driver_run[PayloadKeys.DRIVER_STATE]
         state_loc = state[PayloadKeys.DRIVER_STATE_LOC]
         current_order = state[PayloadKeys.DRIVER_STATE_LOC_SERV]
         vehicle.started = True
-        # retrieves next position and time there # TODO does this work as we always initialize the vehicleLocation as depot
+        # retrieves next position and time there; we always initialize the vehicleLocation as depot
         time_at_next_immediate_node = state[PayloadKeys.DRIVER_STATE_DT_SEC]
 
         node_dict = {
@@ -345,7 +343,6 @@ class VehicleHandler:
                 # TODO clean up data handover
                 direct_trip_times, total_direct_travel_time, actual_travel_time, total_dwell_time, actual_route_travel_time, detour_time, idling_time = VehicleHandler._compute_trip_metrics(new_trips, sequence, next_immediate_node, time_at_next_immediate_node, tt_matrix, node_indices)
 
-                # TODO we need a single object to handover, but these seems to be overly complex and a bad interface
                 return TripInsertionPlan(
                     depot_feasible      = depot_feasible,
                     sequence_feasible   = sequence_feasible, 
@@ -407,7 +404,7 @@ class VehicleHandler:
             total_direct_travel_time += direct_time
         
         # Calculate actual route travel time by summing consecutive stops; split into travel time and dwell time
-        # TODO if the first stop is only the vehicle getting to a stop while being empty, add that information separately or add it to VehicleStop, basically how much empty trip do we have?
+        # TODO for stats: if the first stop is only the vehicle getting to a stop while being empty, add that information separately or add it to VehicleStop, basically how much empty trip do we have?
         actual_travel_time = 0.0
         total_dwell_time = 0.0
         if sequence:
@@ -737,7 +734,7 @@ class VehicleHandler:
         console_logger.debug(f"Result: feasible={feasible}, best_cost={best_cost}, best_sequence={best_sequence}")
         return feasible, best_cost, best_sequence
 
-    # BELOW DEPRECATED METHODS - ONLY USED IN SIMULATION APPROACH
+    # BELOW DEPRECATED METHODS - ONLY USED IN SIMULATION APPROACH # TODO clean up
     def simulate_vehicle(self, vehicle, current_time):
         """
         TODO check if this doc comment is correct or whether it needs an update
@@ -1007,7 +1004,7 @@ class VehicleHandler:
             locations[int(vehicle_id)] = self.get_vehicle_exact_location(vehicle_id)
         return locations
 
-    # BELOW UNUSED METHODS
+    # BELOW UNUSED METHODS # TODO clean up after increasing test coverage
     def save_snapshot(self):
         """deprecated"""
         with open(self.config.OUTPUT_DIR + "vehicle_snapshot.p", 'wb') as snapshot_file:

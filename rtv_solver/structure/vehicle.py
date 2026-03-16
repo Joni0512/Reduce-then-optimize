@@ -239,6 +239,29 @@ class Vehicle:
         split_id = trip_id.split("-")
         iteration, booking_id = int(split_id[0]), int(split_id[1])
         return iteration, booking_id
+
+    def apply_trip_insertion(self, plan: TripInsertionPlan):    
+        """
+        Updates vehicle state based on the trip plan that is be applied
+
+        :param TripInsertionPlan plan: stores trip details for application
+        """
+        # read and apply relevant information from plan to vehicle 
+        self.rebalancing = False
+        self.last_node = plan.next_immediate_node
+        self.time_at_last = plan.time_at_next_immediate_node
+        self.time_at_next = self.time_at_last + plan.veh_travel_time
+        for trip in plan.trips:
+            self.trips[trip.id] = trip
+        self.stop_sequence = plan.sequence
+
+        # update vehicle state
+        next_stop = self.stop_sequence[0]
+        next_trip = self.trips[next_stop.trip_id]
+        if next_stop.type == VehicleStop.ACT_PICKUP and self.time_at_next < next_trip.pick_up_time:
+            self.time_at_next = next_trip.pick_up_time
+        if next_stop.type == VehicleStop.ACT_DROPOFF and self.time_at_next < next_trip.earliest_arrival_time:
+            self.time_at_next = next_trip.earliest_arrival_time
  
 # BELOW DEPRECATED METHODS FOR SIMULATION
     def has_completed_operations(self, current_time: int):
@@ -261,7 +284,6 @@ class Vehicle:
         """
         @deprecated
 
-        TODO interim solution: add manifest to vehicle in order to retrieve actual features from the vehicle; we need something like this as we currently always initialize a new object only from the basic information instead of the full set, including current_location, next_location etc.
         restore current state of the vehicle based on the current boarded requests and the already finished manifest
         """        
         state = driver_run[PayloadKeys.DRIVER_STATE]
@@ -318,28 +340,5 @@ class Vehicle:
         self.time_at_next_immediate_node = time_at_next_immediate_node
         self.last_node = next_immediate_node
         self.time_at_last = time_at_next_immediate_node
-
-    def apply_trip_insertion(self, plan: TripInsertionPlan):    
-        """
-        Updates vehicle state based on the trip plan that is be applied
-
-        :param TripInsertionPlan plan: stores trip details for application
-        """
-        # read and apply relevant information from plan to vehicle 
-        self.rebalancing = False
-        self.last_node = plan.next_immediate_node
-        self.time_at_last = plan.time_at_next_immediate_node
-        self.time_at_next = self.time_at_last + plan.veh_travel_time
-        for trip in plan.trips:
-            self.trips[trip.id] = trip
-        self.stop_sequence = plan.sequence
-
-        # update vehicle state
-        next_stop = self.stop_sequence[0]
-        next_trip = self.trips[next_stop.trip_id]
-        if next_stop.type == VehicleStop.ACT_PICKUP and self.time_at_next < next_trip.pick_up_time:
-            self.time_at_next = next_trip.pick_up_time
-        if next_stop.type == VehicleStop.ACT_DROPOFF and self.time_at_next < next_trip.earliest_arrival_time:
-            self.time_at_next = next_trip.earliest_arrival_time
 
    

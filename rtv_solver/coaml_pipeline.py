@@ -64,7 +64,6 @@ class COAMLPipeline():
             - config: Config object
             - offline_payload: Offline payload object in order to calculate feature normalization values and get structure of feature matrix
         """
-        # TODO add elements to config in order to make it more readable
         self.config = config
         self.offline_payload = offline_payload
         self.feature_builder = FeatureBuilder(offline_payload, self.config)
@@ -88,33 +87,6 @@ class COAMLPipeline():
                 # NOTE if you see issues like this: 'Fatal Python error: Bus error' you might need to introduce spawn context for each Multiprocessing Pool (also depends on the cluster system)
             except RuntimeError: # start method was already set somewhere else -> don't crash
                 pass
-
-    # def manage_training(self):
-    #     """
-    #     Manage the training of the pipeline.
-    #     """
-    #     # TODO implement this method
-    #     for epoch in config.epochs:
-    #         for episode in episodes:
-    #             self.train(episode)
-
-    #         if episode % config.VALIDATION_INTERVAL == 0:    
-    #         self.validate(episode)
-    #     pass
-
-    def train(self):
-        """
-        Single training run for the payload.  
-        """
-        # TODO implement this method
-        pass
-
-    def validate(self):
-        """
-        Single validation run for the payload.
-        """
-        # TODO implement this method
-        pass
 
     def solve_pdptw(
         self,
@@ -150,7 +122,7 @@ class COAMLPipeline():
                     ):
                     selected_requests[request[PayloadKeys.REQ_BOOKING_ID]] = request
             
-            # remove requests that are already part of vehicles; covered by PayloadParser in OnlineRTVsolver # TODO check
+            # remove requests that are already part of vehicles; covered by PayloadParser in OnlineRTVsolver
             for dr in driver_runs:
                 manifest = dr[PayloadKeys.DRIVER_MANIFEST]
                 for stop in manifest:
@@ -491,7 +463,7 @@ class COAMLPipeline():
                 raise ValueError(f"Invalid mode: {mode}")
 
             # compute Fenchel-Young loss from known optimal solution
-            if True and len(feature_tensor_with_reject) > 0:
+            if len(feature_tensor_with_reject) > 0:
                 self._compute_fy_loss_from_optimal_solution(
                     feature_matrix_with_reject,
                     single_trip_map, 
@@ -504,23 +476,6 @@ class COAMLPipeline():
                     reject_vehicle_ids,
                 )
                 loss_tracked = True
-            else:
-                # NOTE compute Fenchel-Young loss from default ILP solution, this only calculate the difference to the offline solution but we need it from the optimal solution
-                self._compute_fy_loss_from_default_ilp(
-                    feature_matrix,
-                    default_ilp_model,
-                    default_x_t,
-                    single_trip_map,
-                    trip_list,
-                    trip_costs,
-                    vehicle_to_trips_cost_map,
-                    trip_to_vehicle_cost_map,
-                    request_batch,
-                    active_requests)
-                loss_tracked = True
-            # TODO we still need to turn off the learning signal and validate runs with the score by itself
-            # else: # run the course of what our scores would suggest
-            #     result = score_result
 
             if self.config.REBALANCING:
                 rebalancing_optimizer = CO_RebalancingCoverage(self.config)
@@ -584,17 +539,12 @@ class COAMLPipeline():
         """
         Compute and store the Fenchel-Young loss for the current iteration.
 
-        Uses the CO_TripCostMinimization solution as y_star (ground truth) and
-        CO_ScoreMaximization as the MAP oracle for perturb-and-MAP.
+        Uses the CO_TripCostMinimization solution as y_star (ground truth) and CO_ScoreMaximization as the MAP oracle for perturb-and-MAP.
 
-        The result is stored in self.last_loss.  If the ILP did not yield a
-        feasible solution (y_star is all-zero), the loss is skipped and
-        self.last_loss is set to None.
+        The result is stored in self.last_loss.  If the ILP did not yield a feasible solution (y_star is all-zero), the loss is skipped and self.last_loss is set to None.
 
         Side effects:
             Sets self.last_loss.
-
-        # TODO update the y_start calculation from the imitationHandler
         """
         y_star = CO.extract_y_binary(ilp_model, x_t) # get optimal solution from default ILP model
 

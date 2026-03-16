@@ -62,8 +62,7 @@ class TripHandler:
         On timeout, returns whatever partial results were computed rather than raising.
         """
         self.starting_time = time.time()
-        # TODO FIXME this does not count active vehicles # goal: if there is no more active vehicles, one can skip the iteration
-        # TODO also does not need to run if we do not have any requests, does it?
+        # TODO FIXME this does not count active vehicles # goal: if there is no more active vehicles, one can skip the iteration (major benefit for wilson)
         try:
             self.generate_ondemand_only_trips(self.requests, self.iteration)
             self.generate_trip_costs(self.vehicles, self.config.MAX_THREAD_CNT, 0)
@@ -169,7 +168,7 @@ class TripHandler:
                 if trip_start > 0: # only worth it when we have multiple trips to reduce combos TBC
                     selected_vehicle_ids = self._common_vehicles_of_trips(trips)
                 # NOTE vehicle-loop seems to be only relevant for SharedTrips
-                # TODO add documentation for how the different list and dicts interact
+
                 for vehicle_id in selected_vehicle_ids:
                     # get previous sequence for the vehicle 
                     prev_sequence = []
@@ -385,7 +384,7 @@ class TripHandler:
                             if self._check_any_vehicles_available(trips_collection.values()): # detailed check for specific trips
                                 # create args for parallel execution but it is never used
                                 args=(shared_trip1_index, trips_collection, trip_nos, trip, current_cost, shared_trip1.sequence, SHAREABLE_COST_FACTOR,)
-                                shared_trips_to_process.append(args) # TODO we should be able to get rid of this as we do not parallelize? NOTE why do we not parallelize?
+                                shared_trips_to_process.append(args) 
                                 
                                 # new_shared_trip = SharedTrip(shared_trip1_index, 0, trip_nos, current_cost, [])
                                 # TripHandler._process_shared_trip_result(new_shared_trip)

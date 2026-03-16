@@ -12,5 +12,5 @@ class BaseParser(ABC):
         Returns:
             dict with keys: requests, depot, driver_runs, travel_time_matrix
         """
-        # TODO update this in order to only pass the dict instead of actually loading the data, that should be separate
+        # TODO update this in order to only pass the dict instead of actually loading the data, that should be separate; check what should be in PayloadParser (rather a wilson parser where we transform all other files towards or in BaseParser?)
         raise NotImplementedError("Subclasses must implement this method")

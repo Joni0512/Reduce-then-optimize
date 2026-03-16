@@ -271,7 +271,7 @@ class NetworkHandler:
         :return int: time that the location is reached
         :return Node: location somewhere on the route
         """
-        # TODO check how to use this code when the server is not available
+        # TODO check how to use this code when the server is not available; currently we just do not use it when the server is not available, possibility would be interpolation of location between coordinates, but update to all travel_times seems quite cumbersome
 
         # NOTE NEW VERSION (has not been tested yet, but seems cleaner)
         # response = NetworkHandler.get_detailed_route_reponse(source, destination)

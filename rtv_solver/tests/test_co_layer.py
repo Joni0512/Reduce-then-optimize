@@ -23,7 +23,6 @@ def test_co_run_trip_cost_minimization(
     optimizer.reset(single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map)
     result = optimizer.run(request_batch, active_requests)
 
-    # TODO implement equalities to compare these results
     assert isinstance(result, AssignmentResult)
     assert result.unassigned_trip_count == 3
     assert result.taxi_only_trip_count == 2
@@ -110,7 +109,6 @@ def test_co_run_trip_cost_minimization_neworder(single_trip_map_neworder, trip_l
     optimizer.reset(single_trip_map_neworder, trip_list_neworder, trip_costs_neworder, vehicle_to_trips_cost_map_neworder, trip_to_vehicle_cost_map_neworder)
     result = optimizer.run(request_batch, active_requests)
 
-    # TODO implement equalities to compare these results
     assert isinstance(result, AssignmentResult)
     assert result.unassigned_trip_count == 3
     assert result.taxi_only_trip_count == 2

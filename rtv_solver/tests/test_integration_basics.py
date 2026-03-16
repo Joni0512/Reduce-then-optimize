@@ -253,9 +253,4 @@ def test_integration_COAMLsolver_vehicle1_maxCard3():
     assert feasible is True
     assert violations == []
 
-# TODO add a test that runs without the server on default based on the right input file
-
-# if __name__ == '__main__':
-    # if we require a test of the results here, just add it to the main loop and start a debug run
-
-    # DEBUGGING
+# TODO add a test that runs without the server on default based on the right input file, LiLim makes the most sense

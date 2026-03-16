@@ -22,8 +22,6 @@ class LiLimParser(BaseParser):
     For pickups: PICKUP_INDEX=0, DELIVERY_INDEX=corresponding delivery task index
     For deliveries: PICKUP_INDEX=corresponding pickup task index, DELIVERY_INDEX=0
     """
-    # TODO exchange relevant keys to PayloadParser keys, but first need a file to check correct outcome
-
     @staticmethod
     def parse_file(filepath: str):
         with open(filepath, 'r') as f:
