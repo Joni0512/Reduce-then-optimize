@@ -3,35 +3,6 @@ import torch.nn as nn
 from typing import Callable
 
 
-class _FYGradient(torch.autograd.Function):
-    """
-    Custom autograd function that injects the Fenchel-Young gradient into the
-    computation graph without backpropagating through the ILP oracle.
-
-    Forward value:  ⟨θ, ŷ - y*⟩  (scalar proxy for monitoring)
-    Backward grad:  ŷ - y*       (the true FY gradient w.r.t. θ)
-
-    ŷ and y* are treated as constants w.r.t. autograd; their computation
-    must happen outside this function under torch.no_grad().
-    """
-
-    @staticmethod
-    def forward(
-        ctx,
-        theta: torch.Tensor,        # (n,) — scores with grad
-        y_hat: torch.Tensor,        # (n,) — smoothed MAP prediction, detached
-        y_star: torch.Tensor,       # (n,) — ground-truth solution, detached
-    ) -> torch.Tensor:
-        ctx.save_for_backward(y_hat, y_star)
-        return torch.dot(theta, y_hat - y_star)
-
-    @staticmethod
-    def backward(ctx, grad_output: torch.Tensor):
-        y_hat, y_star = ctx.saved_tensors
-        # gradient w.r.t. theta = ŷ - y*; no gradient for ŷ or y*
-        return grad_output * (y_hat - y_star), None, None
-
-
 class FenchelYoungLoss(nn.Module):
     """
     Fenchel-Young loss for structured prediction via perturb-and-MAP.
@@ -102,14 +73,25 @@ class FenchelYoungLoss(nn.Module):
             )
 
         # Monte Carlo estimate of ŷ = E_ε[MAP(θ + σε)]
-        # All oracle calls run without autograd.
-        with torch.no_grad():
-            y_samples = []
-            for _ in range(self.num_samples):
-                noise = torch.randn_like(theta) * self.sigma
-                y_k = oracle(theta.detach() + noise)
-                y_samples.append(y_k.to(theta.dtype))
-            y_hat = torch.stack(y_samples, dim=0).mean(dim=0)   # (n,)
+        solutions = []
+        for _ in range(self.num_samples):
+            noise = torch.randn_like(theta) * self.sigma
+            theta_k = theta + noise
+            y_k = oracle(theta_k.detach())
+            solution = torch.dot(theta_k, y_k.to(theta.dtype))
+            solutions.append(solution)    
+        stack = torch.mean(torch.stack(solutions, dim=0), dim=0)
+        target = torch.dot(theta, y_star.to(theta.dtype)) # unregularized target 
 
-        y_star_d = y_star.detach().to(theta.dtype)
-        return _FYGradient.apply(theta, y_hat, y_star_d)
+        return stack - target
+        
+        # with torch.no_grad():
+        #     y_samples = []
+        #     for _ in range(self.num_samples):
+        #         noise = torch.randn_like(theta) * self.sigma
+        #         y_k = oracle(theta.detach() + noise)
+        #         y_samples.append(y_k.to(theta.dtype))
+        #     y_hat = torch.stack(y_samples, dim=0).mean(dim=0)   # (n,)
+
+        # y_star_d = y_star.detach().to(theta.dtype)
+        # return _FYGradient.apply(theta, y_hat, y_star_d)

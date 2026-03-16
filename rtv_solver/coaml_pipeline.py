@@ -69,9 +69,9 @@ class COAMLPipeline():
         self.offline_payload = offline_payload
         self.feature_builder = FeatureBuilder(offline_payload, self.config)
         self.model = model if model is not None else ScoringMLP(
-            feature_dim=FeatureBuilder.FEATURE_SIZE, hidden_dim=32
+            feature_dim=FeatureBuilder.FEATURE_SIZE, hidden_dim=64
         )
-        self.fy_loss = FenchelYoungLoss(num_samples=1, sigma=0.1)
+        self.fy_loss = FenchelYoungLoss(num_samples=20, sigma=0.2) # alternative 0.1 or 0.05 for less variance
         self.imitation_handler = ImitationHandler(config)
         
         self.coaml_optimizer = CO_ScoreMaximization(config)
@@ -663,7 +663,6 @@ class COAMLPipeline():
             console_logger.warning("FY loss skipped: Optimizer did not assign any RTVs.")
             self.last_loss = None
             raise RuntimeError("Y_star must have some values as we consider the reject action separately. The score optimizer must make a decision of some sort.")
-            return
 
         feature_tensor = torch.tensor(feature_matrix, dtype=torch.float32)
         scores = self.model(feature_tensor)    

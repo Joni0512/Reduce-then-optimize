@@ -33,7 +33,12 @@ class ScoringMLP(nn.Module):
             nn.Linear(feature_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 1)
+            # nn.Tanh()
+            # tanh to constrain outputs to be between -1 and 1
+            # sigmoid to constrain outputs to be between 0 and 1
         )
+        # Last resort if it does not learn properly 
+        # softmax to limit all outputs to be between 0 and 1
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
