@@ -107,10 +107,8 @@ class ImitationHandler:
         result: dict[int, list[int]] = {}
         for vehicle_id in vehicle_ids:
             if vehicle_id not in self.optimal_solution:
-                raise KeyError(
-                    f"Vehicle {vehicle_id} has no entry in loaded optimal solution."
-                )
-            optimal_sequence = self.optimal_solution[vehicle_id]
+                console_logger.warning(f"Vehicle {vehicle_id} has no entry in loaded optimal solution {self.optimal_solution}. Skipping this vehicle.")
+            optimal_sequence = self.optimal_solution.get(vehicle_id, [])
             subsequence = [
                 request_id for request_id in optimal_sequence if request_id in request_ids_set
             ]
