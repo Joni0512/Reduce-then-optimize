@@ -36,7 +36,7 @@ MODE=offline
 EPOCHS=1
 LEARNING_RATE=5e-3
 
-export GRB_LICENSE_FILE="$HOME/gurobi_web.lic"
+export GRB_LICENSE_FILE="$HOME/gurobi.lic"
 ulimit -c unlimited
 
 echo "Python used:"
