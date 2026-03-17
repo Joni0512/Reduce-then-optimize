@@ -164,31 +164,31 @@ class COAMLTrainingLoop:
                     self.config.OUTPUT_DIR / f"coaml_model_weights_epoch_{epoch_num}.pt",
                 )
 
-        # Validate: run model on val files after complete training, store results per file
-        for v_path in val_files:
-            v_cleared = _load_and_clear_payload(v_path)
-            out_dir = self.config.OUTPUT_DIR / "val" / v_path.stem
-            out_dir.mkdir(parents=True, exist_ok=True)
-            file_cfg = replace(self.config, OUTPUT_DIR=out_dir)
-            pipeline = COAMLPipeline(
-                file_cfg, v_cleared, model=self.model, epoch=epoch_num,
-                imitation_solution_path=v_path,
-            )
-            driver_runs = pipeline.solve_pdptw(v_cleared, mode="eval")
-            _save_validation_results(file_cfg, v_cleared, driver_runs)
+            # Validate: each epoch with the current model to run model on val files after complete training, store results per file
+            for v_path in val_files:
+                v_cleared = _load_and_clear_payload(v_path)
+                out_dir = self.config.OUTPUT_DIR / "val" / v_path.stem
+                out_dir.mkdir(parents=True, exist_ok=True)
+                file_cfg = replace(self.config, OUTPUT_DIR=out_dir)
+                pipeline = COAMLPipeline(
+                    file_cfg, v_cleared, model=self.model, epoch=epoch_num,
+                    imitation_solution_path=v_path,
+                )
+                driver_runs = pipeline.solve_pdptw(v_cleared, mode="eval")
+                _save_validation_results(file_cfg, v_cleared, driver_runs)
 
-        # Validate training files after complete training, store results per file per epoch
-        for t_path in train_files:
-            t_cleared = _load_and_clear_payload(t_path)
-            out_dir = self.config.OUTPUT_DIR / "train_val" / t_path.stem
-            out_dir.mkdir(parents=True, exist_ok=True)
-            file_cfg = replace(self.config, OUTPUT_DIR=out_dir)
-            pipeline = COAMLPipeline(
-                file_cfg, t_cleared, model=self.model, epoch=epoch_num,
-                imitation_solution_path=t_path,
-            )
-            driver_runs = pipeline.solve_pdptw(t_cleared, mode="eval")
-            _save_validation_results(file_cfg, t_cleared, driver_runs)
+            # Validate training files after complete training, store results per file per epoch
+            for t_path in train_files:
+                t_cleared = _load_and_clear_payload(t_path)
+                out_dir = self.config.OUTPUT_DIR / "train_val" / t_path.stem
+                out_dir.mkdir(parents=True, exist_ok=True)
+                file_cfg = replace(self.config, OUTPUT_DIR=out_dir)
+                pipeline = COAMLPipeline(
+                    file_cfg, t_cleared, model=self.model, epoch=epoch_num,
+                    imitation_solution_path=t_path,
+                )
+                driver_runs = pipeline.solve_pdptw(t_cleared, mode="eval")
+                _save_validation_results(file_cfg, t_cleared, driver_runs)
 
         plot_loss_per_file(losses_per_file, self.config.OUTPUT_DIR)
         return TrainingLoopResult(
