@@ -152,6 +152,7 @@ class TripHandler:
             block_end = min(block_start + block_size, len(self.trips))
             # prepare arguments for multiprocessing
             pool = mp.Pool(max_num_thread)
+            console_logger.info(f"Pool spawned with {pool._processes} worker processes (block {block_start}-{block_end})")
             # iterate over all existing trips in blocks
             for trip in self.trips[block_start:block_end]:
                 trips = []
