@@ -155,13 +155,18 @@ if __name__ == "__main__":
             updated_driver_runs = off_solver.solve_rtv(cleared_payload, config.BATCH_INTERVAL, config.STEP_SIZE)
         elif config.MODE == 'coaml':
             cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
+            input_path = Path(__file__).resolve().parent.parent / config.INPUT_FILE
             if config.EPOCHS > 1:
-                training_loop = COAMLTrainingLoop(config, cleared_payload)
+                training_loop = COAMLTrainingLoop(
+                    config, cleared_payload, input_path=input_path
+                )
                 training_result = training_loop.run()
                 updated_driver_runs = training_result.updated_driver_runs
                 console_logger.info(f"All iteration losses: {training_result.all_iteration_losses}")
             else:
-                rh_solver = COAMLPipeline(config, cleared_payload)
+                rh_solver = COAMLPipeline(
+                    config, cleared_payload, imitation_solution_path=input_path
+                )
                 updated_driver_runs = rh_solver.solve_pdptw(cleared_payload)
                 console_logger.info(f"Loss history: {rh_solver.loss_history}")
         elif config.MODE == 'optimal_solution':

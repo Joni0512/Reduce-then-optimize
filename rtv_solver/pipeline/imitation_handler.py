@@ -1,4 +1,3 @@
-import json
 import itertools
 import numpy as np
 import torch
@@ -15,6 +14,7 @@ from rtv_solver.structure.driver_run import DriverRun, ManifestEntry
 from rtv_solver.structure.trip_cost import TripCost
 
 from rtv_solver.schema.payload_keys import PayloadKeys
+from rtv_solver.handlers.payload_parser import PayloadParser
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
@@ -43,8 +43,22 @@ class ImitationHandler:
     # The data that we get from the tripHandler clearly has the direct vehicle association in the TripCost object but also in the vehicle_to_trips_cost_map and trip_to_vehicle_cost_map dictionaries. We can use this information to get the optimal solutions for each vehicle. We still need to make sure that the order of the trips is preserved.
     # Instructions: we need new methods to handle the optimal solutions for multiple vehicles. We need to make sure that the final order of our imitated solution matches the corresponding order of the generated trips. The code should be highly testable and robust.
     # The order is very important as the order of TripCosts is deeply integrated into the optimization process. The final outcome must make sure that the order remains, even if we temporarily deduce solutions per vehicle. The number of vehicles is known beforehand and can be identified by a clear vehicleID. We need to add testing to check the final outcome of both the imitation_scores and the y_star tensor.
-    def __init__(self, config: Config):
+    def __init__(
+        self,
+        config: Config,
+        imitation_solution_path: Path | str | None = None,
+    ):
+        """
+        Initialize the imitation handler.
+
+        Parameters:
+            - config: Config object
+            - imitation_solution_path: Path to the file containing the optimal solution
+              (same file the COAML pipeline runs on). If None, falls back to
+              config.IMITATION_SOLUTION_FILE for backward compatibility.
+        """
         self.config = config
+        self._imitation_solution_path = imitation_solution_path
         self.optimal_solution = self._load_complete_optimal_solution()
 
     @staticmethod
@@ -107,8 +121,10 @@ class ImitationHandler:
         result: dict[int, list[int]] = {}
         for vehicle_id in vehicle_ids:
             if vehicle_id not in self.optimal_solution:
-                console_logger.warning(f"Vehicle {vehicle_id} has no entry in loaded optimal solution {self.optimal_solution}. Skipping this vehicle.")
-            optimal_sequence = self.optimal_solution.get(vehicle_id, [])
+                raise KeyError(
+                    f"Vehicle {vehicle_id} has no entry in loaded optimal solution (keys: {list(self.optimal_solution.keys())}). The optimal solution must contain all vehicle IDs {vehicle_ids}."
+                )
+            optimal_sequence = self.optimal_solution[vehicle_id]
             subsequence = [
                 request_id for request_id in optimal_sequence if request_id in request_ids_set
             ]
@@ -122,14 +138,25 @@ class ImitationHandler:
         """
         Load the complete optimal solution from the payload for the entire period.
 
+        Uses the file path passed at init (same file the COAML pipeline runs on).
+        Supports json, pkl, and txt formats via PayloadParser.load_input_data.
+
         Assumption: all vehicles start in the same position (singledepot).
         """
-        if self.config.IMITATION_SOLUTION_FILE is None:
-            raise ValueError("No imitation solution file provided.")
-        
-        with open(Path(__file__).resolve().parent.parent.parent / self.config.IMITATION_SOLUTION_FILE, "r") as f:
-            payload_data = json.load(f)
-        
+        path = self._imitation_solution_path
+        if path is None:
+            path = self.config.IMITATION_SOLUTION_FILE
+        if path is None:
+            raise ValueError(
+                "No imitation solution file provided. Pass imitation_solution_path to ImitationHandler or set config.IMITATION_SOLUTION_FILE."
+            )
+
+        path = Path(path)
+        if not path.is_absolute():
+            path = Path(__file__).resolve().parent.parent.parent / path
+
+        payload_data = PayloadParser.load_input_data(path)
+
         # driverID: solution list of request IDs
         optimal_solution = {}
         for driver_run in payload_data[PayloadKeys.DRIVERS]:

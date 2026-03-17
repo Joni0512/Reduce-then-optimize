@@ -98,18 +98,19 @@ class COAMLTrainingLoop:
     - Train/val dirs: train on TRAINING_FILES, validate on VALIDATION_FILES (both from INPUT_DIR).
       One model, never reset. Validation results stored per file for later analysis.
     """
-
     def __init__(
         self,
         config: Config,
         payload: dict | None = None,
         model: ScoringMLP | None = None,
+        input_path: Path | None = None,
     ) -> None:
         self.config = config
         self.payload = payload
         self.model = model or ScoringMLP(
             feature_dim=FeatureBuilder.FEATURE_SIZE, hidden_dim=config.HIDDEN_DIM
         )
+        self.input_path = input_path
 
     def run(self) -> TrainingLoopResult:
         if self.config.INPUT_DIR:
@@ -147,7 +148,8 @@ class COAMLTrainingLoop:
             for path in train_files:
                 cleared = _load_and_clear_payload(path)
                 pipeline = COAMLPipeline(
-                    self.config, cleared, model=self.model, epoch=epoch_num
+                    self.config, cleared, model=self.model, epoch=epoch_num,
+                    imitation_solution_path=path,
                 )
                 last_driver_runs = pipeline.solve_pdptw(
                     cleared, mode="train", optimizer=optimizer
@@ -169,7 +171,8 @@ class COAMLTrainingLoop:
             out_dir.mkdir(parents=True, exist_ok=True)
             file_cfg = replace(self.config, OUTPUT_DIR=out_dir)
             pipeline = COAMLPipeline(
-                file_cfg, v_cleared, model=self.model, epoch=epoch_num
+                file_cfg, v_cleared, model=self.model, epoch=epoch_num,
+                imitation_solution_path=v_path,
             )
             driver_runs = pipeline.solve_pdptw(v_cleared, mode="eval")
             _save_validation_results(file_cfg, v_cleared, driver_runs)
@@ -181,7 +184,8 @@ class COAMLTrainingLoop:
             out_dir.mkdir(parents=True, exist_ok=True)
             file_cfg = replace(self.config, OUTPUT_DIR=out_dir)
             pipeline = COAMLPipeline(
-                file_cfg, t_cleared, model=self.model, epoch=epoch_num
+                file_cfg, t_cleared, model=self.model, epoch=epoch_num,
+                imitation_solution_path=t_path,
             )
             driver_runs = pipeline.solve_pdptw(t_cleared, mode="eval")
             _save_validation_results(file_cfg, t_cleared, driver_runs)
@@ -226,7 +230,8 @@ class COAMLTrainingLoop:
                 f"=== COAML training epoch {epoch_num}/{total_epochs} ==="
             )
             pipeline = COAMLPipeline(
-                self.config, self.payload, model=self.model, epoch=epoch_num
+                self.config, self.payload, model=self.model, epoch=epoch_num,
+                imitation_solution_path=self.input_path,
             )
             updated_driver_runs = pipeline.solve_pdptw(
                 self.payload, mode="train", optimizer=optimizer

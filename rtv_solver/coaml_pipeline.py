@@ -56,6 +56,7 @@ class COAMLPipeline():
             offline_payload: dict,
             model: ScoringMLP | None = None,
             epoch: int = 1,
+            imitation_solution_path: Path | str | None = None,
         ):
         """
         Initialize the COAML pipeline solver.
@@ -63,6 +64,7 @@ class COAMLPipeline():
         Parameters:
             - config: Config object
             - offline_payload: Offline payload object in order to calculate feature normalization values and get structure of feature matrix
+            - imitation_solution_path: Path to the file containing the optimal solution (same file the pipeline runs on). If None, ImitationHandler falls back to config.IMITATION_SOLUTION_FILE.
         """
         self.config = config
         self.offline_payload = offline_payload
@@ -71,7 +73,7 @@ class COAMLPipeline():
             feature_dim=FeatureBuilder.FEATURE_SIZE, hidden_dim=config.HIDDEN_DIM
         )
         self.fy_loss = FenchelYoungLoss(num_samples=config.NUM_SAMPLES, sigma=config.SIGMA) # alternative 0.1 or 0.05 for less variance
-        self.imitation_handler = ImitationHandler(config)
+        self.imitation_handler = ImitationHandler(config, imitation_solution_path=imitation_solution_path)
         
         self.coaml_optimizer = CO_ScoreMaximization(config)
         self.default_optimizer = CO_TripCostMinimization(config)    
