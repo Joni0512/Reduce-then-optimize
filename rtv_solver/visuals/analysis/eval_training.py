@@ -25,6 +25,8 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 
 
 # Figure signatures and output
@@ -40,10 +42,28 @@ FIGURE_SIGNATURES = {
         "base": "coaml_avg_loss_per_file_per_epoch",
         "show": True,
     },
-    # Add future analyses here, e.g.:
-    # "vmt_comparison": {"base": "vmt_comparison", "show": False},
-    # service count comparison against offline and optimal
+    "serviced_per_file_comparison": {
+        "base": "serviced_per_file_comparison",
+        "show": True,
+    },
 }
+
+# LiLim file split (must match training_loop.py)
+TRAINING_FILES = [
+    "lc101", "lc102", "lc103", "lc104", "lc105", "lc106", "lc107",
+    "lc201", "lc202", "lc203", "lc204", "lc205", "lc206",
+    "lr101", "lr102", "lr103", "lr104", "lr105", "lr106", "lr107", "lr108", "lr109", "lr110",
+    "lr201", "lr202", "lr203", "lr204", "lr205", "lr206", "lr207", "lr208", "lr209",
+    "lrc101", "lrc102", "lrc103", "lrc104", "lrc105", "lrc106",
+    "lrc201", "lrc202", "lrc203", "lrc204", "lrc205", "lrc206",
+]
+VALIDATION_FILES = [
+    "lc108", "lc109", "lc207", "lc208",
+    "lr111", "lr112", "lr210", "lr211",
+    "lrc107", "lrc108", "lrc207", "lrc208",
+]
+VAL_STEMS = set(VALIDATION_FILES)
+ALL_LILIM_FILES = sorted(set(TRAINING_FILES) | VAL_STEMS)
 
 
 def get_figure_paths(results_dir: Path, signature: str) -> tuple[Path, Path]:
@@ -470,6 +490,189 @@ def analyze_coaml_avg_loss_per_file_per_epoch(
     save_figure_and_values(results_dir, sig, values, fig, show=show)
 
 
+def _load_optimal_serviced(manifests_dir: Path, file_id: str) -> Optional[int]:
+    """Optimal serves all requests; return len(requests) from manifest."""
+    path = manifests_dir / f"{file_id}.json"
+    if not path.exists():
+        return None
+    with open(path) as f:
+        data = json.load(f)
+    return len(data.get("requests", []))
+
+
+def _load_offline_serviced(offline: OfflineData, file_id: str) -> Optional[int]:
+    """Load serviced count from offline run results.json."""
+    runs = offline.runs.get(file_id, [])
+    if not runs:
+        return None
+    latest = sorted(runs, key=lambda r: r.run_dir.name, reverse=True)[0]
+    return latest.results.get("stats", {}).get("serviced")
+
+
+def _load_coaml_serviced_per_epoch(
+    coaml_dir: Path, file_id: str, epochs: int, is_validation: bool
+) -> Dict[int, int]:
+    """Load serviced per epoch from val/ or train_val/."""
+    subdir = "val" if is_validation else "train_val"
+    out: Dict[int, int] = {}
+    for e in range(epochs):
+        results_path = coaml_dir / subdir / f"epoch_{e}" / file_id / "results.json"
+        if not results_path.exists():
+            continue
+        with open(results_path) as f:
+            data = json.load(f)
+        out[e + 1] = data.get("stats", {}).get("serviced", 0)
+    return out
+
+
+def _get_coaml_run_file_ids(coaml_dir: Path, epochs: int) -> List[str]:
+    """Return file IDs that were actually run in COAML (have val or train_val results)."""
+    seen: set[str] = set()
+    for subdir in ("val", "train_val"):
+        base = coaml_dir / subdir
+        if not base.exists():
+            continue
+        for e in range(epochs):
+            epoch_dir = base / f"epoch_{e}"
+            if epoch_dir.exists():
+                for p in epoch_dir.iterdir():
+                    if p.is_dir() and (p / "results.json").exists():
+                        seen.add(p.name)
+    return sorted(seen)
+
+
+def analyze_serviced_per_file_comparison(
+    solutions: SolutionsData,
+    offline: Optional[OfflineData],
+    coaml: CoAMLData,
+    results_dir: Path,
+) -> None:
+    """
+    Bar chart: per LiLim file, serviced requests for optimal, offline, and each COAML validation epoch.
+    One subplot per file; bars: optimal, offline, COAML epoch 1..N.
+    Only includes files that were actually run in the COAML runtime.
+    """
+    cfg = FIGURE_SIGNATURES["serviced_per_file_comparison"]
+    sig = cfg["base"]
+    show = cfg["show"]
+    epochs = _get_epochs_from_config(coaml.config)
+    coaml_dir = coaml.base_dir
+
+    # Only files that were run in COAML
+    file_ids = _get_coaml_run_file_ids(coaml_dir, epochs)
+    file_ids = [f for f in file_ids if (solutions.manifests_dir / f"{f}.json").exists()]
+    if not file_ids:
+        return
+
+    bar_labels = ["Offline"] + [f"COAML ep.{e}" for e in range(1, epochs + 1)]
+    n_bars = len(bar_labels)
+
+    data_per_file: Dict[str, Dict[str, Optional[int]]] = {}
+    for file_id in file_ids:
+        is_val = file_id in VAL_STEMS
+        row: Dict[str, Optional[int]] = {}
+        row["Optimal"] = _load_optimal_serviced(solutions.manifests_dir, file_id)
+        row["Offline"] = _load_offline_serviced(offline, file_id) if offline else None
+        coaml_serviced = _load_coaml_serviced_per_epoch(coaml_dir, file_id, epochs, is_val)
+        for e in range(1, epochs + 1):
+            row[f"COAML ep.{e}"] = coaml_serviced.get(e)
+        data_per_file[file_id] = row
+
+    values = {
+        "file_ids": file_ids,
+        "run_labels": ["Optimal"] + bar_labels,
+        "data_per_file": {
+            fid: {k: v for k, v in data.items()}
+            for fid, data in data_per_file.items()
+        },
+    }
+
+    n_files = len(file_ids)
+    n_cols = 4
+    n_rows = (n_files + n_cols - 1) // n_cols
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 3 * n_rows))
+    if n_rows == 1 and n_cols == 1:
+        axes = np.array([[axes]])
+    elif n_rows == 1:
+        axes = axes.reshape(1, -1)
+    elif n_cols == 1:
+        axes = axes.reshape(-1, 1)
+
+    # Colors: Offline=blue, COAML epochs=lighter orange (readable with dark text)
+    bar_colors = ["#3498db"] + list(plt.cm.Oranges(np.linspace(0.25, 0.55, epochs)))
+    optimal_line_color = "#1a5f1a"
+    # Slim bars with very small gap between them
+    bar_spacing = 0.5
+    width = 0.42
+    x = np.arange(n_bars) * bar_spacing
+
+    for idx, file_id in enumerate(file_ids):
+        row_idx, col_idx = idx // n_cols, idx % n_cols
+        ax = axes[row_idx, col_idx]
+        row = data_per_file[file_id]
+        optimal_val = row.get("Optimal")
+        vals = [row.get(lbl) for lbl in bar_labels]
+        heights = [v if v is not None else 0 for v in vals]
+
+        # Optimal: dashed horizontal line (not a bar)
+        if optimal_val is not None and optimal_val > 0:
+            ax.axhline(
+                y=optimal_val,
+                color=optimal_line_color,
+                linestyle="--",
+                linewidth=1.5,
+                zorder=1,
+            )
+
+        # Bars: Offline + COAML epochs
+        bars = ax.bar(x, heights, width, zorder=2)
+        for i, (bar, v) in enumerate(zip(bars, vals)):
+            bar.set_color(bar_colors[i])
+            if v is None:
+                bar.set_hatch("//")
+                bar.set_alpha(0.5)
+        # Value labels inside bars (very small)
+        for bar, h in zip(bars, heights):
+            if h > 0:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() / 2,
+                    str(int(h)),
+                    ha="center",
+                    va="center",
+                    fontsize=5,
+                    color="#333333",
+                )
+        ax.set_xticks(x)
+        ax.set_xticklabels([])
+        ax.set_ylabel("Serviced requests" if col_idx == 0 else "")
+        # Validation file titles: bold red
+        if file_id in VAL_STEMS:
+            ax.set_title(file_id, fontweight="bold", color="#c0392b")
+        else:
+            ax.set_title(file_id)
+        ax.set_ylim(bottom=0)
+
+    for idx in range(n_files, n_rows * n_cols):
+        row_idx, col_idx = idx // n_cols, idx % n_cols
+        axes[row_idx, col_idx].set_visible(False)
+
+    # Legend: Optimal as line, then bar patches
+    legend_elements = [
+        Line2D(
+            [0], [0],
+            color=optimal_line_color,
+            linestyle="--",
+            linewidth=2,
+            label="Optimal",
+        ),
+    ] + [Patch(facecolor=bar_colors[i], label=bar_labels[i]) for i in range(n_bars)]
+    fig.legend(handles=legend_elements, loc="lower center", ncol=len(legend_elements), frameon=True)
+    fig.suptitle("Serviced requests per file: Optimal vs Offline vs COAML validation epochs")
+    fig.tight_layout(rect=[0, 0.05, 1, 0.96])
+    save_figure_and_values(results_dir, sig, values, fig, show=show)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Evaluate training and benchmark data across solutions, offline, and CoAML."
@@ -542,4 +745,9 @@ if __name__ == "__main__":
             print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
             analyze_coaml_avg_loss_per_file_per_epoch(coaml, results_dir)
             base = FIGURE_SIGNATURES["coaml_avg_loss_per_file_per_epoch"]["base"]
+            print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
+        if solutions and coaml:
+            print("\nRunning serviced-per-file comparison...")
+            analyze_serviced_per_file_comparison(solutions, offline, coaml, results_dir)
+            base = FIGURE_SIGNATURES["serviced_per_file_comparison"]["base"]
             print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
