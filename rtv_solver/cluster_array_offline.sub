@@ -58,8 +58,6 @@ $PYTHON rtv_solver/main.py \
   --step_size $STEP_SIZE \
   --batch_interval $BATCH_INTERVAL \
   --seed $SEED \
-  --mode $MODE \
-  --epochs $EPOCHS \
-  --learning_rate $LEARNING_RATE 
+  --mode $MODE
 
 echo "Job $SLURM_JOB_ID completed"
