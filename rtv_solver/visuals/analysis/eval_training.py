@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
@@ -52,6 +53,10 @@ FIGURE_SIGNATURES = {
     },
     "distance_per_request_comparison": {
         "base": "distance_per_request_comparison",
+        "show": True,
+    },
+    "loss_over_rolling_horizon": {
+        "base": "loss_over_rolling_horizon",
         "show": True,
     },
 }
@@ -498,6 +503,106 @@ def analyze_coaml_avg_loss_per_file_per_epoch(
     save_figure_and_values(results_dir, sig, values, fig, show=show)
 
 
+def analyze_loss_over_rolling_horizon(coaml: CoAMLData, results_dir: Path) -> None:
+    """
+    Loss over rolling-horizon iterations, averaged across files.
+    Each epoch = separate line. 
+    Line color fades based on participating files at each iteration. Early iterations have all files; later iterations may have fewer as files finish.
+    """
+    cfg = FIGURE_SIGNATURES["loss_over_rolling_horizon"]
+    sig = cfg["base"]
+    show = cfg["show"]
+    epochs = _get_epochs_from_config(coaml.config)
+    training_loss = coaml.training_loss_per_file
+
+    if not training_loss:
+        return
+
+    # Per epoch: get chunk per file, then for each iteration index compute avg and participation
+    file_ids = sorted(training_loss.keys())
+    n_files = len(file_ids)
+    epoch_colors = plt.cm.Set1(np.linspace(0.1, 0.9, max(epochs, 1)))
+
+    epoch_chunks: Dict[int, List[List[float]]] = {e: [] for e in range(epochs)}
+    for fid in file_ids:
+        valid = [l for l in training_loss[fid] if l is not None]
+        if not valid:
+            continue
+        chunks = _split_into_epoch_chunks(valid, epochs)
+        for e, ch in enumerate(chunks):
+            if ch:
+                epoch_chunks[e].append(ch)
+
+    if not any(epoch_chunks.values()):
+        return
+
+    values = {
+        "epochs": epochs,
+        "per_epoch": {},
+    }
+
+    fig, ax = plt.subplots()
+    max_iter_global = 0
+
+    for e in range(epochs):
+        chunks = epoch_chunks.get(e, [])
+        if not chunks:
+            continue
+        max_iter = max(len(c) for c in chunks)
+        max_iter_global = max(max_iter_global, max_iter)
+
+        n_in_epoch = len(chunks)
+        iters, avgs, participations = [], [], []
+        for i in range(max_iter):
+            vals = [c[i] for c in chunks if len(c) > i]
+            if not vals:
+                continue
+            iters.append(i)
+            avgs.append(sum(vals) / len(vals))
+            participations.append(len(vals) / n_in_epoch)
+
+        if not iters:
+            continue
+
+        values["per_epoch"][e + 1] = {
+            "iterations": iters,
+            "avg_loss": avgs,
+            "participation": participations,
+        }
+
+        # Line segments with strong fading by participation (0.06–1.0 alpha)
+        base_color = epoch_colors[e % len(epoch_colors)]
+        segments = []
+        alphas = []
+        for j in range(len(iters) - 1):
+            segments.append([(iters[j], avgs[j]), (iters[j + 1], avgs[j + 1])])
+            alpha = 0.06 + 0.94 * participations[j]
+            alphas.append(alpha)
+
+        lc = LineCollection(
+            segments,
+            colors=[(*base_color[:3], a) for a in alphas],
+            linewidths=2.5,
+        )
+        ax.add_collection(lc)
+
+    # Legend: one handle per epoch
+    legend_handles = [
+        Line2D([0], [0], color=epoch_colors[e % len(epoch_colors)], linewidth=2, label=f"ep.{e + 1}")
+        for e in range(epochs)
+        if epoch_chunks.get(e)
+    ]
+    ax.legend(handles=legend_handles, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=min(epochs, 6), frameon=False)
+    ax.set_xlabel("Iteration (rolling horizon)")
+    ax.set_ylabel("Average loss")
+    ax.set_title("Loss over rolling horizon (color fades as fewer files participate)")
+    ax.set_xlim(-0.5, max_iter_global - 0.5)
+    ax.autoscale(axis="y")
+    ax.grid(True)
+    fig.tight_layout()
+    save_figure_and_values(results_dir, sig, values, fig, show=show)
+
+
 def _load_optimal_serviced(manifests_dir: Path, file_id: str) -> Optional[int]:
     """Optimal serves all requests; return len(requests) from manifest."""
     path = manifests_dir / f"{file_id}.json"
@@ -562,6 +667,7 @@ def analyze_serviced_per_file_comparison(
     offline: Optional[OfflineData],
     coaml: CoAMLData,
     results_dir: Path,
+    validation_only: bool = False,
 ) -> None:
     """
     Bar chart: per LiLim file, serviced requests for optimal, offline, and each COAML validation epoch.
@@ -574,8 +680,9 @@ def analyze_serviced_per_file_comparison(
     epochs = _get_epochs_from_config(coaml.config)
     coaml_dir = coaml.base_dir
 
-    # Only files that were run in COAML
     file_ids = _get_coaml_run_file_ids(coaml_dir, epochs)
+    if validation_only:
+        file_ids = [f for f in file_ids if f in VAL_STEMS]
     file_ids = [f for f in file_ids if (solutions.manifests_dir / f"{f}.json").exists()]
     if not file_ids:
         return
@@ -694,6 +801,7 @@ def analyze_vmt_per_file_comparison(
     offline: Optional[OfflineData],
     coaml: CoAMLData,
     results_dir: Path,
+    validation_only: bool = False,
 ) -> None:
     """
     Bar chart: per file, VMT difference to optimal (VMT - optimal_VMT).
@@ -707,6 +815,8 @@ def analyze_vmt_per_file_comparison(
     coaml_dir = coaml.base_dir
 
     file_ids = _get_coaml_run_file_ids(coaml_dir, epochs)
+    if validation_only:
+        file_ids = [f for f in file_ids if f in VAL_STEMS]
     file_ids = [f for f in file_ids if f in solutions.scores]
     if not file_ids:
         return
@@ -803,6 +913,7 @@ def analyze_distance_per_request_comparison(
     offline: Optional[OfflineData],
     coaml: CoAMLData,
     results_dir: Path,
+    validation_only: bool = False,
 ) -> None:
     """
     Bar chart: per file, distance per served request (VMT / serviced).
@@ -816,6 +927,8 @@ def analyze_distance_per_request_comparison(
     coaml_dir = coaml.base_dir
 
     file_ids = _get_coaml_run_file_ids(coaml_dir, epochs)
+    if validation_only:
+        file_ids = [f for f in file_ids if f in VAL_STEMS]
     file_ids = [
         f for f in file_ids
         if f in solutions.scores and (solutions.manifests_dir / f"{f}.json").exists()
@@ -951,6 +1064,11 @@ if __name__ == "__main__":
         help="Do not show plots interactively (default: show)",
     )
     parser.add_argument(
+        "--all-files",
+        action="store_true",
+        help="Analyze all COAML-run files (default: validation files only)",
+    )
+    parser.add_argument(
         "--list",
         action="store_true",
         help="Only list loaded data summary, no analysis",
@@ -990,16 +1108,19 @@ if __name__ == "__main__":
             analyze_coaml_avg_loss_per_file_per_epoch(coaml, results_dir)
             base = FIGURE_SIGNATURES["coaml_avg_loss_per_file_per_epoch"]["base"]
             print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
+            analyze_loss_over_rolling_horizon(coaml, results_dir)
+            base = FIGURE_SIGNATURES["loss_over_rolling_horizon"]["base"]
+            print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
         if solutions and coaml:
-            print("\nRunning serviced-per-file comparison...")
-            analyze_serviced_per_file_comparison(solutions, offline, coaml, results_dir)
+            val_only = not args.all_files
+            scope = "validation files only" if val_only else "all COAML-run files"
+            print(f"\nRunning file-based analyses ({scope})...")
+            analyze_serviced_per_file_comparison(solutions, offline, coaml, results_dir, validation_only=val_only)
             base = FIGURE_SIGNATURES["serviced_per_file_comparison"]["base"]
             print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
-            print("\nRunning VMT-per-file comparison...")
-            analyze_vmt_per_file_comparison(solutions, offline, coaml, results_dir)
+            analyze_vmt_per_file_comparison(solutions, offline, coaml, results_dir, validation_only=val_only)
             base = FIGURE_SIGNATURES["vmt_per_file_comparison"]["base"]
             print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
-            print("\nRunning distance-per-request comparison...")
-            analyze_distance_per_request_comparison(solutions, offline, coaml, results_dir)
+            analyze_distance_per_request_comparison(solutions, offline, coaml, results_dir, validation_only=val_only)
             base = FIGURE_SIGNATURES["distance_per_request_comparison"]["base"]
             print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
