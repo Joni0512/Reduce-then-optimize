@@ -3,7 +3,6 @@ from typing import Optional
 
 import matplotlib.pyplot as plt
 
-from rtv_solver.util.helper import save_json
 from matplotlib.ticker import MaxNLocator
 
 
@@ -36,7 +35,6 @@ def plot_loss_per_file(
     output_path = Path(output_dir)
     plt.savefig(output_path / "training_loss_per_file.png", bbox_inches="tight")
     plt.close()
-    save_json(losses_per_file, output_path / "training_loss_per_file.json")
 
 
 def plot_loss(loss_history, iterations, output_dir):

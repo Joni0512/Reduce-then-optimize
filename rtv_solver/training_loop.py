@@ -26,19 +26,19 @@ TRAINING_FILES = [
     "lc201", "lc202", "lc203", "lc204", "lc205", "lc206",
     "lr101", "lr102", "lr103", "lr104", "lr105", "lr106", "lr107", "lr108", "lr109", "lr110",
     "lr201", "lr202", "lr203", "lr204", "lr205", "lr206", "lr207", "lr208", "lr209",
-    "lrc101", "lrc102", "lrc103", "lrc104", "lrc105", "lrc106",
-    "lrc201", "lrc202", "lrc203", "lrc204", "lrc205", "lrc206"
+    # "lrc101", "lrc102", "lrc103", "lrc104", "lrc105", "lrc106",
+    # "lrc201", "lrc202", "lrc203", "lrc204", "lrc205", "lrc206"
 ]
 VALIDATION_FILES = [
     "lc108", "lc109",
     "lc207", "lc208",
     "lr111", "lr112",
     "lr210", "lr211",
-    "lrc107", "lrc108",
-    "lrc207", "lrc208"
+    # "lrc107", "lrc108",
+    # "lrc207", "lrc208"
 ]
 
-# # NOTE DEBUG MODE
+# NOTE DEBUG MODE
 # TRAINING_FILES = ["lc101", "lc105"]
 # VALIDATION_FILES = ["lc108", "lc201"]
 
@@ -110,6 +110,7 @@ class COAMLTrainingLoop:
         self.model = model or ScoringMLP(
             feature_dim=FeatureBuilder.FEATURE_SIZE, hidden_dim=config.HIDDEN_DIM
         )
+        # TODO load model from existing file to improve learning
         self.input_path = input_path
 
     def run(self) -> TrainingLoopResult:
@@ -167,7 +168,7 @@ class COAMLTrainingLoop:
             # Validate: each epoch with the current model to run model on val files after complete training, store results per file
             for v_path in val_files:
                 v_cleared = _load_and_clear_payload(v_path)
-                out_dir = self.config.OUTPUT_DIR / "val" / v_path.stem
+                out_dir = self.config.OUTPUT_DIR / "val" / f"epoch_{epoch}" /v_path.stem
                 out_dir.mkdir(parents=True, exist_ok=True)
                 file_cfg = replace(self.config, OUTPUT_DIR=out_dir)
                 pipeline = COAMLPipeline(
@@ -176,21 +177,24 @@ class COAMLTrainingLoop:
                 )
                 driver_runs = pipeline.solve_pdptw(v_cleared, mode="eval")
                 _save_validation_results(file_cfg, v_cleared, driver_runs)
+        # save losses before it runs the further validation (derisking getting cut off from the results)
+        save_json(losses_per_file, self.config.OUTPUT_DIR / "training_loss_per_file.json")
+        
+        
+        # Validate training files after complete training, store results per file per epoch
+        # runnning this takes too much time and does not provide as much value except overfitting results --> we are not going to run this for all epoch but at the end to see whether it as least can fit its trainind data
+        for t_path in train_files:
+            t_cleared = _load_and_clear_payload(t_path)
+            out_dir = self.config.OUTPUT_DIR / "train_val" / f"epoch_{epoch}" / t_path.stem
+            out_dir.mkdir(parents=True, exist_ok=True)
+            file_cfg = replace(self.config, OUTPUT_DIR=out_dir)
+            pipeline = COAMLPipeline(
+                file_cfg, t_cleared, model=self.model, epoch=epoch_num,
+                imitation_solution_path=t_path,
+            )
+            driver_runs = pipeline.solve_pdptw(t_cleared, mode="eval")
+            _save_validation_results(file_cfg, t_cleared, driver_runs)
 
-            # Validate training files after complete training, store results per file per epoch
-            for t_path in train_files:
-                t_cleared = _load_and_clear_payload(t_path)
-                out_dir = self.config.OUTPUT_DIR / "train_val" / t_path.stem
-                out_dir.mkdir(parents=True, exist_ok=True)
-                file_cfg = replace(self.config, OUTPUT_DIR=out_dir)
-                pipeline = COAMLPipeline(
-                    file_cfg, t_cleared, model=self.model, epoch=epoch_num,
-                    imitation_solution_path=t_path,
-                )
-                driver_runs = pipeline.solve_pdptw(t_cleared, mode="eval")
-                _save_validation_results(file_cfg, t_cleared, driver_runs)
-
-        plot_loss_per_file(losses_per_file, self.config.OUTPUT_DIR)
         return TrainingLoopResult(
             updated_driver_runs=last_driver_runs,
             epoch_iteration_losses=[],
