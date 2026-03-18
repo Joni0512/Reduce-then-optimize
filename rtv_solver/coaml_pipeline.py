@@ -161,7 +161,7 @@ class COAMLPipeline():
         final_driver_runs = OnlineRTVSolver.finalize_driverRuns(
             self.config, driver_runs, payload[PayloadKeys.DEPOT]
         )
-        self.save_model_weights()
+        # self.save_model_weights()
         return final_driver_runs
 
     def _default_model_weights_path(self) -> Path:
