@@ -5,11 +5,11 @@
 #SBATCH --mail-type=ALL                 # Request status by email 
 #SBATCH --mail-user=jiw42@cornell.edu   # Email address to send results to.
 #SBATCH -N 1                            # Total number of nodes requested
-#SBATCH -n 128                          # Total number of cores requested
+#SBATCH -n 32                          # Total number of cores requested
 #SBATCH --get-user-env                  # retrieve the users login environment
-#SBATCH --mem=200000                    # server memory requested (per node)
-#SBATCH -t 18:00:00                     # Time limit (hh:mm:ss)
-#SBATCH --partition=samitha             # Request partition
+#SBATCH --mem=32000                   # server memory requested (per node)
+#SBATCH -t 16:00:00                     # Time limit (hh:mm:ss)
+#SBATCH -p samitha
 
 echo "Starting job $SLURM_JOB_ID"
 
@@ -21,14 +21,14 @@ INPUT_DIR="solutions/li_lim/manifests"
 
 ### EXPERIMENT PARAMETERS (from run_main.sh)
 OUTPUT_DIR_NAME="experiments"
-MAX_THREAD_CNT=128
+MAX_THREAD_CNT=32
 MAX_CARDINALITY=3
 STEP_SIZE=100
 BATCH_INTERVAL=400
 SEED=42
 MODE="coaml"
 EPOCHS=5
-LEARNING_RATE=5e-4
+LEARNING_RATE=1e-4
 
 
 export GRB_LICENSE_FILE="$HOME/gurobi.lic"
