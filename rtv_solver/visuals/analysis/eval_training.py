@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import numpy as np
 import matplotlib.pyplot as plt
 
 
@@ -33,6 +34,10 @@ import matplotlib.pyplot as plt
 FIGURE_SIGNATURES = {
     "coaml_avg_loss_per_epoch": {
         "base": "coaml_avg_loss_per_epoch",
+        "show": True,
+    },
+    "coaml_avg_loss_per_file_per_epoch": {
+        "base": "coaml_avg_loss_per_file_per_epoch",
         "show": True,
     },
     # Add future analyses here, e.g.:
@@ -51,9 +56,9 @@ def get_figure_paths(results_dir: Path, signature: str) -> tuple[Path, Path]:
     )
 
 
-def apply_plot_defaults(ax: plt.Axes) -> None:
+def apply_plot_defaults(ax: plt.Axes, ncol: int = 4) -> None:
     """Apply default styling: legend below, x/y labels and axes enabled."""
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=4, frameon=True)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=ncol, frameon=True)
     ax.set_xlabel(ax.get_xlabel() or "x")
     ax.set_ylabel(ax.get_ylabel() or "y")
 
@@ -398,6 +403,73 @@ def analyze_coaml_avg_loss_per_epoch(
     save_figure_and_values(results_dir, sig, values, fig, show=show)
 
 
+def analyze_coaml_avg_loss_per_file_per_epoch(
+    coaml: CoAMLData, results_dir: Path
+) -> None:
+    """
+    Average loss per file across epochs (COAML training).
+    Each file is a separate line with distinct color; x-axis: epoch, y-axis: mean loss.
+    """
+    cfg = FIGURE_SIGNATURES["coaml_avg_loss_per_file_per_epoch"]
+    sig = cfg["base"]
+    show = cfg["show"]
+    epochs = _get_epochs_from_config(coaml.config)
+    training_loss = coaml.training_loss_per_file
+
+    if not training_loss:
+        return
+
+    # Per file: average loss per epoch
+    file_ids = sorted(training_loss.keys())
+    avg_per_file_per_epoch: Dict[str, List[float]] = {}
+
+    for instance_id in file_ids:
+        losses = training_loss[instance_id]
+        valid = [l for l in losses if l is not None]
+        if not valid:
+            continue
+        chunks = _split_into_epoch_chunks(valid, epochs)
+        avg_per_file_per_epoch[instance_id] = [
+            sum(chunks[e]) / len(chunks[e]) if chunks[e] else 0.0
+            for e in range(epochs)
+        ]
+
+    if not avg_per_file_per_epoch:
+        return
+
+    values = {
+        "epochs": epochs,
+        "epoch_labels": list(range(1, epochs + 1)),
+        "avg_loss_per_file_per_epoch": avg_per_file_per_epoch,
+        "file_ids": list(avg_per_file_per_epoch.keys()),
+    }
+
+    fig, ax = plt.subplots()
+    epoch_labels = values["epoch_labels"]
+    n_files = len(avg_per_file_per_epoch)
+    colors = plt.cm.tab20(np.linspace(0, 1, max(n_files, 1)))
+
+    for i, (instance_id, avg_per_epoch) in enumerate(avg_per_file_per_epoch.items()):
+        color = colors[i % len(colors)]
+        ax.plot(
+            epoch_labels,
+            avg_per_epoch,
+            marker="o",
+            linestyle="-",
+            label=instance_id,
+            color=color,
+        )
+
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Average loss")
+    ax.set_title("COAML training: average loss per file across epochs")
+    ax.grid(True)
+    ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+    apply_plot_defaults(ax, ncol=min(6, n_files))
+    fig.tight_layout()
+    save_figure_and_values(results_dir, sig, values, fig, show=show)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Evaluate training and benchmark data across solutions, offline, and CoAML."
@@ -464,9 +536,10 @@ if __name__ == "__main__":
 
     if not args.list:
         if coaml and coaml.training_loss_per_file:
-            print("\nRunning COAML average loss per epoch analysis...")
+            print("\nRunning COAML analyses...")
             analyze_coaml_avg_loss_per_epoch(coaml, results_dir)
-            sig = FIGURE_SIGNATURES["coaml_avg_loss_per_epoch"]
-            cfg = FIGURE_SIGNATURES["coaml_avg_loss_per_epoch"]
-            base = cfg["base"]
+            base = FIGURE_SIGNATURES["coaml_avg_loss_per_epoch"]["base"]
+            print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
+            analyze_coaml_avg_loss_per_file_per_epoch(coaml, results_dir)
+            base = FIGURE_SIGNATURES["coaml_avg_loss_per_file_per_epoch"]["base"]
             print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
