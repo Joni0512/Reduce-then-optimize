@@ -66,6 +66,10 @@ FIGURE_SIGNATURES = {
         "base": "active_requests_per_rolling_horizon",
         "show": True,
     },
+    "boarded_and_dropped_per_vehicle": {
+        "base": "boarded_and_dropped_per_vehicle",
+        "show": True,
+    },
 }
 
 # LiLim file split (must match training_loop.py)
@@ -781,8 +785,6 @@ def analyze_active_requests_per_rolling_horizon(
     per_instance: Dict[str, Dict[str, Any]] = {}
     # High-contrast, distinct colors for readability (blue, orange, green, red, purple)
     colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
-    boarded_color = "#333333"
-    dropped_color = "#666666"
 
     nrows = (len(ids) + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols, figsize=(3.5 * ncols, 2.5 * nrows), squeeze=False)
@@ -817,37 +819,6 @@ def analyze_active_requests_per_rolling_horizon(
                 label=f"rh={rh}",
                 color=colors[i % len(colors)],
                 linewidth=1.5,
-            )
-
-        # Add boarded and dropped_off lines from optimal solution
-        # Include two extra timesteps at the end (vehicles still fulfilling final tasks)
-        optimal_payload = _load_optimal_solution(solutions, instance_id)
-        if optimal_payload is not None:
-            last_t = result["time_steps"][-1]
-            time_steps_extended = result["time_steps"] + [
-                last_t + step_size,
-                last_t + 2 * step_size,
-            ]
-            boarded_counts, dropped_off_counts = _compute_boarded_and_dropped_per_time_step(
-                optimal_payload, time_steps_extended
-            )
-            per_instance[instance_id]["boarded_counts"] = boarded_counts
-            per_instance[instance_id]["dropped_off_counts"] = dropped_off_counts
-            ax.plot(
-                time_steps_extended,
-                boarded_counts,
-                label="boarded",
-                color=boarded_color,
-                linewidth=1.5,
-                linestyle="--",
-            )
-            ax.plot(
-                time_steps_extended,
-                dropped_off_counts,
-                label="dropped off",
-                color=dropped_color,
-                linewidth=1.5,
-                linestyle=":",
             )
 
         if row == nrows - 1:
@@ -892,8 +863,6 @@ def analyze_active_requests_per_rolling_horizon(
             k: {
                 "time_steps": v["time_steps"],
                 "active_counts": v["active_counts"],
-                "boarded_counts": v.get("boarded_counts"),
-                "dropped_off_counts": v.get("dropped_off_counts"),
                 "total_requests": v["total_requests"],
             }
             for k, v in per_instance.items()
@@ -902,6 +871,178 @@ def analyze_active_requests_per_rolling_horizon(
     save_figure_and_values(
         results_dir, sig, values, fig, show=show
     )
+
+
+def _compute_boarded_per_vehicle(
+    optimal_payload: Dict[str, Any],
+    step_size: int = 1,
+) -> tuple[Dict[int, List[int]], List[int]]:
+    """
+    For each vehicle and each time step t (step_size=1):
+    - per_vehicle_boarded[vehicle_idx][t]: count of requests on board that vehicle at t
+    Returns (per_vehicle_boarded, time_steps).
+    """
+    max_time = 0
+    vehicle_pickup_dropoff: Dict[int, Dict[int, tuple[float, float]]] = {}
+    all_dropoff_ends: List[float] = []
+
+    for v_idx, dr in enumerate(optimal_payload.get(PayloadKeys.DRIVERS, [])):
+        manifest = dr.get(PayloadKeys.DRIVER_MANIFEST, [])
+        pickup_end: Dict[int, float] = {}
+        dropoff_end: Dict[int, float] = {}
+        for stop in manifest:
+            action = stop.get("action")
+            booking_id = stop.get(PayloadKeys.MANIFEST_BOOKING_ID)
+            if booking_id is None or action not in ("pickup", "dropoff"):
+                continue
+            if isinstance(booking_id, float):
+                booking_id = int(booking_id)
+            if booking_id < 0:
+                continue
+            sched = stop.get("scheduled_time") or stop.get("service_start_time", 0)
+            dwell = float(stop.get("dwell", 0))
+            service_end = stop.get("service_end_time")
+            end_time = float(service_end) if service_end is not None else sched + dwell
+            if action == "pickup":
+                pickup_end[booking_id] = end_time
+            elif action == "dropoff":
+                dropoff_end[booking_id] = end_time
+                all_dropoff_ends.append(end_time)
+
+        vehicle_pickup_dropoff[v_idx] = {
+            bid: (pickup_end[bid], dropoff_end[bid])
+            for bid in pickup_end
+            if bid in dropoff_end
+        }
+        for _, end in vehicle_pickup_dropoff[v_idx].values():
+            max_time = max(max_time, int(end) + 1)
+
+    if not all_dropoff_ends:
+        return {}, []
+
+    max_time = max(max_time, int(max(all_dropoff_ends)) + 1)
+    time_steps = list(range(0, max_time + 1, step_size))
+
+    per_vehicle_boarded: Dict[int, List[int]] = {}
+    for v_idx, booking_times in vehicle_pickup_dropoff.items():
+        counts = [
+            sum(1 for bid, (pe, de) in booking_times.items() if pe <= t < de)
+            for t in time_steps
+        ]
+        per_vehicle_boarded[v_idx] = counts
+
+    return per_vehicle_boarded, time_steps
+
+
+def analyze_boarded_and_dropped_per_vehicle(
+    solutions: SolutionsData,
+    results_dir: Path,
+    *,
+    instance_ids: Optional[List[str]] = None,
+    ncols: int = 4,
+) -> None:
+    """
+    For each LiLim validation instance with optimal solution, plot max and average boarded requests across vehicles (step size 1). Title includes instance id and number of vehicles.
+    """
+    cfg = FIGURE_SIGNATURES["boarded_and_dropped_per_vehicle"]
+    sig = cfg["base"]
+    show = cfg["show"]
+
+    manifests_dir = solutions.manifests_dir
+    if not manifests_dir.is_dir():
+        return
+
+    ids = instance_ids or list(VAL_STEMS)
+    ids = [i for i in ids if i in VAL_STEMS and (manifests_dir / f"{i}.json").exists()]
+    ids = sorted(ids)
+    if not ids:
+        return
+
+    per_instance: Dict[str, Dict[str, Any]] = {}
+
+    nrows = (len(ids) + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(3.5 * ncols, 2.5 * nrows), squeeze=False)
+
+    for idx, instance_id in enumerate(ids):
+        optimal_payload = _load_optimal_solution(solutions, instance_id)
+        row, col = idx // ncols, idx % ncols
+        ax = axes[row, col]
+
+        if optimal_payload is None:
+            ax.set_title(instance_id)
+            ax.axis("off")
+            continue
+
+        n_vehicles = len(optimal_payload.get(PayloadKeys.DRIVERS, []))
+        per_vehicle_boarded, time_steps = _compute_boarded_per_vehicle(
+            optimal_payload, step_size=1
+        )
+
+        if not time_steps or not per_vehicle_boarded:
+            ax.set_title(f"{instance_id} (v={n_vehicles})")
+            ax.axis("off")
+            continue
+
+        # Max and average across vehicles at each time step
+        boarded_matrix = np.array([per_vehicle_boarded[v] for v in sorted(per_vehicle_boarded.keys())])
+        max_boarded = np.max(boarded_matrix, axis=0).tolist()
+        avg_boarded = np.mean(boarded_matrix, axis=0).tolist()
+
+        ax.plot(time_steps, max_boarded, label="max", color="#1f77b4", linewidth=1.5)
+        ax.plot(time_steps, avg_boarded, label="avg", color="#ff7f0e", linewidth=1.5)
+
+        per_instance[instance_id] = {
+            "n_vehicles": n_vehicles,
+            "time_steps": time_steps,
+            "max_boarded": max_boarded,
+            "avg_boarded": avg_boarded,
+        }
+
+        ax.set_title(f"{instance_id} (v={n_vehicles})", fontweight="bold")
+        if row == nrows - 1:
+            ax.set_xlabel("Time (s)")
+        if col == 0:
+            ax.set_ylabel("Count")
+        ax.grid(True, alpha=0.3)
+        ax.set_xlim(left=0)
+        ax.yaxis.set_major_locator(plt.MaxNLocator(integer=True))
+
+    # Hide unused subplots
+    for idx in range(len(ids), nrows * ncols):
+        row, col = idx // ncols, idx % ncols
+        axes[row, col].axis("off")
+
+    fig.tight_layout(rect=[0, 0.08, 1, 1], pad=0.3, h_pad=0.4, w_pad=0.3)
+
+    leg_handles, leg_labels = [], []
+    for idx in range(len(ids)):
+        row, col = idx // ncols, idx % ncols
+        h, l = axes[row, col].get_legend_handles_labels()
+        if len(h) > len(leg_handles):
+            leg_handles, leg_labels = h, l
+    if leg_handles:
+        ncol_leg = min(len(leg_labels), 2)
+        fig.legend(
+            leg_handles,
+            leg_labels,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.04),
+            ncol=ncol_leg,
+            frameon=False,
+        )
+
+    values = {
+        "per_instance": {
+            k: {
+                "n_vehicles": v["n_vehicles"],
+                "time_steps": v["time_steps"],
+                "max_boarded": v["max_boarded"],
+                "avg_boarded": v["avg_boarded"],
+            }
+            for k, v in per_instance.items()
+        },
+    }
+    save_figure_and_values(results_dir, sig, values, fig, show=show)
 
 
 def _load_optimal_serviced(manifests_dir: Path, file_id: str) -> Optional[int]:
@@ -1405,6 +1546,10 @@ if __name__ == "__main__":
             print("\nRunning active requests per rolling horizon analysis...")
             analyze_active_requests_per_rolling_horizon(solutions, results_dir, step_size=100)
             base = FIGURE_SIGNATURES["active_requests_per_rolling_horizon"]["base"]
+            print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
+            print("\nRunning boarded and dropped per vehicle analysis...")
+            analyze_boarded_and_dropped_per_vehicle(solutions, results_dir)
+            base = FIGURE_SIGNATURES["boarded_and_dropped_per_vehicle"]["base"]
             print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
         if coaml and coaml.training_loss_per_file:
             print("\nRunning COAML analyses...")
