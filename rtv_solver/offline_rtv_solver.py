@@ -34,14 +34,12 @@ class OfflineRTVSolver:
             # select requests that are to be considered in the current interval with pickup_window [current_time, current_time + interval]
             selected_requests = {}
             for request in payload[PayloadKeys.REQUESTS]:
-                if ( # start of time window is part of current batch_interval
-                    request[PayloadKeys.REQ_PICKUP_WINDOW_START] >= current_time
-                    and 
-                    request[PayloadKeys.REQ_PICKUP_WINDOW_START] < current_time + interval 
-                    ):
+                # pickup window overlaps [current_time, current_time + interval)
+                if (request[PayloadKeys.REQ_PICKUP_WINDOW_END] > current_time
+                    and request[PayloadKeys.REQ_PICKUP_WINDOW_START] < current_time + interval):
                     selected_requests[request[PayloadKeys.REQ_BOOKING_ID]] = request
             
-            # remove requests that are already part of vehicles; covered by PayloadParser in OnlineRTVsolver
+            # remove requests that are already part of vehicles or have been dropped off (part of manifest twice); covered by PayloadParser in OnlineRTVsolver
             for dr in driver_runs:
                 manifest = dr[PayloadKeys.DRIVER_MANIFEST]
                 for stop in manifest:

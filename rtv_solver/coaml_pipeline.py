@@ -97,6 +97,8 @@ class COAMLPipeline():
         optimizer: Optional[torch.optim.Optimizer] = None,
     ):
         """
+        # TODO there is probably a better way of coding to run the same loop for offline and COAML instead of this code duplication that we currently have with all its problems (no thesis prio)
+
         Handles payloads across iterations of the rolling horizon
         
         With config.return_depot, this method will not add the final trips to the depot. The user has to call finalize_driverRuns(...) to add the final stops.
@@ -116,15 +118,15 @@ class COAMLPipeline():
             console_logger.info(f"=== Iteration {self.epoch}-{iteration} COAML Solver (mode: {mode}) at time {current_time} ===")
             
             # select requests that are to be considered in the current interval with pickup_window [current_time, current_time + interval]
+            # TODO chcek which definition we should use for the request selection
             selected_requests = {}
             for request in payload[PayloadKeys.REQUESTS]:
-                # if start of time window is part of current batch_interval
-                if (request[PayloadKeys.REQ_PICKUP_WINDOW_START] >= current_time and 
-                    request[PayloadKeys.REQ_PICKUP_WINDOW_START] < current_time + self.config.BATCH_INTERVAL 
-                    ):
+                # pickup window overlaps [current_time, current_time + batch_interval)
+                if (request[PayloadKeys.REQ_PICKUP_WINDOW_END] > current_time and
+                    request[PayloadKeys.REQ_PICKUP_WINDOW_START] < current_time + self.config.BATCH_INTERVAL):
                     selected_requests[request[PayloadKeys.REQ_BOOKING_ID]] = request
             
-            # remove requests that are already part of vehicles; covered by PayloadParser in OnlineRTVsolver
+            # remove requests that are already part of vehicles or have already been dropped off; covered by PayloadParser in OnlineRTVsolver
             for dr in driver_runs:
                 manifest = dr[PayloadKeys.DRIVER_MANIFEST]
                 for stop in manifest:
