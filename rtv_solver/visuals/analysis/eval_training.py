@@ -29,6 +29,9 @@ from matplotlib.collections import LineCollection
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
+from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.schema.payload_keys import PayloadKeys
+
 
 # Figure signatures and output
 
@@ -57,6 +60,10 @@ FIGURE_SIGNATURES = {
     },
     "loss_over_rolling_horizon": {
         "base": "loss_over_rolling_horizon",
+        "show": True,
+    },
+    "active_requests_per_rolling_horizon": {
+        "base": "active_requests_per_rolling_horizon",
         "show": True,
     },
 }
@@ -103,12 +110,12 @@ def save_figure_and_values(
     fig: plt.Figure,
     show: bool = False,
 ) -> None:
-    """Save both the numeric values (JSON) and the plot (PDF) with the same base name.
-    If show=True, display the figure interactively before closing."""
+    """Save both the numeric values (JSON) and the plot (PDF) with the same base name. If show=True, display the figure interactively before closing."""
     values_path, plot_path = get_figure_paths(results_dir, signature)
     with open(values_path, "w") as f:
         json.dump(values, f, indent=2)
-    fig.savefig(plot_path, bbox_inches="tight", format="pdf")
+    save_kw = {"bbox_inches": "tight", "format": "pdf"}
+    fig.savefig(plot_path, **save_kw)
     if show:
         plt.show()
     plt.close(fig)
@@ -172,7 +179,6 @@ class CoAMLData:
 
     def instance_ids(self) -> List[str]:
         return list(self.training_loss_per_file.keys())
-
 
 
 # Loaders
@@ -601,6 +607,301 @@ def analyze_loss_over_rolling_horizon(coaml: CoAMLData, results_dir: Path) -> No
     ax.grid(True)
     fig.tight_layout()
     save_figure_and_values(results_dir, sig, values, fig, show=show)
+
+
+def _load_optimal_solution(
+    solutions: SolutionsData,
+    instance_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Load optimal solution payload (with driver_runs) for an instance. Use manifest from .json files."""
+    manifests_dir = solutions.manifests_dir
+    manifest_path = manifests_dir / f"{instance_id}.json"
+    if manifest_path.exists():
+        with open(manifest_path) as f:
+            data = json.load(f)
+        driver_runs = data.get(PayloadKeys.DRIVERS, [])
+        if driver_runs:
+            manifest = driver_runs[0].get(PayloadKeys.DRIVER_MANIFEST, [])
+            has_times = any(
+                s.get("scheduled_time") is not None or s.get("service_end_time") is not None
+                for s in manifest
+                if isinstance(s.get("action"), str) and s.get("action") in ("pickup", "dropoff")
+            )
+            if manifest and has_times:
+                return data
+
+
+def _compute_boarded_and_dropped_per_time_step(
+    optimal_payload: Dict[str, Any],
+    time_steps: List[int],
+) -> tuple[List[int], List[int]]:
+    """
+    For each time step t:
+    - boarded: count requests on board (picked up, not yet dropped off)
+    - dropped_off: count requests that have been dropped off (dropoff finalized by t)
+    Uses manifest scheduled_time and service_end_time from the optimal solution.
+    """
+    pickup_end_by_booking: Dict[int, float] = {}
+    dropoff_end_by_booking: Dict[int, float] = {}
+
+    for dr in optimal_payload.get(PayloadKeys.DRIVERS, []):
+        manifest = dr.get(PayloadKeys.DRIVER_MANIFEST, [])
+        for stop in manifest:
+            action = stop.get("action")
+            booking_id = stop.get(PayloadKeys.MANIFEST_BOOKING_ID)
+            if booking_id is None or action not in ("pickup", "dropoff"):
+                continue
+            if isinstance(booking_id, float):
+                booking_id = int(booking_id)
+            if booking_id < 0:
+                continue
+            sched = stop.get("scheduled_time") or stop.get("service_start_time", 0)
+            dwell = float(stop.get("dwell", 0))
+            service_end = stop.get("service_end_time")
+            if action == "pickup":
+                pickup_end_by_booking[booking_id] = (
+                    float(service_end) if service_end is not None else sched + dwell
+                )
+            elif action == "dropoff":
+                dropoff_end_by_booking[booking_id] = (
+                    float(service_end) if service_end is not None else sched + dwell
+                )
+
+    boarded_counts = []
+    dropped_off_counts = []
+    for t in time_steps:
+        boarded = sum(
+            1
+            for bid in pickup_end_by_booking
+            if bid in dropoff_end_by_booking
+            and pickup_end_by_booking[bid] <= t
+            and t < dropoff_end_by_booking[bid]
+        )
+        dropped = sum(
+            1
+            for bid in dropoff_end_by_booking
+            if dropoff_end_by_booking[bid] <= t
+        )
+        boarded_counts.append(boarded)
+        dropped_off_counts.append(dropped)
+    return boarded_counts, dropped_off_counts
+
+
+def compute_active_requests_per_rolling_horizon(
+    payload: Dict[str, Any],
+    step_size: int = 100,
+    rolling_horizon_values: Optional[List[int]] = None,
+) -> Dict[str, Any]:
+    """
+    Compute the number of requests actively handled in each time window for different rolling horizon (batch interval) values.
+
+    A request is "actively handled" at time t with rolling horizon W if its pickup_time_window_start falls in [t, t + W) — i.e. the same selection logic used by the offline/COAML solver.
+
+    Returns:
+        Dict with:
+            - time_steps: list of current_time values (solver iteration times)
+            - active_counts: { "rh_{value}": [count per time step], ... }
+            - rolling_horizon_values: list of RH values used
+            - step_size: step size in seconds
+            - total_requests: total number of requests in payload
+    """
+    if rolling_horizon_values is None:
+        rolling_horizon_values = [100, 200, 400, 800]
+
+    requests = payload.get(PayloadKeys.REQUESTS, [])
+    if not requests:
+        return {
+            "time_steps": [],
+            "active_counts": {},
+            "rolling_horizon_values": rolling_horizon_values,
+            "step_size": step_size,
+            "total_requests": 0,
+        }
+
+    start_time, end_time = PayloadParser.get_requests_time_interval(payload)
+    max_rh = max(rolling_horizon_values)
+    # Align with offline solver: start before first request to catch all in first interval
+    current_time = max(0, start_time - max_rh)
+
+    time_steps: List[int] = []
+    active_counts: Dict[str, List[int]] = {
+        f"rh_{rh}": [] for rh in rolling_horizon_values
+    }
+
+    while current_time < end_time:
+        time_steps.append(current_time)
+        for rh in rolling_horizon_values:
+            count = sum(
+                1
+                for r in requests
+                if r[PayloadKeys.REQ_PICKUP_WINDOW_END] > current_time
+                and r[PayloadKeys.REQ_PICKUP_WINDOW_START] < current_time + rh
+            )
+            active_counts[f"rh_{rh}"].append(count)
+        current_time += step_size
+
+    return {
+        "time_steps": time_steps,
+        "active_counts": active_counts,
+        "rolling_horizon_values": rolling_horizon_values,
+        "step_size": step_size,
+        "total_requests": len(requests),
+    }
+
+
+def analyze_active_requests_per_rolling_horizon(
+    solutions: SolutionsData,
+    results_dir: Path,
+    *,
+    step_size: int = 100,
+    rolling_horizon_values: Optional[List[int]] = None,
+    instance_ids: Optional[List[str]] = None,
+    ncols: int = 4,
+) -> None:
+    """
+    For each LiLim validation instance, compute active request counts per time window for different rolling horizon values. Each validation file is shown in its own subplot in a 4-column grid. Saves JSON (numeric data) and PDF (plot).
+    """
+    cfg = FIGURE_SIGNATURES["active_requests_per_rolling_horizon"]
+    sig = cfg["base"]
+    show = cfg["show"]
+
+    if rolling_horizon_values is None:
+        rolling_horizon_values = [100, 200, 400]
+
+    manifests_dir = solutions.manifests_dir
+    if not manifests_dir.is_dir():
+        return
+
+    ids = instance_ids or list(VAL_STEMS)
+    ids = [i for i in ids if i in VAL_STEMS and (manifests_dir / f"{i}.json").exists()]
+    ids = sorted(ids)
+    if not ids:
+        return
+
+    per_instance: Dict[str, Dict[str, Any]] = {}
+    # High-contrast, distinct colors for readability (blue, orange, green, red, purple)
+    colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
+    boarded_color = "#333333"
+    dropped_color = "#666666"
+
+    nrows = (len(ids) + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(3.5 * ncols, 2.5 * nrows), squeeze=False)
+
+    for idx, instance_id in enumerate(ids):
+        path = manifests_dir / f"{instance_id}.json"
+        try:
+            data = PayloadParser.load_input_data(path)
+        except Exception:
+            continue
+
+        result = compute_active_requests_per_rolling_horizon(
+            data,
+            step_size=step_size,
+            rolling_horizon_values=rolling_horizon_values,
+        )
+        per_instance[instance_id] = result
+
+        row, col = idx // ncols, idx % ncols
+        ax = axes[row, col]
+
+        if not result["time_steps"]:
+            ax.set_title(instance_id)
+            ax.axis("off")
+            continue
+
+        for i, rh in enumerate(rolling_horizon_values):
+            label = f"rh_{rh}"
+            ax.plot(
+                result["time_steps"],
+                result["active_counts"][label],
+                label=f"rh={rh}",
+                color=colors[i % len(colors)],
+                linewidth=1.5,
+            )
+
+        # Add boarded and dropped_off lines from optimal solution
+        # Include two extra timesteps at the end (vehicles still fulfilling final tasks)
+        optimal_payload = _load_optimal_solution(solutions, instance_id)
+        if optimal_payload is not None:
+            last_t = result["time_steps"][-1]
+            time_steps_extended = result["time_steps"] + [
+                last_t + step_size,
+                last_t + 2 * step_size,
+            ]
+            boarded_counts, dropped_off_counts = _compute_boarded_and_dropped_per_time_step(
+                optimal_payload, time_steps_extended
+            )
+            per_instance[instance_id]["boarded_counts"] = boarded_counts
+            per_instance[instance_id]["dropped_off_counts"] = dropped_off_counts
+            ax.plot(
+                time_steps_extended,
+                boarded_counts,
+                label="boarded",
+                color=boarded_color,
+                linewidth=1.5,
+                linestyle="--",
+            )
+            ax.plot(
+                time_steps_extended,
+                dropped_off_counts,
+                label="dropped off",
+                color=dropped_color,
+                linewidth=1.5,
+                linestyle=":",
+            )
+
+        if row == nrows - 1:
+            ax.set_xlabel("Time (s)")
+        if col == 0:
+            ax.set_ylabel("Active requests")
+        ax.set_title(instance_id, fontweight="bold")
+        ax.grid(True, alpha=0.3)
+        ax.set_xlim(left=min(result["time_steps"]))
+
+    # Hide unused subplots
+    for idx in range(len(ids), nrows * ncols):
+        row, col = idx // ncols, idx % ncols
+        axes[row, col].axis("off")
+
+    # Reserve minimal space for legend below subplots; tight layout
+    fig.tight_layout(rect=[0, 0.08, 1, 1], pad=0.3, h_pad=0.4, w_pad=0.3)
+
+    # Single legend centered below subfigures
+    leg_handles, leg_labels = [], []
+    for idx in range(len(ids)):
+        row, col = idx // ncols, idx % ncols
+        h, l = axes[row, col].get_legend_handles_labels()
+        if len(h) > len(leg_handles):
+            leg_handles, leg_labels = h, l
+    if not leg_handles:
+        leg_handles, leg_labels = axes[0, 0].get_legend_handles_labels()
+    ncol_leg = min(len(leg_labels), 6)
+    fig.legend(
+        leg_handles,
+        leg_labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.04),
+        ncol=ncol_leg,
+        frameon=False,
+    )
+
+    values = {
+        "step_size": step_size,
+        "rolling_horizon_values": rolling_horizon_values,
+        "per_instance": {
+            k: {
+                "time_steps": v["time_steps"],
+                "active_counts": v["active_counts"],
+                "boarded_counts": v.get("boarded_counts"),
+                "dropped_off_counts": v.get("dropped_off_counts"),
+                "total_requests": v["total_requests"],
+            }
+            for k, v in per_instance.items()
+        },
+    }
+    save_figure_and_values(
+        results_dir, sig, values, fig, show=show
+    )
 
 
 def _load_optimal_serviced(manifests_dir: Path, file_id: str) -> Optional[int]:
@@ -1100,6 +1401,11 @@ if __name__ == "__main__":
         print(f"  Examples: {aligned[:5]}...")
 
     if not args.list:
+        if solutions and solutions.manifests_dir.is_dir():
+            print("\nRunning active requests per rolling horizon analysis...")
+            analyze_active_requests_per_rolling_horizon(solutions, results_dir, step_size=100)
+            base = FIGURE_SIGNATURES["active_requests_per_rolling_horizon"]["base"]
+            print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
         if coaml and coaml.training_loss_per_file:
             print("\nRunning COAML analyses...")
             analyze_coaml_avg_loss_per_epoch(coaml, results_dir)
