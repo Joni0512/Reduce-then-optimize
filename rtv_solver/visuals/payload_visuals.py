@@ -63,14 +63,18 @@ def plot_request_positions_xy(
     payload: dict[str, Any],
     show: bool = True,
     save_path: str | None = None,
+    show_legend: bool = True,
+    show_title: bool = True,
+    show_xlabel: bool = True,
+    show_ylabel: bool = True,
 ) -> None:
     """
     Plot Wilson request positions on a simple XY plane.
 
-    - Pickup nodes are blue triangles.
+    - Pickup nodes are green triangles.
     - Dropoff nodes are red circles.
     - The original depot is a black square.
-    - Each pickup->dropoff pair is connected by a green line behind nodes.
+    - Each pickup->dropoff pair is connected by a purple line behind nodes.
 
     Coordinates are treated as plain XY values:
     x := lon, y := lat.
@@ -113,14 +117,19 @@ def plot_request_positions_xy(
 
     fig, ax = plt.subplots()
 
+    # Colors (aligned with plot_request_time_windows_timematrix for consistency)
+    pickup_color = '#2ecc71'      # Green for pickup
+    dropoff_color = '#e74c3c'     # Red for dropoff
+    travel_time_color = '#9b59b6'  # Purple for pickup->dropoff connector
+
     # keep request connectors behind nodes so points remain visible
     for p_x, p_y, d_x, d_y in request_pairs:
-        ax.plot([p_x, d_x], [p_y, d_y], color="green", linewidth=1.0, alpha=0.8, zorder=1)
+        ax.plot([p_x, d_x], [p_y, d_y], color=travel_time_color, linewidth=1.0, zorder=1)
 
     ax.scatter(
         pickup_xs,
         pickup_ys,
-        c="blue",
+        c=pickup_color,
         marker="^",
         s=30,
         zorder=3,
@@ -129,7 +138,7 @@ def plot_request_positions_xy(
     ax.scatter(
         dropoff_xs,
         dropoff_ys,
-        c="red",
+        c=dropoff_color,
         marker="o",
         s=25,
         zorder=3,
@@ -149,8 +158,8 @@ def plot_request_positions_xy(
 
     all_x = pickup_xs + dropoff_xs + ([depot_x] if depot_x is not None else [])
     all_y = pickup_ys + dropoff_ys + ([depot_y] if depot_y is not None else [])
-    x_min, x_max = min(all_x), max(all_x)
-    y_min, y_max = min(all_y), max(all_y)
+    x_min, x_max = min(0.0, min(all_x)), max(90.0, max(all_x))
+    y_min, y_max = min(0.0, min(all_y)), max(90.0, max(all_y))
     x_span = x_max - x_min
     y_span = y_max - y_min
     x_margin = 0.02 * x_span if x_span > 0 else 0.01
@@ -158,16 +167,23 @@ def plot_request_positions_xy(
 
     ax.set_xlim(x_min - x_margin, x_max + x_margin)
     ax.set_ylim(y_min - y_margin, y_max + y_margin)
-    ax.set_xlabel("X (lon)")
-    ax.set_ylabel("Y (lat)")
-    ax.set_title("Request Positions (XY)")
+    if show_xlabel:
+        ax.set_xlabel("X (lon)")
+    if show_ylabel:
+        ax.set_ylabel("Y (lat)")
+    if show_title:
+        ax.set_title("Request Positions (XY)")
     ax.set_aspect("equal", adjustable="box")
     ax.grid(alpha=0.2, linestyle="--")
-    ax.legend()
+    if show_legend:
+        ax.legend()
 
     plt.tight_layout()
 
     if save_path is not None:
+        path = Path(save_path)
+        if path.suffix == "":
+            save_path = str(path.with_suffix(".pdf"))
         plt.savefig(save_path, bbox_inches="tight")
     if show:
         plt.show()
@@ -176,26 +192,31 @@ def plot_request_positions_xy(
 
 def plot_request_time_windows_timematrix(
     data: dict[str, Any],
-    title="Request Time Windows", 
-    figsize=(14, 10), 
-    sort_by='pickup_start', 
+    title="Request Time Windows",
+    figsize=(14, 10),
     max_requests=None,
     save_path: str | None = None,
-    show: bool = True):
+    show: bool = True,
+    show_legend: bool = True,
+    show_yticklabels: bool = True,
+    show_xlabel: bool = True,
+    show_ylabel: bool = False,
+):
     """
     # TODO make this work with the wilson format (we do not have the time_matrix in this data)
     Create a horizontal bar plot showing time windows for each request.
     
     Each request shows:
-    - A bar spanning from earliest pickup time to latest dropoff time
     - Pickup window highlighted in one color
     - Dropoff window highlighted in another color
-    
+    - Travel time bar after pickup window
+
+    Requests are sorted by earliest pickup_start, then pickup_end, then dropoff_start, then dropoff_end.
+
     Args:
         requests: List of request dicts from parse_li_lim_file
         title: Plot title
         figsize: Figure size tuple
-        sort_by: How to sort requests - 'pickup_start', 'dropoff_end', 'duration', or 'booking_id'
         max_requests: Maximum number of requests to show (None for all)
         
     Returns:
@@ -206,18 +227,16 @@ def plot_request_time_windows_timematrix(
     requests = data['requests']
     travel_time_matrix = data['travel_time_matrix']
 
-    # Sort requests
-    if sort_by == 'pickup_start':
-        sorted_requests = sorted(requests, key=lambda r: r['pickup_time_window_start'])
-    elif sort_by == 'dropoff_end':
-        sorted_requests = sorted(requests, key=lambda r: r['dropoff_time_window_end'])
-    elif sort_by == 'duration':
-        sorted_requests = sorted(requests, 
-            key=lambda r: r['dropoff_time_window_end'] - r['pickup_time_window_start'])
-    elif sort_by == 'booking_id':
-        sorted_requests = sorted(requests, key=lambda r: int(r['booking_id']))
-    else:
-        sorted_requests = requests
+    # Sort by earliest pickup_start, then pickup_end, then dropoff_start, then dropoff_end
+    sorted_requests = sorted(
+        requests,
+        key=lambda r: (
+            r['pickup_time_window_start'],
+            r['dropoff_time_window_start'],
+            r['pickup_time_window_end'],
+            r['dropoff_time_window_end'],
+        ),
+    )
     
     # Limit number of requests if specified
     if max_requests is not None:
@@ -231,64 +250,61 @@ def plot_request_time_windows_timematrix(
     # Colors
     pickup_color = '#2ecc71'      # Green for pickup window
     dropoff_color = '#e74c3c'     # Red for dropoff window
-    span_color = '#bdc3c7'        # Gray for overall span
-    
+    travel_time_color = '#9b59b6'  # Purple for travel time
+
     y_positions = np.arange(n_requests)
-    bar_height = 0.6
+    bar_height = 0.8  # No gap between lines
     plotted_travel_times = []
-    
+
     for i, req in enumerate(sorted_requests):
         pickup_start = req['pickup_time_window_start']
         pickup_end = req['pickup_time_window_end']
         dropoff_start = req['dropoff_time_window_start']
         dropoff_end = req['dropoff_time_window_end']
-        
-        # Draw overall span (light gray background)
-        ax.barh(y_positions[i], dropoff_end - pickup_start, 
-                left=pickup_start, height=bar_height, 
-                color=span_color, alpha=0.3, edgecolor='none')
-        
+
         # Draw pickup window
         ax.barh(y_positions[i], pickup_end - pickup_start, 
                 left=pickup_start, height=bar_height, 
-                color=pickup_color, alpha=0.8, edgecolor='none')
+                color=pickup_color, alpha=0.6, edgecolor='none')
         
         # Draw dropoff window
-        ax.barh(y_positions[i], dropoff_end - dropoff_start, 
-                left=dropoff_start, height=bar_height, 
-                color=dropoff_color, alpha=0.8, edgecolor='none')
+        ax.barh(y_positions[i], dropoff_end - dropoff_start,
+                left=dropoff_start, height=bar_height,
+                color=dropoff_color, alpha=0.6, edgecolor='none')
 
-        # Draw travel time from pickup to dropoff as a line if started at pickup start
+        # Draw travel time bar directly after pickup window ends
         travel_time = travel_time_matrix[req['pickup_pt']['node_id']][req['dropoff_pt']['node_id']]
         plotted_travel_times.append(float(travel_time))
-        ax.plot([pickup_start,pickup_start + travel_time], [y_positions[i], y_positions[i]], 
-                color='blue', linestyle='--', alpha=0.7, label='Travel Time' if i == 0 else "")
+        ax.barh(y_positions[i], travel_time,
+                left=pickup_end, height=bar_height,
+                color=travel_time_color, alpha=1.0, edgecolor='none')
     
     # Labels
     ax.set_yticks(y_positions)
-    ax.set_yticklabels([req['booking_id'] for req in sorted_requests], fontsize=6)
-    ax.set_xlabel('Time', fontsize=12)
-    ax.set_ylabel('Request ID', fontsize=12)
-    ax.set_title(title, fontsize=14, fontweight='bold')
-    
-    # Legend
-    pickup_patch = mpatches.Patch(color=pickup_color, alpha=0.8, label='Pickup Window')
-    dropoff_patch = mpatches.Patch(color=dropoff_color, alpha=0.8, label='Dropoff Window')
-    span_patch = mpatches.Patch(color=span_color, alpha=0.3, label='Overall Span')
-    if plotted_travel_times:
-        avg_travel_time = sum(plotted_travel_times) / len(plotted_travel_times)
-        travel_time_line = Line2D(
-            [0], [0],
-            color='blue',
-            linestyle='--',
-            linewidth=2.0,
-            alpha=0.7,
-            label=f"Travel Time (avg {avg_travel_time:.1f}s)"
-        )
-        legend_handles = [pickup_patch, dropoff_patch, span_patch, travel_time_line]
+    if show_yticklabels:
+        ax.set_yticklabels([req['booking_id'] for req in sorted_requests], fontsize=6)
     else:
-        legend_handles = [pickup_patch, dropoff_patch, span_patch]
-    ax.legend(handles=legend_handles, loc='upper right')
+        ax.set_yticklabels([""] * n_requests)
+    if show_xlabel:
+        ax.set_xlabel('Time', fontsize=12)
+    if show_ylabel:
+        ax.set_ylabel('Request ID', fontsize=12)
+    ax.set_title(title, fontsize=14, fontweight='bold')
+
+    # Legend
+    if show_legend:
+        pickup_patch = mpatches.Patch(color=pickup_color, alpha=0.8, label='Pickup Window')
+        dropoff_patch = mpatches.Patch(color=dropoff_color, alpha=0.8, label='Dropoff Window')
+        if plotted_travel_times:
+            avg_travel_time = sum(plotted_travel_times) / len(plotted_travel_times)
+            travel_time_patch = mpatches.Patch(
+                color=travel_time_color, alpha=0.8,
+                label=f"Travel Time (avg {avg_travel_time:.1f}s)"
+            )
+            legend_handles = [pickup_patch, dropoff_patch, travel_time_patch]
+        else:
+            legend_handles = [pickup_patch, dropoff_patch]
+        ax.legend(handles=legend_handles, loc='upper right')
     
     # Grid
     ax.grid(axis='x', alpha=0.3, linestyle='--')
@@ -296,8 +312,13 @@ def plot_request_time_windows_timematrix(
     
     # Invert y-axis so first request is at top
     ax.invert_yaxis()
-    
-    plt.tight_layout()
+
+    # Remove vertical padding: bars span y-0.5 to y+0.5, so data goes -0.5 to n-0.5
+    ax.set_ylim(n_requests - 0.5, -0.5)
+    ax.margins(y=0)
+
+    plt.tight_layout(pad=0.2)
+    fig.subplots_adjust(left=0.04, right=0.98, top=0.96, bottom=0.06)
 
     if save_path is not None:
         plt.savefig(save_path, bbox_inches="tight")
@@ -451,15 +472,10 @@ def batch_plot_request_time_windows_timematrix(
     processed_count = 0
     failed_count = 0
     for input_path in files:
-        output_path = output_dir / f"{input_path.stem}_time_windows.png"
+        output_path = output_dir / f"{input_path.stem}_time_windows.pdf"
         try:
             data = PayloadParser.load_input_data(input_path)
-            plot_request_time_windows_timematrix(
-                data,
-                title=f"Request Time Windows - {input_path.stem}",
-                save_path=str(output_path),
-                show=False,
-            )
+            plot_request_time_windows_timematrix(data, title=None, save_path=str(output_path), show=False, show_legend=False, show_xlabel=False, show_yticklabels=False, show_ylabel=False)
             processed_count += 1
         except Exception as exc:
             failed_count += 1
@@ -507,13 +523,17 @@ def batch_plot_request_positions_xy(
     processed_count = 0
     failed_count = 0
     for input_path in files:
-        output_path = output_dir / f"{input_path.stem}_positions.png"
+        output_path = output_dir / f"{input_path.stem}_positions.pdf"
         try:
             data = PayloadParser.load_input_data(input_path)
             plot_request_positions_xy(
                 data,
                 save_path=str(output_path),
                 show=False,
+                show_legend=False,
+                show_title=False,
+                show_xlabel=False,
+                show_ylabel=False,
             )
             processed_count += 1
         except Exception as exc:
@@ -535,13 +555,11 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     
     parser = argparse.ArgumentParser(description='Arguments for the PayloadParser main script')
-    parser.add_argument('--input_file', type=str, default='solutions/li_lim/manifests/lc101.json', help='Path to one input file')
-    parser.add_argument('--input_folder', type=str) #default='solutions/li_lim/manifests/', help='Optional folder with input files to process in batch')
-    parser.add_argument('--output_folder', type=str, default='/Users/jw/Desktop/master_thesis/mt_presentation/li_lim/', help='Output folder for saved batch plots')
+    parser.add_argument('--input_file', type=str, default='solutions/li_lim/manifests/lr208.json', help='Path to one input file')
+    parser.add_argument('--input_folder', type=str,default='solutions/li_lim/manifests/', help='Optional folder with input files to process in batch')
+    parser.add_argument('--output_folder', type=str, default='/Users/jw/Desktop/master_thesis/mt_presentation/li_lim_v2/', help='Output folder for saved batch plots')
     parser.add_argument('--recursive', action='store_true', help='Scan input_folder recursively')
-    parser.add_argument(
-        '--visual',
-        type=str,
+    parser.add_argument('--visual', type=str,
         default='request_pairs_xy',
         choices=['request_pairs_xy', 'time_windows'],
         help="Select visual: 'request_pairs_xy' or 'time_windows'.",
@@ -568,4 +586,4 @@ if __name__ == "__main__":
             plot_request_positions_xy(data, save_path=None, show=True)
         else:
             print(f"Plotting request time windows without time matrix for {args.input_file}")
-            plot_request_time_windows_woTimematrix(data, save_path=None, show=True, step_size=10)
+            plot_request_time_windows_timematrix(data, title=None, save_path=None, show=True, show_legend=False, show_xlabel=False, show_yticklabels=False, show_ylabel=False)
