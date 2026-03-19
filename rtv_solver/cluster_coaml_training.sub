@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH -J rtv-coaml-offline            # Job name
+#SBATCH -J rtv-coaml            # Job name
 #SBATCH -o /home/jiw42/slurm_logs/exp_%x_%j.out             # output file (%j expands to jobID)
 #SBATCH -e /home/jiw42/slurm_logs/exp_%x_%j.err             # error log file (%j expands to jobID)
-#SBATCH --mail-type=ALL                 # Request status by email 
+#SBATCH --mail-type=END,FAIL                 # Request status by email 
 #SBATCH --mail-user=jiw42@cornell.edu   # Email address to send results to.
 #SBATCH -N 1                            # Total number of nodes requested
 #SBATCH -n 32                          # Total number of cores requested
@@ -21,7 +21,7 @@ INPUT_DIR="solutions/li_lim/manifests"
 
 ### EXPERIMENT PARAMETERS (from run_main.sh)
 OUTPUT_DIR_NAME="experiments"
-MAX_THREAD_CNT=32
+MAX_THREAD_CNT=48
 MAX_CARDINALITY=3
 STEP_SIZE=100
 BATCH_INTERVAL=200
