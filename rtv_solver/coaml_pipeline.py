@@ -118,7 +118,9 @@ class COAMLPipeline():
             console_logger.info(f"=== Iteration {self.epoch}-{iteration} COAML Solver (mode: {mode}) at time {current_time} ===")
             
             # select requests that are to be considered in the current interval with pickup_window [current_time, current_time + interval]
-            # TODO chcek which definition we should use for the request selection
+            # TODO check which definition we should use for the request selection
+            # old one: request[PayloadKeys.REQ_PICKUP_WINDOW_START] > current_time and request[PayloadKeys.REQ_PICKUP_WINDOW_START] < current_time + self.config.BATCH_INTERVAL):
+                    
             selected_requests = {}
             for request in payload[PayloadKeys.REQUESTS]:
                 # pickup window overlaps [current_time, current_time + batch_interval)
@@ -340,7 +342,8 @@ class COAMLPipeline():
             feature_tensor_with_reject = torch.tensor(
                 feature_matrix_with_reject, dtype=torch.float32
             )
-            if len(feature_tensor_with_reject) > 0:
+            if len(feature_tensor_with_reject) > 0: # TODO we need to be able to handle the case where there are no reject actions
+                # situation: debug_case1.sh returns an empty set of requests, so feature_tensor_with_reject is empty and then we do not have optimal solution or score_solution. Solutoin: either handle it without any features etc. and return the reject action or set up a backup for when the result is selected (because optimaL_result is thus referenced before assignment)
                 feature_scores_with_reject = self.model(feature_tensor_with_reject)
                 num_reject_actions = len(reject_vehicle_ids)
                 if num_reject_actions > 0:
