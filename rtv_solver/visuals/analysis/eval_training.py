@@ -62,6 +62,10 @@ FIGURE_SIGNATURES = {
         "base": "loss_over_rolling_horizon",
         "show": True,
     },
+    "coaml_loss_per_file_per_epoch_panels": {
+        "base": "coaml_loss_per_file_per_epoch_panels",
+        "show": True,
+    },
     "active_requests_per_rolling_horizon": {
         "base": "active_requests_per_rolling_horizon",
         "show": True,
@@ -82,9 +86,12 @@ TRAINING_FILES = [
     "lrc201", "lrc202", "lrc203", "lrc204", "lrc205", "lrc206",
 ]
 VALIDATION_FILES = [
-    "lc108", "lc109", "lc207", "lc208",
-    "lr111", "lr112", "lr210", "lr211",
-    "lrc107", "lrc108", "lrc207", "lrc208",
+    "lc108", "lc109", 
+    #"lc207", "lc208",
+    "lr111", "lr112", 
+    #"lr210", "lr211",
+    "lrc107", "lrc108", 
+    #"lrc207", "lrc208",
 ]
 VAL_STEMS = set(VALIDATION_FILES)
 ALL_LILIM_FILES = sorted(set(TRAINING_FILES) | VAL_STEMS)
@@ -513,6 +520,100 @@ def analyze_coaml_avg_loss_per_file_per_epoch(
     save_figure_and_values(results_dir, sig, values, fig, show=show)
 
 
+def analyze_coaml_loss_per_file_per_epoch_panels(
+    coaml: CoAMLData, results_dir: Path, ncols: int = 3
+) -> None:
+    """
+    One subplot per training epoch. In each panel: loss vs iteration within that epoch,
+    one line per instance file. JSON includes per-file total loss (sum over iterations) per epoch.
+    """
+    cfg = FIGURE_SIGNATURES["coaml_loss_per_file_per_epoch_panels"]
+    sig = cfg["base"]
+    show = cfg["show"]
+    epochs = _get_epochs_from_config(coaml.config)
+    training_loss = coaml.training_loss_per_file
+
+    if not training_loss or epochs <= 0:
+        return
+
+    file_ids = sorted(training_loss.keys())
+    file_chunks: Dict[str, List[List[float]]] = {}
+    for fid in file_ids:
+        valid = [l for l in training_loss[fid] if l is not None]
+        if not valid:
+            continue
+        file_chunks[fid] = _split_into_epoch_chunks(valid, epochs)
+
+    if not file_chunks:
+        return
+
+    n_files = len(file_chunks)
+    colors = plt.cm.tab20(np.linspace(0, 1, max(n_files, 1)))
+    file_color = {fid: colors[i % len(colors)] for i, fid in enumerate(sorted(file_chunks.keys()))}
+
+    ncols = max(1, min(ncols, epochs))
+    nrows = (epochs + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(3.5 * ncols, 2.8 * nrows), squeeze=False)
+
+    values: Dict[str, Any] = {
+        "epochs": epochs,
+        "epoch_labels": list(range(1, epochs + 1)),
+        "per_epoch": {},
+    }
+
+    for e in range(epochs):
+        row, col = e // ncols, e % ncols
+        ax = axes[row, col]
+        epoch_key = str(e + 1)
+        by_file: Dict[str, Any] = {}
+
+        for fid in sorted(file_chunks.keys()):
+            ch = file_chunks[fid][e] if e < len(file_chunks[fid]) else []
+            if not ch:
+                continue
+            xs = list(range(len(ch)))
+            ax.plot(xs, ch, color=file_color[fid], linewidth=1.2, alpha=0.9)
+            by_file[fid] = {
+                "losses": ch,
+                "total_epoch_loss": float(sum(ch)),
+            }
+
+        values["per_epoch"][epoch_key] = {"by_file": by_file}
+
+        if row == nrows - 1:
+            ax.set_xlabel("Iteration (within epoch)")
+        if col == 0:
+            ax.set_ylabel("Loss")
+        ax.set_title(f"Epoch {e + 1}", fontweight="bold")
+        ax.grid(True, alpha=0.3)
+
+    for idx in range(epochs, nrows * ncols):
+        axes[idx // ncols, idx % ncols].axis("off")
+
+    fig.suptitle(
+        "COAML: per-file loss within each epoch (line = file; JSON has total loss per file per epoch)",
+        fontsize=11,
+        y=1.02,
+    )
+    fig.tight_layout(rect=[0, 0.06, 1, 0.98], pad=0.35, h_pad=0.45, w_pad=0.35)
+
+    legend_handles = [
+        Line2D([0], [0], color=file_color[fid], linewidth=1.5, label=fid)
+        for fid in sorted(file_chunks.keys())
+    ]
+    ncol_leg = min(len(legend_handles), 6)
+    fig.legend(
+        legend_handles,
+        [h.get_label() for h in legend_handles],
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.01),
+        ncol=ncol_leg,
+        frameon=False,
+    )
+
+    save_figure_and_values(results_dir, sig, values, fig, show=show)
+
+
 def analyze_loss_over_rolling_horizon(coaml: CoAMLData, results_dir: Path) -> None:
     """
     Loss over rolling-horizon iterations, averaged across files.
@@ -765,12 +866,12 @@ def analyze_active_requests_per_rolling_horizon(
     """
     For each LiLim validation instance, compute active request counts per time window for different rolling horizon values. Each validation file is shown in its own subplot in a 4-column grid. Saves JSON (numeric data) and PDF (plot).
     """
-    cfg = FIGURE_SIGNATURES["active_requests_per_rolling_horizon"]
-    sig = cfg["base"]
+    cfg = FIGURE_SIGNATURES[f"active_requests_per_rolling_horizon"]
+    sig = f"{cfg['base']}_ss{step_size}"
     show = cfg["show"]
 
     if rolling_horizon_values is None:
-        rolling_horizon_values = [100, 200, 400]
+        rolling_horizon_values = [20, 50, 100, 200]
 
     manifests_dir = solutions.manifests_dir
     if not manifests_dir.is_dir():
@@ -1153,7 +1254,11 @@ def analyze_serviced_per_file_comparison(
     }
 
     n_files = len(file_ids)
-    n_cols = 4
+    # Validation-only with six instances: 2 columns × 3 rows (was 4×2 with two hidden axes).
+    if validation_only and n_files == 6:
+        n_cols = 2
+    else:
+        n_cols = 4
     n_rows = (n_files + n_cols - 1) // n_cols
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 3 * n_rows))
     if n_rows == 1 and n_cols == 1:
@@ -1485,19 +1590,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--offline",
         type=Path,
-        default="outputs/experiments/run_offline_mc3_bi400_ss100",
-        help="Path to offline benchmark folder (e.g. outputs/experiments/run_offline_mc3_bi400_ss100)",
+        default="outputs/experiments/run_offline_mc3_bi200_ss100",
+        help="Path to offline benchmark folder",
     )
     parser.add_argument(
         "--coaml",
         type=Path,
-        default="outputs/experiments/batch_lilim_coaml_seed42/mc3_bi400_ss100_20260317_231957",
-        help="Path to CoAML run folder (e.g. outputs/experiments/.../mc3_bi400_ss100_20260317_231957)",
+        default="outputs/experiments/batch_lilim_coaml_seed42/mc3_bi200_ss100_20260319_083648",
+        help="Path to CoAML run folder",
     )
     parser.add_argument(
         "--results",
         type=Path,
-        default=Path("results/mc3_bi400_ss100"),
+        default=Path("results/mc3_bi200_ss100"),
         help="Output folder for all plots and values (default: results)",
     )
     parser.add_argument(
@@ -1544,7 +1649,7 @@ if __name__ == "__main__":
     if not args.list:
         if solutions and solutions.manifests_dir.is_dir():
             print("\nRunning active requests per rolling horizon analysis...")
-            analyze_active_requests_per_rolling_horizon(solutions, results_dir, step_size=100)
+            analyze_active_requests_per_rolling_horizon(solutions, results_dir, step_size=10)
             base = FIGURE_SIGNATURES["active_requests_per_rolling_horizon"]["base"]
             print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
             print("\nRunning boarded and dropped per vehicle analysis...")
@@ -1561,6 +1666,9 @@ if __name__ == "__main__":
             print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
             analyze_loss_over_rolling_horizon(coaml, results_dir)
             base = FIGURE_SIGNATURES["loss_over_rolling_horizon"]["base"]
+            print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
+            analyze_coaml_loss_per_file_per_epoch_panels(coaml, results_dir)
+            base = FIGURE_SIGNATURES["coaml_loss_per_file_per_epoch_panels"]["base"]
             print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
         if solutions and coaml:
             val_only = not args.all_files

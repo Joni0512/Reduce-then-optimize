@@ -462,6 +462,7 @@ class COAMLPipeline():
             
             # train mode, keep on right track - decide which run should move forward
             # NOTE this needs a change when we decide what to do with training or if we want to use the default or score solution from NN
+            # TODO for the eval mode in order to accelerate it, it might make sense to turn on config.KEEP_ACTIVE to make it faster?, currently KEEP_ACTIVE does not work in COAML
             if mode == "train": # keep on optimal track
                 result = optimal_result 
             elif mode == "eval": # use score solution from NN to decide which run should move forward
