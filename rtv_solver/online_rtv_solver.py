@@ -201,6 +201,7 @@ class OnlineRTVSolver:
         If config.return_depot = True - each vehicle needs a depot return trip in their manifest.
         If config.return_depot = False - each vehicle should not have a depot return.
         """
+        # FIXME config keep active does not work with COAML
         # TODO test why are the booking_id np.float here? they must be changed in some position
         # required to check whether all items have 1 pickup and 1 dropoff
         picked_requests = set([req["booking_id"] for req in new_requests])
