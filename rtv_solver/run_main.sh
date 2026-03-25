@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 set -e
 # update config file to rerun the same experiment as stored in the config file
-OUTPUT_DIR="experiments"
-MAX_THREAD_CNT=128
+
+### EXPERIMENT PARAMETERS (from run_main.sh)
+
+INPUT_DIR="solutions/li_lim/manifests"
+OUTPUT_DIR_NAME="debug"
+MAX_THREAD_CNT=32
 MAX_CARDINALITY=3
 STEP_SIZE=100
-BATCH_INTERVAL=400
+BATCH_INTERVAL=200
 SEED=42
-MODE=offline
-EPOCHS=10
-LEARNING_RATE=5e-3
-INPUT_FILE="solutions/li_lim/manifests/lc101.json"
-IMITATION_SOLUTION_FILE="solutions/li_lim/manifests/lc101.json"
+MODE="coaml"
+EPOCHS=5
+LEARNING_RATE=1e-4
 
-python main.py \
-  --output_dir "$OUTPUT_DIR" \
+python rtv_solver/main.py \
+  --input_dir $INPUT_DIR \
+  --output_dir $OUTPUT_DIR_NAME \
   --max_thread_cnt $MAX_THREAD_CNT \
   --max_cardinality $MAX_CARDINALITY \
   --step_size $STEP_SIZE \
@@ -22,7 +25,6 @@ python main.py \
   --seed $SEED \
   --mode $MODE \
   --epochs $EPOCHS \
-  --learning_rate $LEARNING_RATE \
-  --input_file "$INPUT_FILE" \
-  --imitation_solution_file "$IMITATION_SOLUTION_FILE"
+  --learning_rate $LEARNING_RATE
+
 echo "Run complete"

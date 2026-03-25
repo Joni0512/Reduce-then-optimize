@@ -463,12 +463,18 @@ class COAMLPipeline():
             # train mode, keep on right track - decide which run should move forward
             # NOTE this needs a change when we decide what to do with training or if we want to use the default or score solution from NN
             # TODO for the eval mode in order to accelerate it, it might make sense to turn on config.KEEP_ACTIVE to make it faster?, currently KEEP_ACTIVE does not work in COAML
-            if mode == "train": # keep on optimal track
-                result = optimal_result 
-            elif mode == "eval": # use score solution from NN to decide which run should move forward
-                result = score_result
+            if len(feature_tensor_with_reject) > 0:
+                if mode == "train":
+                    result = optimal_result
+                elif mode == "eval":
+                    result = score_result
+                else:
+                    raise ValueError(f"Invalid mode: {mode}")
             else:
-                raise ValueError(f"Invalid mode: {mode}")
+                # No NN/scoring rows: do not apply default ILP as stand-in (keeps eval about the scorer only).
+                result = AssignmentResult.get_empty_result(
+                    unassigned_trip_count=len(request_batch),
+                )
 
             # compute Fenchel-Young loss from known optimal solution
             if len(feature_tensor_with_reject) > 0:
@@ -488,6 +494,11 @@ class COAMLPipeline():
             if self.config.REBALANCING:
                 rebalancing_optimizer = CO_RebalancingCoverage(self.config)
                 result = rebalancing_optimizer.run(result, vehicle_handler.vehicles, request_batch)
+
+        else:
+            result = AssignmentResult.get_empty_result(
+                unassigned_trip_count=len(request_batch),
+            )
 
         if not loss_tracked:
             self.last_loss = None

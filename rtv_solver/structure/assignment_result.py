@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 from rtv_solver.structure.trip import Trip
@@ -17,6 +19,21 @@ class AssignmentResult:
 
     status: int
     runtime: float | None = None
+
+    @classmethod
+    def get_empty_result(cls, *, unassigned_trip_count: int) -> AssignmentResult:
+        """No vehicles or nothing to assign: valid result with empty assignments.
+        Status 5 is created to be differentiated."""
+        return cls(
+            vehicle_assignment={},
+            request_assignment={},
+            rebalancing_assignment={},
+            unassigned_trip_count=unassigned_trip_count,
+            taxi_only_trip_count=0,
+            added_distance=0.0,
+            trip_sizes=[],
+            status=5,
+        )
 
     def __repr__(self) -> str:
         return (
