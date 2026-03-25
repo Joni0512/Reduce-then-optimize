@@ -1213,8 +1213,9 @@ def analyze_serviced_per_file_comparison(
     validation_only: bool = False,
 ) -> None:
     """
-    Bar chart: per LiLim file, serviced requests for optimal, offline, and each COAML validation epoch.
-    One subplot per file; bars: optimal, offline, COAML epoch 1..N.
+    Per LiLim file: three vertical bars — Optimal (blue), Offline (green),
+    SIL last COAML epoch (red) — with counts inside bars; plus a horizontal line
+    at the maximum servable count (same as optimal: all requests in the manifest).
     Only includes files that were actually run in the COAML runtime.
     """
     cfg = FIGURE_SIGNATURES["serviced_per_file_comparison"]
@@ -1230,7 +1231,7 @@ def analyze_serviced_per_file_comparison(
     if not file_ids:
         return
 
-    bar_labels = ["Offline"] + [f"COAML ep.{e}" for e in range(1, epochs + 1)]
+    bar_labels = ["Optimal", "Offline", "SIL"]
     n_bars = len(bar_labels)
 
     data_per_file: Dict[str, Dict[str, Optional[int]]] = {}
@@ -1238,15 +1239,20 @@ def analyze_serviced_per_file_comparison(
         is_val = file_id in VAL_STEMS
         row: Dict[str, Optional[int]] = {}
         row["Optimal"] = _load_optimal_serviced(solutions.manifests_dir, file_id)
-        row["Offline"] = _load_offline_stat(offline, file_id, "serviced") if offline else None
+        if offline:
+            ov = _load_offline_stat(offline, file_id, "serviced")
+            row["Offline"] = int(ov) if ov is not None else None
+        else:
+            row["Offline"] = None
         coaml_serviced = _load_coaml_stat_per_epoch(coaml_dir, file_id, epochs, is_val, "serviced")
-        for e in range(1, epochs + 1):
-            row[f"COAML ep.{e}"] = int(v) if (v := coaml_serviced.get(e)) is not None else None
+        last_v = coaml_serviced.get(epochs)
+        row["SIL"] = int(last_v) if last_v is not None else None
         data_per_file[file_id] = row
 
     values = {
         "file_ids": file_ids,
-        "run_labels": ["Optimal"] + bar_labels,
+        "sil_epoch": epochs,
+        "run_labels": ["Optimal", "Offline", "SIL"],
         "data_per_file": {
             fid: {k: v for k, v in data.items()}
             for fid, data in data_per_file.items()
@@ -1268,77 +1274,83 @@ def analyze_serviced_per_file_comparison(
     elif n_cols == 1:
         axes = axes.reshape(-1, 1)
 
-    # Colors: Offline=blue, COAML epochs=lighter orange (readable with dark text)
-    bar_colors = ["#3498db"] + list(plt.cm.Oranges(np.linspace(0.25, 0.55, epochs)))
-    optimal_line_color = "#1a5f1a"
-    # Slim bars with very small gap between them
-    bar_spacing = 0.5
-    width = 0.42
+    optimal_blue = "#1f77b4"
+    offline_green = "#2ca02c"
+    sil_red = "#d62728"
+    bar_spacing = 0.62
+    width = 0.48
     x = np.arange(n_bars) * bar_spacing
 
     for idx, file_id in enumerate(file_ids):
         row_idx, col_idx = idx // n_cols, idx % n_cols
         ax = axes[row_idx, col_idx]
         row = data_per_file[file_id]
-        optimal_val = row.get("Optimal")
         vals = [row.get(lbl) for lbl in bar_labels]
         heights = [v if v is not None else 0 for v in vals]
 
-        # Optimal: dashed horizontal line (not a bar)
-        if optimal_val is not None and optimal_val > 0:
-            ax.axhline(
-                y=optimal_val,
-                color=optimal_line_color,
-                linestyle="--",
-                linewidth=1.5,
-                zorder=1,
-            )
+        ax.set_xlim(-0.55, (n_bars - 1) * bar_spacing + width + 0.45)
 
-        # Bars: Offline + COAML epochs
-        bars = ax.bar(x, heights, width, zorder=2)
+        bar_colors = [optimal_blue, offline_green, sil_red]
+        bars = ax.bar(x, heights, width, zorder=2, align="edge")
         for i, (bar, v) in enumerate(zip(bars, vals)):
             bar.set_color(bar_colors[i])
             if v is None:
                 bar.set_hatch("//")
                 bar.set_alpha(0.5)
-        # Value labels inside bars (very small)
-        for bar, h in zip(bars, heights):
-            if h > 0:
+        label_fs = 11
+        label_color = "#f8f8f8"
+        for bar, h, v in zip(bars, heights, vals):
+            if v is not None and h > 0:
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,
                     bar.get_height() / 2,
-                    str(int(h)),
+                    str(int(v)),
                     ha="center",
                     va="center",
-                    fontsize=5,
-                    color="#333333",
+                    fontsize=label_fs,
+                    fontweight="semibold",
+                    color=label_color,
                 )
-        ax.set_xticks(x)
+
+        optimal_val = row.get("Optimal")
+        if optimal_val is not None and optimal_val > 0:
+            ax.axhline(
+                y=float(optimal_val),
+                color=optimal_blue,
+                linestyle="-",
+                linewidth=1.2,
+                zorder=4,
+                alpha=0.95,
+            )
+
+        ax.set_xticks(x + width / 2)
         ax.set_xticklabels([])
         ax.set_ylabel("Serviced requests" if col_idx == 0 else "")
-        # Validation file titles: bold red
         if file_id in VAL_STEMS:
             ax.set_title(file_id, fontweight="bold", color="#c0392b")
         else:
             ax.set_title(file_id)
-        ax.set_ylim(bottom=0)
+        tops = [float(h) for h in heights]
+        ymax = max(tops) if tops else 1.0
+        ax.set_ylim(0, max(ymax * 1.08, 1.0))
 
     for idx in range(n_files, n_rows * n_cols):
         row_idx, col_idx = idx // n_cols, idx % n_cols
         axes[row_idx, col_idx].set_visible(False)
 
-    # Legend: Optimal as line, then bar patches
     legend_elements = [
-        Line2D(
-            [0], [0],
-            color=optimal_line_color,
-            linestyle="--",
-            linewidth=2,
-            label="Optimal",
-        ),
-    ] + [Patch(facecolor=bar_colors[i], label=bar_labels[i]) for i in range(n_bars)]
-    fig.legend(handles=legend_elements, loc="lower center", ncol=len(legend_elements), frameon=False)
-    fig.suptitle("Serviced requests per file: Optimal vs Offline vs COAML validation epochs")
+        Patch(facecolor=optimal_blue, edgecolor="#0d4a73", linewidth=0.8),
+        Patch(facecolor=offline_green, edgecolor="#1e6b1e", linewidth=0.8),
+        Patch(facecolor=sil_red, edgecolor="#8b1a1a", linewidth=0.8),
+    ]
+    fig.legend(
+        legend_elements,
+        ["Optimal", "Offline", "SIL"],
+        loc="lower center",
+        ncol=3,
+        frameon=False,
+    )
+    fig.suptitle("Serviced requests per file: Optimal vs Offline vs SIL (last epoch)")
     fig.tight_layout(rect=[0, 0.05, 1, 0.96])
     save_figure_and_values(results_dir, sig, values, fig, show=show)
 
