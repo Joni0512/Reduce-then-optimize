@@ -91,6 +91,12 @@ if __name__ == "__main__":
     # TODO fix input handling for chattanooga datasets (violations after offline run) - no priority to fix this at end of thesis
     # parser.add_argument('--input_file', type=str,           default="inputs/localDB_payload_oct.pkl")
     
+
+    # TODO it should be possible to implement multiple NN in parallel while running the COAML pipeline as during training we follow the optimal solution in steps. it should be analysed whether with the rolling horizon how close we actually get to the optimal solution with taking the optimal steps
+    # however, one can train multiple NN and then run multiple validation in the end with the different decision-making, but overall it should parallelize the training process and experimentation; requires a few changes in the infrastructure code base and it would probably help if one can reload the model to just run validation with the different models at the very end (that could be one of the main advantages as we have a fast CO layer.)
+    
+    # TODO add a tracker for the runtime to compare the speed both for training and the validation, is probably going to be quite interestin
+    
     # implement configurations
     arguments = parser.parse_args()
     config = Config.from_args(arguments)
@@ -211,8 +217,8 @@ if __name__ == "__main__":
         console_logger.info(f"Total time: {stats.total_time:.2f}s")
         console_logger.info(stats.format_vehicle_leg_report())
 
-        save_json(stats_payload, config.OUTPUT_DIR / "result_driver_runs.json")
-        save_json({"stats": stats, "violations": violations}, config.OUTPUT_DIR / "results.json")
+        save_json(stats_payload, config.OUTPUT_DIR / "final" / "result_driver_runs.json")
+        save_json({"stats": stats, "violations": violations}, config.OUTPUT_DIR / "final" / "results.json")
 
         console_logger.info(f"Run complete. Results can be found @ {Path(config.OUTPUT_DIR)}")
 

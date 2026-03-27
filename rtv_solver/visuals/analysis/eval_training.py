@@ -1602,19 +1602,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--offline",
         type=Path,
-        default="outputs/experiments/run_offline_mc3_bi200_ss100",
+        default="outputs/experiments/run_offline_mc4_bi200_ss100",
         help="Path to offline benchmark folder",
     )
     parser.add_argument(
         "--coaml",
         type=Path,
-        default="outputs/experiments/batch_lilim_coaml_seed42/mc3_bi200_ss100_20260319_083648",
+        default="outputs/experiment_fresh/batch_lilim_coaml_seed42/mc4_bi200_ss100_20260325_141652",
         help="Path to CoAML run folder",
     )
     parser.add_argument(
         "--results",
         type=Path,
-        default=Path("results/mc3_bi200_ss100"),
+        default=Path("results/mc4_bi200_ss100_complete2603"),
         help="Output folder for all plots and values (default: results)",
     )
     parser.add_argument(
