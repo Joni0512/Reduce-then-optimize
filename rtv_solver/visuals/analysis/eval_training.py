@@ -521,11 +521,21 @@ def analyze_coaml_avg_loss_per_file_per_epoch(
 
 
 def analyze_coaml_loss_per_file_per_epoch_panels(
-    coaml: CoAMLData, results_dir: Path, ncols: int = 3
+    coaml: CoAMLData,
+    results_dir: Path,
+    ncols: int = 3,
+    *,
+    show_suptitle: bool = False,
+    show_panel_epoch_titles: bool = True,
+    show_file_legend: bool = False,
 ) -> None:
     """
     One subplot per training epoch. In each panel: loss vs iteration within that epoch,
     one line per instance file. JSON includes per-file total loss (sum over iterations) per epoch.
+
+    show_suptitle: figure-wide title (default off).
+    show_panel_epoch_titles: append (ep. N) to each panel x-axis label (default on).
+    show_file_legend: figure legend listing all file stems (default off).
     """
     cfg = FIGURE_SIGNATURES["coaml_loss_per_file_per_epoch_panels"]
     sig = cfg["base"]
@@ -580,36 +590,52 @@ def analyze_coaml_loss_per_file_per_epoch_panels(
 
         values["per_epoch"][epoch_key] = {"by_file": by_file}
 
-        if row == nrows - 1:
-            ax.set_xlabel("Iteration (within epoch)")
+        if show_panel_epoch_titles:
+            ax.set_xlabel(f"Iteration (ep. {e + 1})", fontsize=12)
+        else:
+            ax.set_xlabel("Iteration", fontsize=12)
         if col == 0:
             ax.set_ylabel("Loss")
-        ax.set_title(f"Epoch {e + 1}", fontweight="bold")
         ax.grid(True, alpha=0.3)
 
     for idx in range(epochs, nrows * ncols):
         axes[idx // ncols, idx % ncols].axis("off")
 
-    fig.suptitle(
-        "COAML: per-file loss within each epoch (line = file; JSON has total loss per file per epoch)",
-        fontsize=11,
-        y=1.02,
-    )
-    fig.tight_layout(rect=[0, 0.06, 1, 0.98], pad=0.35, h_pad=0.45, w_pad=0.35)
+    if show_suptitle:
+        fig.suptitle(
+            "COAML: per-file loss within each epoch (line = file; JSON has total loss per file per epoch)",
+            fontsize=11,
+            y=1.02,
+        )
 
-    legend_handles = [
-        Line2D([0], [0], color=file_color[fid], linewidth=1.5, label=fid)
-        for fid in sorted(file_chunks.keys())
-    ]
-    ncol_leg = min(len(legend_handles), 6)
-    fig.legend(
-        legend_handles,
-        [h.get_label() for h in legend_handles],
-        loc="upper center",
-        bbox_to_anchor=(0.5, 0.01),
-        ncol=ncol_leg,
-        frameon=False,
-    )
+    layout_kw = dict(pad=0.35, h_pad=0.45, w_pad=0.35)
+    if show_suptitle or show_file_legend:
+        fig.tight_layout(
+            rect=[
+                0,
+                0.06 if show_file_legend else 0.02,
+                1,
+                0.98 if show_suptitle else 0.99,
+            ],
+            **layout_kw,
+        )
+    else:
+        fig.tight_layout(**layout_kw)
+
+    if show_file_legend:
+        legend_handles = [
+            Line2D([0], [0], color=file_color[fid], linewidth=1.5, label=fid)
+            for fid in sorted(file_chunks.keys())
+        ]
+        ncol_leg = min(len(legend_handles), 6)
+        fig.legend(
+            legend_handles,
+            [h.get_label() for h in legend_handles],
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.01),
+            ncol=ncol_leg,
+            frameon=False,
+        )
 
     save_figure_and_values(results_dir, sig, values, fig, show=show)
 
@@ -1602,19 +1628,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--offline",
         type=Path,
-        default="outputs/experiments/run_offline_mc4_bi200_ss100",
+        default="outputs/experiments_offline/run_offline_mc4_bi50_ss10_incomplete",
         help="Path to offline benchmark folder",
     )
     parser.add_argument(
         "--coaml",
         type=Path,
-        default="outputs/experiment_fresh/batch_lilim_coaml_seed42/mc4_bi200_ss100_20260325_141652",
+        default="outputs/experiments_coaml/mc4_bi50_ss10_20260325_135405",
         help="Path to CoAML run folder",
     )
     parser.add_argument(
         "--results",
         type=Path,
-        default=Path("results/mc4_bi200_ss100_complete2603"),
+        default=Path("results/mc4_bi50_ss10_complete"),
         help="Output folder for all plots and values (default: results)",
     )
     parser.add_argument(
@@ -1631,6 +1657,21 @@ if __name__ == "__main__":
         "--list",
         action="store_true",
         help="Only list loaded data summary, no analysis",
+    )
+    parser.add_argument(
+        "--loss-panels-suptitle",
+        action="store_true",
+        help="Show figure suptitle on coaml loss panels (default: off)",
+    )
+    parser.add_argument(
+        "--no-loss-panels-epoch-titles",
+        action="store_true",
+        help="Use plain x-label 'Iteration' without (ep. N) on coaml loss panels",
+    )
+    parser.add_argument(
+        "--loss-panels-legend",
+        action="store_true",
+        help="Show figure legend (all file stems) on coaml loss panels (default: off)",
     )
     args = parser.parse_args()
 
@@ -1679,7 +1720,13 @@ if __name__ == "__main__":
             analyze_loss_over_rolling_horizon(coaml, results_dir)
             base = FIGURE_SIGNATURES["loss_over_rolling_horizon"]["base"]
             print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
-            analyze_coaml_loss_per_file_per_epoch_panels(coaml, results_dir)
+            analyze_coaml_loss_per_file_per_epoch_panels(
+                coaml,
+                results_dir,
+                show_suptitle=args.loss_panels_suptitle,
+                show_panel_epoch_titles=not args.no_loss_panels_epoch_titles,
+                show_file_legend=args.loss_panels_legend,
+            )
             base = FIGURE_SIGNATURES["coaml_loss_per_file_per_epoch_panels"]["base"]
             print(f"  Saved: {results_dir / f'{base}.json'}, {results_dir / f'{base}.pdf'}")
         if solutions and coaml:
