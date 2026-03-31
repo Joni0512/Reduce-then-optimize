@@ -468,6 +468,12 @@ class COAMLPipeline():
                     result = optimal_result
                 elif mode == "eval":
                     result = score_result
+                elif mode == "optimal": 
+                    # allows us to run the validation files but record the optimal steps and see how close to the optimal it itself can even get
+                    result = optimal_result
+                elif mode == "offline":
+                    # allows us to run the offline pipeline decision while training but never used
+                    result = default_result
                 else:
                     raise ValueError(f"Invalid mode: {mode}")
             else:

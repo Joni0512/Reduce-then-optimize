@@ -141,6 +141,19 @@ class COAMLTrainingLoop:
         losses_per_file: dict[str, list[Optional[float]]] = {}
         last_driver_runs: list = []
 
+
+        #validate files to see what rolling horizon can even do on the optimal path
+        for v_path in val_files:
+                v_cleared = _load_and_clear_payload(v_path)
+                out_dir = self.config.OUTPUT_DIR / "optimal_val" / v_path.stem
+                out_dir.mkdir(parents=True, exist_ok=True)
+                file_cfg = replace(self.config, OUTPUT_DIR=out_dir)
+                pipeline = COAMLPipeline(
+                    file_cfg, v_cleared, model=self.model, imitation_solution_path=v_path,
+                )
+                driver_runs = pipeline.solve_pdptw(v_cleared, mode="optimal")
+                _save_validation_results(file_cfg, v_cleared, driver_runs)
+
         for epoch in range(self.config.EPOCHS):
             epoch_num = epoch + 1
             console_logger.info(f"=== Epoch {epoch_num}/{self.config.EPOCHS} ===")

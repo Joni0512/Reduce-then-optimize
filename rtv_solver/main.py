@@ -95,8 +95,12 @@ if __name__ == "__main__":
     # TODO it should be possible to implement multiple NN in parallel while running the COAML pipeline as during training we follow the optimal solution in steps. it should be analysed whether with the rolling horizon how close we actually get to the optimal solution with taking the optimal steps
     # however, one can train multiple NN and then run multiple validation in the end with the different decision-making, but overall it should parallelize the training process and experimentation; requires a few changes in the infrastructure code base and it would probably help if one can reload the model to just run validation with the different models at the very end (that could be one of the main advantages as we have a fast CO layer.)
     
-    # TODO add a tracker for the runtime to compare the speed both for training and the validation, is probably going to be quite interestin
-    
+    # TODO add a tracker for the runtime to compare the speed both for training and the validation, is probably going to be quite interesting
+
+    # TODO one needs a deterministic and quick check whether the current rolling horizon parameters are actually able to rebuild the optimal solution and whether the real trip can be rebuilt from it. this should not be done via running the COAML pipeline as it takes too much time. IDEA: check only for the runs that one needs if they can be created for the optimal solution and simulate them accordingly. RTV might still break this as the order of the pickups and dropoffs is not guaranteed to be the same; there must be a way and that also helps to argue about the rolling horizon parameters.
+
+    # TODO ask Samitha again for the paratransit-adjusted dataset as this should work much better than the original work
+
     # implement configurations
     arguments = parser.parse_args()
     config = Config.from_args(arguments)
