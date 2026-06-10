@@ -6,7 +6,7 @@ import copy
 
 from pathlib import Path
 
-from rtv_solver import OnlineRTVSolver, OfflineRTVSolver, COAMLPipeline, HexalySolver
+from rtv_solver import OnlineRTVSolver, OfflineRTVSolver, COAMLPipeline # HexalySolver
 from rtv_solver.training_loop import COAMLTrainingLoop
 
 from rtv_solver.handlers.payload_parser import PayloadParser
@@ -83,6 +83,27 @@ if __name__ == "__main__":
     parser.add_argument('--imitation_solution_file', type=str, default='solutions/li_lim/manifests/lc101.json', help='Path to the imitation solution file with the complete manifest of all trips for all vehicles')
     parser.add_argument('--output_dir', type=str,           default="debug", help='Output directory')
     
+    # Request graph pruning parameters
+    parser.add_argument(
+        "--use_request_graph_pruner",
+        type=str,
+        default="False",
+        help="Enable GNN-based request graph pruning before shared trip generation."
+    )
+
+    parser.add_argument(
+        "--request_graph_model_path",
+        type=str,
+        default="outputs/request_graph_gnn.pt",
+        help="Path to the trained request graph GNN model."
+    )
+
+    parser.add_argument(
+        "--request_graph_threshold",
+        type=float,
+        default=0.5,
+        help="Score threshold used to keep request-request pairs."
+)
     # alternative input files
     # parser.add_argument('--input_file', type=str,           default="test_nc/ttm/test_10r_1v_repeat6_simple.pkl", help='Request input file') 
     # parser.add_argument('--input_file', type=str,           default="inputs/wilson_nc_initial.pkl", help='Request input file') 

@@ -44,6 +44,9 @@ class Config:
     # experiment parameters
     MODE: str = 'offline'
     MAX_CARDINALITY: int = 2
+    USE_REQUEST_GRAPH_PRUNER: bool = False #new
+    REQUEST_GRAPH_MODEL_PATH: str = "outputs/request_graph_gnn.pt" #new
+    REQUEST_GRAPH_THRESHOLD: float = 0.5 #new
     LARGEST_TSP: int = 8
     SHARE_COST_FACTOR: float = 10
     REBALANCING: bool = False
@@ -124,6 +127,15 @@ class Config:
             INPUT_DIR = getattr(args, "input_dir", "") or "",
             SERVER_URL = getattr(args, "server_url", None), # args.server_url,
             MODE = args.mode,
+            USE_REQUEST_GRAPH_PRUNER=cls.str_to_bool(
+                getattr(args, "use_request_graph_pruner", "False")
+            ),
+            REQUEST_GRAPH_MODEL_PATH=getattr(
+                args, "request_graph_model_path", "outputs/request_graph_gnn.pt"
+            ),
+            REQUEST_GRAPH_THRESHOLD=getattr(
+                args, "request_graph_threshold", 0.5
+            ),
             MAX_THREAD_CNT = args.max_thread_cnt,
             RTV_TIMEOUT = args.rtv_timeout,
             ILP_TIMEOUT = args.ilp_timeout, 
