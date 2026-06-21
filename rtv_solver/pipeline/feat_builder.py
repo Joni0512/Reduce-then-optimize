@@ -12,7 +12,9 @@ from rtv_solver.structure.shared_trip import SharedTrip
 from rtv_solver.structure.trip_cost import TripCost
 from rtv_solver.structure.request import Request
 from rtv_solver.structure.vehicle import Vehicle
-from rtv_solver.handlers.trip_handler import TripHandler
+#das wurde geändert vorher stand es untereinander
+
+#from rtv_solver.handlers.trip_handler import TripHandler
 from rtv_solver.structure.config import Config
 
 from rtv_solver.handlers.payload_parser import PayloadParser

@@ -21,8 +21,10 @@ from rtv_solver.pipeline.request_graph_vehicle_feature_builder import RequestGra
 # ------------------------------------------------------------
 # 1. Payload laden
 # ------------------------------------------------------------
-
-payload_path = Path("inputs/localDB_payload_oct.pkl")
+payload_path = Path("solutions/li_lim/manifests/lc103.json")
+label_mode = "expert"   # "heuristic" oder "expert"
+#payload_path = Path("solutions/li_lim/txt_files/lc101.txt")
+# payload_path = Path("inputs/localDB_payload_oct.pkl")
 # payload_path = Path("inputs/wilson_nc_initial.pkl")
 
 config = Config()
@@ -91,18 +93,35 @@ print("Edges:", G.number_of_edges())
 # Das sind noch keine echten Labels aus der ILP-Lösung.
 # Das ist nur ein Technik-Test:
 # Kann das GNN lernen, unsere einfache Regel vorherzusagen?
+# ------------------------------------------------------------
+# 3. Labels bauen
+# ------------------------------------------------------------
+# ------------------------------------------------------------
+# 3. Labels bauen
+# ------------------------------------------------------------
 
-labels_np = RequestGraphLabelBuilder.build_heuristic_labels(
-    edge_df=edge_df,
-    max_pickup_time_difference=3600.0,
-    min_direction_similarity=0.0,
-    require_pickup_overlap=True,
-)
+if label_mode == "heuristic":
+    labels_np = RequestGraphLabelBuilder.build_heuristic_labels(
+        edge_df=edge_df,
+        max_pickup_time_difference=3600.0,
+        min_direction_similarity=0.0,
+        require_pickup_overlap=True,
+    )
 
+elif label_mode == "expert":
+    labels_np = RequestGraphLabelBuilder.build_expert_labels_from_solution_payload(
+        edge_index=edge_index,
+        node_ids=node_ids,
+        solution_payload=payload,
+    )
+
+else:
+    raise ValueError(f"Unknown label_mode: {label_mode}")
+
+print("Label mode:", label_mode)
 print("Positive labels:", labels_np.sum())
 print("Negative labels:", len(labels_np) - labels_np.sum())
 print("Positive ratio:", labels_np.mean())
-
 
 # ------------------------------------------------------------
 # 4. Features normalisieren und Tensoren bauen
@@ -276,3 +295,22 @@ print("\nTHRESHOLD COUNTS")
 for threshold in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
     kept = (edge_df["gnn_score"] > threshold).sum()
     print(f"Edges kept @ {threshold:.1f}: {kept}")
+
+print("\nPRUNING QUALITY")
+for threshold in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
+    keep_mask = edge_df["gnn_score"] > threshold
+
+    kept_total = keep_mask.sum()
+    kept_positive = ((edge_df["label"] == 1) & keep_mask).sum()
+    total_positive = (edge_df["label"] == 1).sum()
+
+    recall = kept_positive / total_positive if total_positive > 0 else 0.0
+    reduction = 1.0 - kept_total / len(edge_df)
+
+    print(
+        f"Threshold {threshold:.1f} | "
+        f"kept {kept_total}/{len(edge_df)} | "
+        f"positive kept {kept_positive}/{total_positive} | "
+        f"recall {recall:.3f} | "
+        f"edge reduction {reduction:.3f}"
+    )
