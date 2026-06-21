@@ -5,4 +5,5 @@
 *.html
 *.github
 /solutions/li_lim/manifests/*.json
-/results/*
+/results/*.venv/
+venv/

@@ -23,16 +23,18 @@ from rtv_solver.pipeline.request_graph_label_builder import RequestGraphLabelBui
 BASE_DIR = Path("solutions/li_lim/manifests")
 
 TRAIN_FILES = [
-    "lc101.json",
-    "lc102.json",
-    "lc103.json",
-    "lc104.json",
-    "lc105.json",
-    "lc106.json",
+    "lr101.json",
+    "lr102.json",
+    "lr103.json",
+    "lr104.json",
+    "lr105.json",
+    "lr106.json",
+    "lr107.json",
+    "lr108.json",
+    "lr109.json",
 ]
 
-MODEL_PATH = Path("outputs/request_graph_gnn.pt")
-
+MODEL_PATH = Path("outputs/request_graph_gnn_lr1.pt")
 EPOCHS = 100
 LEARNING_RATE = 1e-2
 HIDDEN_DIM = 64
