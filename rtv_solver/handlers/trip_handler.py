@@ -14,6 +14,7 @@ from rtv_solver.structure.vehicle import Vehicle
 
 from rtv_solver.handlers.vehicle_handler import VehicleHandler
 from rtv_solver.handlers.network_handler import NetworkHandler
+from rtv_solver.pipeline.request_graph_pruner import RequestGraphPruner
 
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
@@ -47,6 +48,9 @@ class TripHandler:
         self.requests = requests
         self.active_requests = active_requests
         self.iteration = iteration
+        # new pruning logic
+        self.allowed_request_pairs = None
+        self.request_graph_pruning_stats = None
 
         self.trips: list[Trip] = []     # basically collects all the tripCost objects for the feasible trips that are generated
         self.ondemand_only_trip_map = {}    # {request_id: trip_id}
@@ -61,12 +65,39 @@ class TripHandler:
         Logs time spent on RTV generation.
         On timeout, returns whatever partial results were computed rather than raising.
         """
+        # Request graph pruning:
+        # Use the trained GNN to predict which request-request pairs are likely
+        # to appear together in feasible trips. Only these pairs are considered
+        # during shared trip generation, reducing the combinatorial search space.
         self.starting_time = time.time()
-        # TODO FIXME this does not count active vehicles # goal: if there is no more active vehicles, one can skip the iteration (major benefit for wilson)
+        if self.config.USE_REQUEST_GRAPH_PRUNER:
+
+            pruner = RequestGraphPruner(
+                model_path=self.config.REQUEST_GRAPH_MODEL_PATH,
+                threshold=self.config.REQUEST_GRAPH_THRESHOLD,
+            )
+
+            (
+                self.allowed_request_pairs,
+                self.request_graph_pruning_stats,
+            ) = pruner.build_allowed_pairs(
+                self.requests
+            )
+
+            console_logger.info(
+                f"Allowed request pairs: "
+                f"{len(self.allowed_request_pairs)}"
+            )
+                # TODO FIXME this does not count active vehicles # goal: if there is no more active vehicles, one can skip the iteration (major benefit for wilson)
         try:
             self.generate_ondemand_only_trips(self.requests, self.iteration)
             self.generate_trip_costs(self.vehicles, self.config.MAX_THREAD_CNT, 0)
-            self.generate_shared_trips(self.vehicles, self.config.MAX_CARDINALITY, self.config.MAX_THREAD_CNT, self.config.SHARE_COST_FACTOR)
+            self.generate_shared_trips(
+                    self.vehicles,
+                    self.config.MAX_CARDINALITY,
+                    self.config.MAX_THREAD_CNT,
+                    self.config.SHARE_COST_FACTOR,
+                )    
         except RTVTimeoutError as e:
             console_logger.warning(
                 f"RTV generation timed out after {time.time() - self.starting_time:.3f}s — "
@@ -74,10 +105,19 @@ class TripHandler:
             )
             self._rebuild_mappings()
 
-        console_logger.info(f"{len(self.trips)} RTV combos / {len(TripHandler.trip_costs)} feasible trip costs generated: {time.time() - self.starting_time:.3f}s")
-        return self.ondemand_only_trip_map, self.trips, TripHandler.trip_costs, self.vehicle_to_trips_cost_map, self.trip_to_vehicle_cost_map
+        console_logger.info(
+            f"{len(self.trips)} RTV combos / "
+            f"{len(TripHandler.trip_costs)} feasible trip costs generated: "
+            f"{time.time() - self.starting_time:.3f}s"
+        )
 
-
+        return (
+            self.ondemand_only_trip_map,
+            self.trips,
+            TripHandler.trip_costs,
+            self.vehicle_to_trips_cost_map,
+            self.trip_to_vehicle_cost_map,
+        )
     # SINGLE TRIP GENERATION
     def generate_ondemand_only_trips(self, requests: list[Request], iteration: int):
         """generate single trips from individual requests directly"""
@@ -316,6 +356,12 @@ class TripHandler:
                     for trip_nos in itertools.combinations(list(range(no_of_trips)), cardinality):
                         trip1 = self.trips[trip_nos[0]]
                         trip2 = self.trips[trip_nos[1]]
+                        if not self._trip_pair_allowed_by_pruner(
+                            trip1,
+                            trip2,
+                        ):
+                            continue
+
                         current_cost = trip1.cost + trip2.cost # get simple cost addition
                         trips = {}
                         for trip_no in trip_nos:
@@ -447,7 +493,24 @@ class TripHandler:
     @staticmethod
     def _get_trip_cost(origin, destination):
         return NetworkHandler.travel_distance(origin, destination)  
-    
+    def _trip_pair_allowed_by_pruner(self, trip1, trip2) -> bool:
+        """
+        Check whether two single-request trips are allowed by the GNN pruner.
+
+        If pruning is disabled, all request pairs are allowed.
+        """
+
+        if self.allowed_request_pairs is None:
+            return True
+
+        #request_id_1 = int(trip1.id)
+        #request_id_2 = int(trip2.id)
+        request_id_1 = int(trip1.request_id)
+        request_id_2 = int(trip2.request_id)
+
+        pair = tuple(sorted((request_id_1, request_id_2)))
+
+        return pair in self.allowed_request_pairs
     # BELOW UNUSED METHODS
     def create_trip(self, request, am_capacity, wc_capacity, origin, destination, pick_up_time, latest_pick_up_time, earliest_arrival_time, latest_arrival_time, dwell_pickup, dwell_alight, iteration, bus_combination=None, first_last_mile_type=None, allow_walk=True):
         """create a trip from all the inputs"""

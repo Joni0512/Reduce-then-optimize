@@ -22,6 +22,7 @@ from rtv_solver.util.helper import save_json, set_seed
 from rtv_solver.visuals.route_manifest_mapper import RouteManifestMapper
 
 from rtv_solver.pipeline import TYPE_BEST_ORDERED_MATCH
+from rtv_solver.pipeline.request_graph_pruner import RequestGraphPruner
 
 if __name__ == "__main__":
     """
@@ -154,7 +155,7 @@ if __name__ == "__main__":
             config.RTV_TIMEOUT = 600000 # clicking through inputs, it should not break due to timeout
             # reduce the complexity by only considering a small number of vehicles and requests
             driver_runs_total = data[PayloadKeys.DRIVERS]
-            driver_runs_reduced = driver_runs_total[:3]
+            driver_runs_reduced = driver_runs_total[:5]
             # test to change the first vehicle to trigger certain situations
             vehicle_state = driver_runs_reduced[0][PayloadKeys.DRIVER_STATE]
             vehicle_manifest = driver_runs_reduced[0][PayloadKeys.DRIVER_MANIFEST]
@@ -242,8 +243,11 @@ if __name__ == "__main__":
         console_logger.info(f"Total time: {stats.total_time:.2f}s")
         console_logger.info(stats.format_vehicle_leg_report())
 
-        save_json(stats_payload, config.OUTPUT_DIR / "final" / "result_driver_runs.json")
-        save_json({"stats": stats, "violations": violations}, config.OUTPUT_DIR / "final" / "results.json")
+        final_output_dir = config.OUTPUT_DIR / "final"
+        final_output_dir.mkdir(parents=True, exist_ok=True)
+
+        save_json(stats_payload, final_output_dir / "result_driver_runs.json")
+        save_json({"stats": stats, "violations": violations}, final_output_dir / "results.json")
 
         console_logger.info(f"Run complete. Results can be found @ {Path(config.OUTPUT_DIR)}")
 
