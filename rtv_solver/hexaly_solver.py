@@ -1,7 +1,7 @@
 import numpy as np
 import os
 import copy
-import hexaly.optimizer
+#import hexaly.optimizer
 from .handlers.network_handler import NetworkHandler
 from .structure.node import Node
 from hexaly.optimizer import HxCallbackType
