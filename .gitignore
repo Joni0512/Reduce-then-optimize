@@ -7,3 +7,7 @@
 /solutions/li_lim/manifests/*.json
 /results/*.venv/
 venv/
+
+.venv/
+rtv_solver/.venv/
+*.save

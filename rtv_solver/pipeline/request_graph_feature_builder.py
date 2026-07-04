@@ -16,7 +16,7 @@ class RequestGraphFeatureBuilder:
         #"nearby_am_capacity_10min",
         #"nearby_wc_capacity_10min",
         #"nearest_vehicle_time_to_pickup",
-        #"local_request_count_10min",
+        "local_request_count_10min",
         #"local_vehicle_count_10min",
         #"local_supply_demand_ratio_10min",
         #"local_am_capacity_per_request_10min",
@@ -29,6 +29,10 @@ class RequestGraphFeatureBuilder:
         "pickup_window_overlap_seconds",
         "pickup_window_overlap_ratio",
         "direction_similarity",
+        "cross_pickup1_dropoff2_distance",
+        "cross_pickup2_dropoff1_distance",
+        "trip_distance_difference",
+        "latest_pickup_time_difference",
     ]
 
     @staticmethod
@@ -36,7 +40,6 @@ class RequestGraphFeatureBuilder:
         RequestGraphFeatureBuilder.add_node_features(G)
         RequestGraphFeatureBuilder.add_edge_features(G)
         return G
-
     @staticmethod
     def add_node_features(G):
         for node_id, data in G.nodes(data=True):
@@ -65,9 +68,30 @@ class RequestGraphFeatureBuilder:
             )
 
             data["wheelchair"] = float(req.wc_capacity)
+            local_request_count = 0
 
+            for other_id, other_data in G.nodes(data=True):
+                if other_id == node_id:
+                    continue
+
+                other_req = other_data["request"]
+
+                spatial_dist = RequestGraphFeatureBuilder._euclidean_distance(
+                    req.origin.lat,
+                    req.origin.lon,
+                    other_req.origin.lat,
+                    other_req.origin.lon,
+                )
+
+                time_diff = abs(
+                    req.earliest_pickup_time - other_req.earliest_pickup_time
+                )
+
+                if spatial_dist <= 10.0 and time_diff <= 600:
+                    local_request_count += 1
+
+            data["local_request_count_10min"] = float(local_request_count)
         return G
-
     @staticmethod
     def add_edge_features(G):
         for u, v, data in G.edges(data=True):
@@ -107,7 +131,43 @@ class RequestGraphFeatureBuilder:
                 r2,
             )
 
-        return G
+            trip_distance_1 = RequestGraphFeatureBuilder._euclidean_distance(
+                r1.origin.lat,
+                r1.origin.lon,
+                r1.destination.lat,
+                r1.destination.lon,
+            )
+
+            trip_distance_2 = RequestGraphFeatureBuilder._euclidean_distance(
+                r2.origin.lat,
+                r2.origin.lon,
+                r2.destination.lat,
+                r2.destination.lon,
+            )
+
+            data["cross_pickup1_dropoff2_distance"] = RequestGraphFeatureBuilder._euclidean_distance(
+                r1.origin.lat,
+                r1.origin.lon,
+                r2.destination.lat,
+                r2.destination.lon,
+            )
+
+            data["cross_pickup2_dropoff1_distance"] = RequestGraphFeatureBuilder._euclidean_distance(
+                r2.origin.lat,
+                r2.origin.lon,
+                r1.destination.lat,
+                r1.destination.lon,
+            )
+
+            data["trip_distance_difference"] = abs(
+                trip_distance_1 - trip_distance_2
+            )
+
+            data["latest_pickup_time_difference"] = abs(
+                r1.latest_pickup_time - r2.latest_pickup_time
+            )
+
+        return G   
 
     @staticmethod
     def to_numpy(G):

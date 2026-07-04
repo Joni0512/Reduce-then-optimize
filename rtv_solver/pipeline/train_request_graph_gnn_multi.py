@@ -23,6 +23,28 @@ from rtv_solver.pipeline.request_graph_label_builder import RequestGraphLabelBui
 BASE_DIR = Path("solutions/li_lim/manifests")
 
 TRAIN_FILES = [
+    # LC 100er
+    "lc101.json",
+    "lc102.json",
+    "lc103.json",
+    "lc104.json",
+    "lc105.json",
+    "lc106.json",
+    "lc107.json",
+    "lc108.json",
+    "lc109.json",
+
+    # LC 200er
+    "lc201.json",
+    "lc202.json",
+    "lc203.json",
+    "lc204.json",
+    "lc205.json",
+    "lc206.json",
+    "lc207.json",
+    "lc208.json",
+
+    # LR 100er
     "lr101.json",
     "lr102.json",
     "lr103.json",
@@ -32,13 +54,44 @@ TRAIN_FILES = [
     "lr107.json",
     "lr108.json",
     "lr109.json",
+
+    # LR 200er
+    "lr201.json",
+    "lr202.json",
+    "lr203.json",
+    "lr204.json",
+    "lr205.json",
+    "lr206.json",
+    "lr207.json",
+    "lr208.json",
+
+    # LRC 100er
+    "lrc101.json",
+    "lrc102.json",
+    "lrc103.json",
+    "lrc104.json",
+    "lrc105.json",
+    "lrc106.json",
+    "lrc107.json",
+    "lrc108.json",
+
+    # LRC 200er
+    "lrc201.json",
+    "lrc202.json",
+    "lrc203.json",
+    "lrc204.json",
+    "lrc205.json",
+    "lrc206.json",
+    "lrc207.json",
+    "lrc208.json",
 ]
 
-MODEL_PATH = Path("outputs/request_graph_gnn_lr1.pt")
+
 EPOCHS = 100
 LEARNING_RATE = 1e-2
 HIDDEN_DIM = 64
 MESSAGE_PASSING_STEPS = 2
+POS_WEIGHT = 5.0 #new loss weight for positive samples
 
 
 # ------------------------------------------------------------
@@ -242,7 +295,10 @@ def main():
         message_passing_steps=MESSAGE_PASSING_STEPS,
     )
 
-    criterion = nn.BCEWithLogitsLoss()
+    #criterion = nn.BCEWithLogitsLoss()
+    criterion = nn.BCEWithLogitsLoss(
+        pos_weight=torch.tensor([POS_WEIGHT])
+    )
 
     optimizer = torch.optim.Adam(
         model.parameters(),

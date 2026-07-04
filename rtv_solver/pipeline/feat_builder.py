@@ -299,7 +299,7 @@ class FeatureBuilder:
         requests = trip_handler.requests
         trips: List[Union[Trip, SharedTrip]] = trip_handler.trips
         trip_costs: Iterable[TripCost] = getattr(
-            trip_handler, "trip_costs", getattr(TripHandler, "trip_costs", [])
+            trip_handler, "trip_costs", getattr(trip_handler, "trip_costs", [])
         )
 
         return trip_costs, trips, vehicles, requests

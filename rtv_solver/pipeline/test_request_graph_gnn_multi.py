@@ -19,12 +19,17 @@ from rtv_solver.pipeline.request_graph_label_builder import RequestGraphLabelBui
 BASE_DIR = Path("solutions/li_lim/manifests")
 
 TEST_FILES = [
+    # LR Holdout
     "lr110.json",
     "lr111.json",
-    "lr112.json"
-]
+    "lr112.json",
 
-MODEL_PATH = Path("outputs/request_graph_gnn_lr1.pt")
+    # Große LR Holdouts
+    "lr209.json",
+    "lr210.json",
+    "lr211.json",
+]
+MODEL_PATH = Path("outputs/request_graph_gnn_mixed_big.pt")
 OUTPUT_DIR = Path("outputs")
 OUTPUT_CSV = OUTPUT_DIR / "pruning_metrics.csv"
 OUTPUT_PNG = OUTPUT_DIR / "pruning_metrics_table.png"
