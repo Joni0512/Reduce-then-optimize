@@ -12,7 +12,7 @@ from rtv_solver.structure.config import Config
 
 from rtv_solver.pipeline.request_graph_full import RequestGraphFullBuilder
 from rtv_solver.pipeline.request_graph_feature_builder import RequestGraphFeatureBuilder
-from rtv_solver.pipeline.request_graph_gnn import RequestGraphEdgeGNN
+from rtv_solver.pipeline.request_graph_gnn_v2 import RequestGraphEdgeGNNv2
 from rtv_solver.pipeline.request_graph_label_builder import RequestGraphLabelBuilder
 
 
@@ -24,115 +24,62 @@ BASE_DIR = Path("solutions/li_lim/manifests")
 
 TRAIN_FILES = [
     # LC 100er
-    "lc101.json",
-    "lc102.json",
-    "lc103.json",
-    "lc104.json",
-    "lc105.json",
-    "lc106.json",
-    "lc107.json",
-    "lc108.json",
-    "lc109.json",
+    "lc101.json", "lc102.json", "lc103.json", "lc104.json", "lc105.json",
+    "lc106.json", "lc107.json", "lc108.json", "lc109.json",
 
     # LC 200er
-    "lc201.json",
-    "lc202.json",
-    "lc203.json",
-    "lc204.json",
-    "lc205.json",
-    "lc206.json",
-    "lc207.json",
-    "lc208.json",
+    "lc201.json", "lc202.json", "lc203.json", "lc204.json", "lc205.json",
+    "lc206.json", "lc207.json", "lc208.json",
 
     # LR 100er
-    "lr101.json",
-    "lr102.json",
-    "lr103.json",
-    "lr104.json",
-    "lr105.json",
-    "lr106.json",
-    "lr107.json",
-    "lr108.json",
-    "lr109.json",
+    "lr101.json", "lr102.json", "lr103.json", "lr104.json", "lr105.json",
+    "lr106.json", "lr107.json", "lr108.json", "lr109.json",
 
     # LR 200er
-    "lr201.json",
-    "lr202.json",
-    "lr203.json",
-    "lr204.json",
-    "lr205.json",
-    "lr206.json",
-    "lr207.json",
-    "lr208.json",
+    "lr201.json", "lr202.json", "lr203.json", "lr204.json", "lr205.json",
+    "lr206.json", "lr207.json", "lr208.json",
 
     # LRC 100er
-    "lrc101.json",
-    "lrc102.json",
-    "lrc103.json",
-    "lrc104.json",
-    "lrc105.json",
-    "lrc106.json",
-    "lrc107.json",
-    "lrc108.json",
+    "lrc101.json", "lrc102.json", "lrc103.json", "lrc104.json", "lrc105.json",
+    "lrc106.json", "lrc107.json", "lrc108.json",
 
     # LRC 200er
-    "lrc201.json",
-    "lrc202.json",
-    "lrc203.json",
-    "lrc204.json",
-    "lrc205.json",
-    "lrc206.json",
-    "lrc207.json",
-    "lrc208.json",
+    "lrc201.json", "lrc202.json", "lrc203.json", "lrc204.json", "lrc205.json",
+    "lrc206.json", "lrc207.json", "lrc208.json",
 ]
 
 
 EPOCHS = 100
 LEARNING_RATE = 1e-2
 HIDDEN_DIM = 64
-MESSAGE_PASSING_STEPS = 2
-POS_WEIGHT = 5.0 #new loss weight for positive samples
+NUM_LAYERS = 4          # v2: distinct weights per layer, so this is a real depth increase
+DROPOUT = 0.1
+POS_WEIGHT = 5.0
 
+MODEL_PATH = Path("outputs/models_v2/rgnn_v2_arch_pw5/rgnn_v2_arch_pw5.pt")
 
-# Build one graph dataset from one Li-Lim manifest file
 
 def build_graph_dataset(payload_path: Path):
     """
     Loads one Li-Lim manifest payload and converts it into tensors for the GNN.
-
-    Output:
-        x:
-            node feature matrix
-
-        edge_index:
-            graph connectivity with tensor indices
-
-        edge_attr:
-            edge feature matrix
-
-        labels:
-            expert labels from the optimal Li-Lim solution
+    Identical feature/label pipeline to train_request_graph_gnn_multi.py so the
+    only difference vs. that script is the model architecture (v1 vs v2).
     """
 
     config = Config()
     payload = PayloadParser.load_input_data(payload_path)
 
-    # Initialize travel-time handling from the Li-Lim payload.
     NetworkHandler.init_from_payload(
         payload=payload,
         server_url=config.SERVER_URL,
     )
 
-    # Convert raw payload requests into Request objects.
     request_handler = RequestHandler(
         payload[PayloadKeys.REQUESTS],
         config,
     )
     requests = request_handler.get_all_requests()
 
-    # Build complete request-request graph.
-    # Node = request
-    # Edge = possible request-request pairing
     G = RequestGraphFullBuilder.build(requests)
     G = RequestGraphFeatureBuilder.add_features(G)
 
@@ -148,16 +95,12 @@ def build_graph_dataset(payload_path: Path):
         columns=RequestGraphFeatureBuilder.EDGE_FEATURES,
     )
 
-    # Expert labels:
-    # Label = 1 if two requests are in the same optimal Li-Lim route.
     labels_np = RequestGraphLabelBuilder.build_expert_labels_from_solution_payload(
         edge_index=edge_index,
         node_ids=node_ids,
         solution_payload=payload,
     )
 
-    # Normalize per instance for now.
-    # Later we may want global train-set normalization.
     node_matrix_norm = (
         (node_df - node_df.mean()) / (node_df.std() + 1e-8)
     ).to_numpy()
@@ -166,8 +109,6 @@ def build_graph_dataset(payload_path: Path):
         (edge_df - edge_df.mean()) / (edge_df.std() + 1e-8)
     ).to_numpy()
 
-    # edge_index currently contains real request IDs.
-    # PyTorch needs indices 0..num_nodes-1.
     id_to_idx = {
         node_id: idx
         for idx, node_id in enumerate(node_ids)
@@ -189,20 +130,7 @@ def build_graph_dataset(payload_path: Path):
     }
 
 
-# ------------------------------------------------------------
-# Balanced loss helper
-# ------------------------------------------------------------
-
 def balanced_train_indices(labels: torch.Tensor) -> torch.Tensor:
-    """
-    Creates a balanced subset:
-        all positive edges
-        same number of randomly sampled negative edges
-
-    This prevents the model from learning the trivial solution:
-        "everything is negative"
-    """
-
     pos_idx = torch.where(labels == 1)[0]
     neg_idx = torch.where(labels == 0)[0]
 
@@ -219,15 +147,7 @@ def balanced_train_indices(labels: torch.Tensor) -> torch.Tensor:
     return train_idx
 
 
-# ------------------------------------------------------------
-# Evaluation helper for training progress
-# ------------------------------------------------------------
-
 def evaluate_dataset(model, dataset):
-    """
-    Computes simple training diagnostics on one dataset.
-    """
-
     model.eval()
 
     with torch.no_grad():
@@ -257,10 +177,6 @@ def evaluate_dataset(model, dataset):
     }
 
 
-# ------------------------------------------------------------
-# Main training
-# ------------------------------------------------------------
-
 def main():
     print("Loading training instances...")
 
@@ -283,17 +199,16 @@ def main():
             f"positive_ratio={positives / dataset['num_edges']:.4f}"
         )
 
-    # All datasets use the same feature definitions.
     first_dataset = train_datasets[0]
 
-    model = RequestGraphEdgeGNN(
+    model = RequestGraphEdgeGNNv2(
         node_feature_dim=first_dataset["x"].shape[1],
         edge_feature_dim=first_dataset["edge_attr"].shape[1],
         hidden_dim=HIDDEN_DIM,
-        message_passing_steps=MESSAGE_PASSING_STEPS,
+        num_layers=NUM_LAYERS,
+        dropout=DROPOUT,
     )
 
-    #criterion = nn.BCEWithLogitsLoss()
     criterion = nn.BCEWithLogitsLoss(
         pos_weight=torch.tensor([POS_WEIGHT])
     )
@@ -303,7 +218,7 @@ def main():
         lr=LEARNING_RATE,
     )
 
-    print("\nStart multi-instance training...")
+    print("\nStart multi-instance training (v2 architecture)...")
 
     for epoch in range(EPOCHS):
         model.train()
@@ -352,7 +267,6 @@ def main():
                 f"Avg mean neg: {avg_mean_neg:.4f}"
             )
 
-    # Save model weights for later test/pruning evaluation.
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     torch.save(

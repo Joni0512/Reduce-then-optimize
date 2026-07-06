@@ -97,9 +97,6 @@ print("Edges:", G.number_of_edges())
 # 3. Labels bauen
 # ------------------------------------------------------------
 # ------------------------------------------------------------
-# 3. Labels bauen
-# ------------------------------------------------------------
-
 if label_mode == "heuristic":
     labels_np = RequestGraphLabelBuilder.build_heuristic_labels(
         edge_df=edge_df,

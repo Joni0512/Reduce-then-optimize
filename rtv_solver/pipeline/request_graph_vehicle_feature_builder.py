@@ -6,11 +6,11 @@ from rtv_solver.handlers.vehicle_handler import VehicleHandler
 
 class RequestGraphVehicleFeatureBuilder:
     """
-    Fügt Vehicle-/Local-Context-Features zu Request-Nodes hinzu.
+    Computes additional node features describing the local vehicle supply
+    and request density around each transportation request.
 
-    Diese Features sind Node-Features:
-        ein Request bekommt Infos darüber,
-        wie viel Vehicle-Supply und lokale Nachfrage in seiner Umgebung existiert.
+    These features provide the GNN with information about local fleet
+    availability and supply-demand balance.
     """
 
     VEHICLE_CONTEXT_NODE_FEATURES = [
@@ -29,9 +29,9 @@ class RequestGraphVehicleFeatureBuilder:
     @staticmethod
     def _ensure_node_id(node):
         """
-        NetworkHandler.travel_time braucht node.node_id.
-        Manche Vehicle- oder Request-Nodes haben noch keine node_id.
-        Deshalb setzen wir sie hier nachträglich.
+        Assign a network node ID if it has not been created yet.
+
+        Travel-time queries require valid network node IDs for routing.
         """
         if node.node_id is None:
             node.node_id = NetworkHandler.get_next_node_id(
@@ -66,9 +66,7 @@ class RequestGraphVehicleFeatureBuilder:
             request = G.nodes[node_id]["request"]
             pickup_node = request.origin
 
-            # ------------------------------------------------------------
-            # 1. Vehicle supply around this request
-            # ------------------------------------------------------------
+            # 1. Estimate vehicle availability around the pickup location.
 
             nearby_vehicle_count = 0.0
             nearby_am_capacity = 0.0
@@ -84,6 +82,7 @@ class RequestGraphVehicleFeatureBuilder:
                 )
 
                 nearest_vehicle_time = min(nearest_vehicle_time, travel_time)
+                # Only vehicles within the travel-time radius contribute to the local supply features.
 
                 if travel_time <= max_travel_time_seconds:
                     nearby_vehicle_count += 1.0
@@ -93,9 +92,9 @@ class RequestGraphVehicleFeatureBuilder:
             if math.isinf(nearest_vehicle_time):
                 nearest_vehicle_time = max_travel_time_seconds * 10.0
 
-            # ------------------------------------------------------------
+
             # 2. Local request demand around this request
-            # ------------------------------------------------------------
+        
 
             local_request_count = 0.0
 
@@ -114,13 +113,12 @@ class RequestGraphVehicleFeatureBuilder:
                 if request_to_request_time <= max_travel_time_seconds:
                     local_request_count += 1.0
 
-            # ------------------------------------------------------------
-            # 3. Local supply/demand ratios
-            # ------------------------------------------------------------
+            # 3. Estimate the local supply-demand balance.
 
-            # +1 verhindert Division durch 0.
+            # Add one to avoid division by zero for isolated requests.
             demand_denominator = local_request_count + 1.0
 
+            # Approximate the local supply-demand balance.
             local_supply_demand_ratio = (
                 nearby_vehicle_count / demand_denominator
             )
@@ -128,10 +126,8 @@ class RequestGraphVehicleFeatureBuilder:
             local_am_capacity_per_request = (
                 nearby_am_capacity / demand_denominator
             )
-
-            # ------------------------------------------------------------
-            # 4. Features am Node speichern
-            # ------------------------------------------------------------
+            # 4. Store the computed features as node attributes.
+        
 
             G.nodes[node_id]["nearby_vehicle_count_10min"] = nearby_vehicle_count
             G.nodes[node_id]["nearby_am_capacity_10min"] = nearby_am_capacity
