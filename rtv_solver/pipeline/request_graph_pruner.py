@@ -5,7 +5,22 @@ import torch
 
 from rtv_solver.pipeline.request_graph_full import RequestGraphFullBuilder
 from rtv_solver.pipeline.request_graph_feature_builder import RequestGraphFeatureBuilder
+# 2026-07-07: pruner now supports both architectures so v1 and v2 checkpoints can be
+# run side by side for comparison. Which class to instantiate is auto-detected from
+# the checkpoint's state_dict keys (see _detect_gnn_version) instead of being hardcoded,
+# so passing --request_graph_model_path never needs a matching --gnn_version flag kept
+# in sync by hand (that's exactly how the v1/v2 mismatch happened before).
 from rtv_solver.pipeline.request_graph_gnn import RequestGraphEdgeGNN
+from rtv_solver.pipeline.request_graph_gnn_v2 import RequestGraphEdgeGNNv2
+
+
+def _detect_gnn_version(state_dict: dict) -> str:
+    """v2 has per-layer ModuleLists (message_mlps.N...), v1 has a single shared
+    message_mlp (message_mlp...). Checking for the plural key is enough to tell
+    them apart since it never appears in a v1 checkpoint."""
+    if any(key.startswith("message_mlps.") for key in state_dict):
+        return "v2"
+    return "v1"
 
 
 class RequestGraphPruner:
@@ -33,16 +48,22 @@ class RequestGraphPruner:
         model_path: str | Path,
         threshold: float = 0.5,
         hidden_dim: int = 64,
-        message_passing_steps: int = 2,
+        # 2026-07-07: only used as a fallback for v1 checkpoints, whose shared
+        # message_mlp weights don't reveal the message-passing depth. For v2
+        # checkpoints, num_layers is inferred from the state_dict instead (see
+        # _load_model_if_needed), since it varies per run and a hardcoded default
+        # would silently mismatch whatever num_layers a given run was trained with.
+        num_layers: int = 2,
         device: str = "cpu",
     ):
         self.model_path = Path(model_path)
         self.threshold = threshold
         self.hidden_dim = hidden_dim
-        self.message_passing_steps = message_passing_steps
+        self.num_layers = num_layers
         self.device = torch.device(device)
 
         self.model = None
+        self.gnn_version = None
 
     def build_allowed_pairs(self, requests):
         """
@@ -168,19 +189,34 @@ class RequestGraphPruner:
         if self.model is not None:
             return
 
-        self.model = RequestGraphEdgeGNN(
-            node_feature_dim=node_feature_dim,
-            edge_feature_dim=edge_feature_dim,
-            hidden_dim=self.hidden_dim,
-            message_passing_steps=self.message_passing_steps,
-        ).to(self.device)
+        state_dict = torch.load(self.model_path, map_location=self.device)
+        self.gnn_version = _detect_gnn_version(state_dict)
 
-        self.model.load_state_dict(
-            torch.load(
-                self.model_path,
-                map_location=self.device,
-            )
-        )
+        if self.gnn_version == "v2":
+            # Infer depth from the checkpoint itself (how many message_mlps.N
+            # groups exist) instead of trusting self.num_layers, since different
+            # v2 runs were trained with different num_layers.
+            layer_indices = {
+                int(key.split(".")[1])
+                for key in state_dict
+                if key.startswith("message_mlps.")
+            }
+            num_layers = max(layer_indices) + 1
+            self.model = RequestGraphEdgeGNNv2(
+                node_feature_dim=node_feature_dim,
+                edge_feature_dim=edge_feature_dim,
+                hidden_dim=self.hidden_dim,
+                num_layers=num_layers,
+            ).to(self.device)
+        else:
+            self.model = RequestGraphEdgeGNN(
+                node_feature_dim=node_feature_dim,
+                edge_feature_dim=edge_feature_dim,
+                hidden_dim=self.hidden_dim,
+                message_passing_steps=self.num_layers,
+            ).to(self.device)
+
+        self.model.load_state_dict(state_dict)
 
 
 def trip_allowed_by_request_pairs(

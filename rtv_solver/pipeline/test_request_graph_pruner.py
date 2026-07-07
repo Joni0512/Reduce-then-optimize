@@ -13,7 +13,9 @@ from rtv_solver.pipeline.request_graph_pruner import RequestGraphPruner
 
 
 PAYLOAD_PATH = Path("solutions/li_lim/manifests/lc107.json")
-MODEL_PATH = Path("outputs/request_graph_gnn.pt")
+# 2026-07-07: points at the new v2 pw10 checkpoint now that RequestGraphPruner
+# instantiates RequestGraphEdgeGNNv2 - the old v1 checkpoint would fail to load.
+MODEL_PATH = Path("outputs/models_v2_gnnv2/rgnn_mixed_c2_pw10_v2/rgnn_mixed_c2_pw10_v2_best_val_f3.pt")
 
 OUTPUT_DIR = Path("outputs")
 OUTPUT_CSV = OUTPUT_DIR / "pruner_allowed_pairs_metrics.csv"

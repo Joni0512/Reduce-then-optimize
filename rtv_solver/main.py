@@ -95,7 +95,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--request_graph_model_path",
         type=str,
-        default="outputs/request_graph_gnn.pt",
+        # 2026-07-07: default switched to the best v2 GNN checkpoint (pw10, thr=0.5);
+        # the old path was a v1-shaped checkpoint incompatible with RequestGraphEdgeGNNv2.
+        default="outputs/models_v2_gnnv2/rgnn_mixed_c2_pw10_v2/rgnn_mixed_c2_pw10_v2_best_val_f3.pt",
         help="Path to the trained request graph GNN model."
     )
 

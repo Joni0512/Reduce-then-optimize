@@ -45,7 +45,11 @@ class Config:
     MODE: str = 'offline'
     MAX_CARDINALITY: int = 2
     USE_REQUEST_GRAPH_PRUNER: bool = False #new
-    REQUEST_GRAPH_MODEL_PATH: str = "outputs/request_graph_gnn.pt" #new
+    # 2026-07-07: default now points at the best v2 GNN checkpoint (pos_weight=10,
+    # threshold=0.5 chosen by val F3 - see outputs/models_v2_gnnv2/best_config_by_model_val_f3.csv).
+    # The old path pointed at a v1-shaped checkpoint, which would now fail to load
+    # since RequestGraphPruner instantiates RequestGraphEdgeGNNv2.
+    REQUEST_GRAPH_MODEL_PATH: str = "outputs/models_v2_gnnv2/rgnn_mixed_c2_pw10_v2/rgnn_mixed_c2_pw10_v2_best_val_f3.pt" #new
     REQUEST_GRAPH_THRESHOLD: float = 0.5 #new
     LARGEST_TSP: int = 8
     SHARE_COST_FACTOR: float = 10
@@ -130,8 +134,13 @@ class Config:
             USE_REQUEST_GRAPH_PRUNER=cls.str_to_bool(
                 getattr(args, "use_request_graph_pruner", "False")
             ),
+            # 2026-07-07: fallback default kept in sync with the class default above
+            # (new v2 pw10 checkpoint) so an omitted --request_graph_model_path arg
+            # doesn't silently fall back to the incompatible old v1 checkpoint.
             REQUEST_GRAPH_MODEL_PATH=getattr(
-                args, "request_graph_model_path", "outputs/request_graph_gnn.pt"
+                args,
+                "request_graph_model_path",
+                "outputs/models_v2_gnnv2/rgnn_mixed_c2_pw10_v2/rgnn_mixed_c2_pw10_v2_best_val_f3.pt",
             ),
             REQUEST_GRAPH_THRESHOLD=getattr(
                 args, "request_graph_threshold", 0.5

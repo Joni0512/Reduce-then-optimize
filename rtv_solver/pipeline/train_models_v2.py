@@ -9,21 +9,27 @@ What it does
 ------------
 - trains class-specific and mixed request-graph GNN models
 - runs a pos_weight loss sweep
+- supports both GNN architectures via --gnn_version {v1,v2}, so the same sweep
+  can be trained for each and compared head-to-head
 - logs precision, recall, F1, F2, F3, F4, TP/FP/FN/TN
 - saves best validation checkpoint per run
 - stores everything in a new output folder so old models are not overwritten
 
 Default output folder
 ---------------------
-outputs/models_v2/
+outputs/models_v2/      (--gnn_version v1, the default output_dir if unset)
+outputs/models_v2_gnnv2/ (--gnn_version v2)
 
 Example usage
 -------------
 Quick smoke test:
     python3 train_models_v2.py --models mixed_c1 --pos_weights 1 5 --epochs 5
 
-Recommended first run:
+Recommended first run (v2 architecture):
     python3 train_models_v2.py --models mixed_c1 mixed_c2 mixed_all --pos_weights 1 2 3 5 7.5 10
+
+Same sweep with the older v1 architecture, for comparison:
+    python3 train_models_v2.py --gnn_version v1 --models mixed_c1 mixed_c2 mixed_all --pos_weights 1 2 3 5 7.5 10
 
 Full sweep:
     python3 train_models_v2.py --models lc1 lr1 lrc1 lc2 lr2 lrc2 mixed_c1 mixed_c2 mixed_all --pos_weights 1 2 3 5 7.5 10
@@ -48,7 +54,11 @@ from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.request_handler import RequestHandler
 from rtv_solver.pipeline.request_graph_feature_builder import RequestGraphFeatureBuilder
 from rtv_solver.pipeline.request_graph_full import RequestGraphFullBuilder
+# 2026-07-07: script now trains either architecture via --gnn_version {v1,v2}, so
+# the same sweep (splits, pos_weights, thresholds) can be run for both and compared
+# head-to-head instead of only ever training the newer RequestGraphEdgeGNNv2.
 from rtv_solver.pipeline.request_graph_gnn import RequestGraphEdgeGNN
+from rtv_solver.pipeline.request_graph_gnn_v2 import RequestGraphEdgeGNNv2
 from rtv_solver.pipeline.request_graph_label_builder import RequestGraphLabelBuilder
 from rtv_solver.schema.payload_keys import PayloadKeys
 from rtv_solver.structure.config import Config
@@ -292,7 +302,7 @@ def balanced_indices(labels: torch.Tensor) -> torch.Tensor:
 
 
 @torch.no_grad()
-def evaluate(model: RequestGraphEdgeGNN, dataset: dict, threshold: float) -> dict:
+def evaluate(model: nn.Module, dataset: dict, threshold: float) -> dict:
     model.eval()
     logits = model(
         x=dataset["x"],
@@ -328,7 +338,7 @@ def evaluate(model: RequestGraphEdgeGNN, dataset: dict, threshold: float) -> dic
     }
 
 
-def average_metric(model: RequestGraphEdgeGNN, datasets: list[dict], key: str, threshold: float) -> float:
+def average_metric(model: nn.Module, datasets: list[dict], key: str, threshold: float) -> float:
     if not datasets:
         return 0.0
     return sum(evaluate(model, ds, threshold)[key] for ds in datasets) / len(datasets)
@@ -336,7 +346,7 @@ def average_metric(model: RequestGraphEdgeGNN, datasets: list[dict], key: str, t
 
 def append_logs(
     logs: list[MetricLog],
-    model: RequestGraphEdgeGNN,
+    model: nn.Module,
     datasets: list[dict],
     run_name: str,
     base_model: str,
@@ -365,7 +375,7 @@ def append_logs(
 
 # ---------------------------------------------------------------------------
 # One training run
-# ---------------------------------------------------------------------------
+
 
 
 def train_one_run(
@@ -382,11 +392,16 @@ def train_one_run(
     thresholds: list[float],
     patience: int,
     seed: int,
+    gnn_version: str = "v2",
 ) -> list[MetricLog]:
     set_seed(seed)
 
     pw_name = safe_weight_name(pos_weight)
-    run_name = f"rgnn_{base_model}_pw{pw_name}_v2"
+    # 2026-07-07: suffix now reflects the actual architecture (gnn_version), not the
+    # training-script version - previously this was hardcoded to "_v2" regardless of
+    # which model class was trained, which is exactly the naming confusion that led
+    # to the v1/v2 mismatch bug (see request_graph_pruner.py).
+    run_name = f"rgnn_{base_model}_pw{pw_name}_{gnn_version}"
     run_dir = output_dir / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -410,12 +425,25 @@ def train_one_run(
         return []
 
     first = train_sets[0]
-    model = RequestGraphEdgeGNN(
-        node_feature_dim=first["x"].shape[1],
-        edge_feature_dim=first["edge_attr"].shape[1],
-        hidden_dim=hidden_dim,
-        message_passing_steps=message_passing_steps,
-    )
+    # 2026-07-07: pick the architecture explicitly by gnn_version so the same sweep
+    # (splits, pos_weights, thresholds, depth) can be trained for v1 and v2 and
+    # compared head-to-head. Depth is passed through under each class's own
+    # constructor name (message_passing_steps vs. num_layers) - same CLI value,
+    # so runs stay comparable across architectures.
+    if gnn_version == "v1":
+        model = RequestGraphEdgeGNN(
+            node_feature_dim=first["x"].shape[1],
+            edge_feature_dim=first["edge_attr"].shape[1],
+            hidden_dim=hidden_dim,
+            message_passing_steps=message_passing_steps,
+        )
+    else:
+        model = RequestGraphEdgeGNNv2(
+            node_feature_dim=first["x"].shape[1],
+            edge_feature_dim=first["edge_attr"].shape[1],
+            hidden_dim=hidden_dim,
+            num_layers=message_passing_steps,
+        )
 
     criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight], dtype=torch.float32))
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
@@ -434,6 +462,7 @@ def train_one_run(
 
     metadata = {
         "run_name": run_name,
+        "gnn_version": gnn_version,
         "base_model": base_model,
         "pos_weight": pos_weight,
         "seed": seed,
@@ -541,9 +570,8 @@ def train_one_run(
     return logs
 
 
-# ---------------------------------------------------------------------------
+
 # Summary tables
-# ---------------------------------------------------------------------------
 
 
 def write_summaries(all_logs: list[MetricLog], output_dir: Path) -> None:
@@ -585,15 +613,23 @@ def write_summaries(all_logs: list[MetricLog], output_dir: Path) -> None:
     logging.info("Saved summaries under: %s", output_dir)
 
 
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train request-graph GNN models with clean splits and loss sweep.")
     parser.add_argument("--manifest_dir", default="solutions/li_lim/manifests")
-    parser.add_argument("--output_dir", default="outputs/models_v2")
+    # 2026-07-07: default is None so it can depend on --gnn_version (see main()) -
+    # v1 and v2 runs land in separate folders (outputs/models_v2 vs.
+    # outputs/models_v2_gnnv2) so a full sweep of both never overwrites the other.
+    parser.add_argument("--output_dir", default=None)
+    parser.add_argument(
+        "--gnn_version",
+        choices=["v1", "v2"],
+        default="v2",
+        help="Which architecture to train: v1 = RequestGraphEdgeGNN (shared weights, "
+        "edge embeddings frozen after encoder), v2 = RequestGraphEdgeGNNv2 (per-layer "
+        "weights, edge updates + residual + LayerNorm every layer).",
+    )
     parser.add_argument(
         "--models",
         nargs="+",
@@ -619,13 +655,19 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
-    output_dir = Path(args.output_dir)
+    if args.output_dir is not None:
+        output_dir = Path(args.output_dir)
+    else:
+        output_dir = Path(
+            "outputs/models_v2" if args.gnn_version == "v1" else "outputs/models_v2_gnnv2"
+        )
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest_dir = Path(args.manifest_dir)
 
     logging.info("%s", "=" * 80)
     logging.info("REQUEST-GRAPH GNN TRAINING V2")
     logging.info("%s", "=" * 80)
+    logging.info("GNN architecture: %s", args.gnn_version)
     logging.info("Output dir: %s", output_dir)
     logging.info("Models: %s", args.models)
     logging.info("pos_weights: %s", args.pos_weights)
@@ -653,6 +695,7 @@ def main() -> None:
                 thresholds=args.thresholds,
                 patience=args.patience,
                 seed=args.seed,
+                gnn_version=args.gnn_version,
             )
             all_logs.extend(logs)
             # Persist after every run so partial results are safe.
