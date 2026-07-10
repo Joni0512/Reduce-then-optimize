@@ -131,6 +131,17 @@ MODEL_CONFIGS: dict[str, dict[str, list[str]]] = {
         "val": _concat(["lc1", "lr1", "lrc1", "lc2", "lr2", "lrc2"], "val"),
         "test": _concat(["lc1", "lr1", "lrc1", "lc2", "lr2", "lrc2"], "test"),
     },
+    # 2026-07-10: first NYC smoke test - only one instance exists so far (RollingHorizon
+    # run nyc_morning500_mc3, labels from strict temporal-overlap pairs, see
+    # rtv_solver/pipeline/build_nyc_manifest.py), so train/val/test all point at the
+    # same file. This is not a generalization test, just a feasibility check that the
+    # pipeline trains at all on NYC-derived data. Run with
+    # --manifest_dir solutions/nyc/manifests --models nyc_morning500_mc3.
+    "nyc_morning500_mc3": {
+        "train": ["nyc_morning500_mc3"],
+        "val": ["nyc_morning500_mc3"],
+        "test": ["nyc_morning500_mc3"],
+    },
 }
 
 DEFAULT_POS_WEIGHTS = [1.0, 2.0, 3.0, 5.0, 7.5, 10.0]
