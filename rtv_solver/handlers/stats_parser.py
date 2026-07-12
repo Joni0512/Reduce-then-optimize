@@ -572,6 +572,12 @@ class StatsParser:
             for line in f:
                 entry = json.loads(line)
 
+                # 2026-07-12: assignment_data.jsonl also contains
+                # "PrunerImitationDiagnostics" records (coaml_pipeline.py) that share
+                # this file but only carry "stats", not "status" -- skip those.
+                if "status" not in entry["extra"]:
+                    continue
+
                 sim_ts = int(entry["extra"]["timestamp"])
                 assigned_status = entry["extra"]["status"][PayloadKeys.STATS_ASSIGNED]
                 unserved_status = entry["extra"]["status"][PayloadKeys.STATS_UNSERVED] 

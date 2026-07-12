@@ -613,6 +613,53 @@ class ImitationHandler:
             y_star[selected_index] = 1
         return y_star
 
+    @staticmethod
+    def count_fallback_vehicles(
+        imitation_scores_with_reject: torch.Tensor,
+        trip_vehicle_ids: list[int],
+        reject_vehicle_ids: list[int],
+    ) -> tuple[int, int]:
+        """
+        2026-07-12: diagnostic-only companion to build_y_star_per_vehicle_from_imit_scores,
+        added to measure how often the request-graph pruner (RequestGraphPruner, see
+        trip_handler.py) removes the trip that would have matched the optimal solution
+        for a vehicle before imitation scoring ever sees it.
+
+        Mirrors the same per-vehicle candidate grouping as
+        build_y_star_per_vehicle_from_imit_scores, but only counts vehicles whose
+        candidate scores are all <= 0 (i.e. no trip/reject scored positively against
+        the optimal solution for that vehicle) instead of building y_star. A vehicle
+        landing in that "fallback" bucket is a symptom -- not proof -- that its
+        optimal-solution trip was pruned away upstream; combine with
+        COAMLPipeline._measure_pruner_pair_recall to attribute cause. Does not change
+        training behavior: this is read-only over already-computed scores.
+
+        Returns:
+            (num_fallback_vehicles, num_vehicles_considered)
+        """
+        trip_count = len(trip_vehicle_ids)
+        trip_indices_by_vehicle: dict[int, list[int]] = {}
+        for trip_idx, vehicle_id in enumerate(trip_vehicle_ids):
+            trip_indices_by_vehicle.setdefault(vehicle_id, []).append(trip_idx)
+
+        reject_index_by_vehicle = {
+            vehicle_id: trip_count + reject_idx
+            for reject_idx, vehicle_id in enumerate(reject_vehicle_ids)
+        }
+
+        all_vehicle_ids = set(trip_indices_by_vehicle.keys()) | set(reject_vehicle_ids)
+        fallback_count = 0
+        for vehicle_id in all_vehicle_ids:
+            candidate_indices = list(trip_indices_by_vehicle.get(vehicle_id, []))
+            if vehicle_id in reject_index_by_vehicle:
+                candidate_indices.append(reject_index_by_vehicle[vehicle_id])
+            if not candidate_indices:
+                continue
+            candidate_scores = imitation_scores_with_reject[candidate_indices]
+            if torch.all(candidate_scores <= 0):
+                fallback_count += 1
+        return fallback_count, len(all_vehicle_ids)
+
 
 if __name__ == "__main__":
     solution = [1, 3, 2]

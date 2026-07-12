@@ -56,8 +56,19 @@ class PayloadKeys:
     MANIFEST_DWELL = "dwell"
     
 
-    STATS_ASSIGNMENT_DEVELOPMENT = "stats_assign_dev"   
+    STATS_ASSIGNMENT_DEVELOPMENT = "stats_assign_dev"
     STATS_ASSIGNED = 'assigned_requests'
     STATS_UNSERVED = 'unserved_requests'
     STATS_BOARDED = 'boarded'
     STATS_DROPPED = 'dropped'
+
+    # 2026-07-12: added for the request-graph-pruner <> imitation-learning diagnostic
+    # (see COAMLPipeline._measure_pruner_pair_recall / _log_pruner_imitation_diagnostics).
+    # Goal: measure whether the GNN pruner discards request pairs that belong to the
+    # offline-optimal solution, and whether that shows up as vehicles whose imitation
+    # y_star falls back to the "no positive candidate" branch.
+    STATS_PRUNER_OPTIMAL_PAIRS_TOTAL = 'pruner_optimal_pairs_total'
+    STATS_PRUNER_OPTIMAL_PAIRS_PRESERVED = 'pruner_optimal_pairs_preserved'
+    STATS_PRUNER_PAIR_RECALL = 'pruner_pair_recall'
+    STATS_PRUNER_FALLBACK_VEHICLES = 'pruner_fallback_vehicles'
+    STATS_PRUNER_VEHICLES_CONSIDERED = 'pruner_vehicles_considered'

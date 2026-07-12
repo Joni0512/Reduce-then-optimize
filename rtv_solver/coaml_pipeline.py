@@ -273,7 +273,93 @@ class COAMLPipeline():
                 raise ValueError("y_star must be binary (0/1).")
             return y_star
         raise ValueError(f"Invalid y_star type: {self.config.Y_STAR_TYPE}")
-    
+
+    def _measure_pruner_pair_recall(
+        self,
+        trip_handler: TripHandler,
+        request_batch: list,
+    ) -> dict | None:
+        """
+        2026-07-12: diagnostic added to check whether RequestGraphPruner (run inside
+        trip_handler.run(), see trip_handler.allowed_request_pairs) discards request
+        pairs that belong to the offline-optimal solution loaded by ImitationHandler.
+        Motivation: since ImitationHandler only ever scores the trips that survive
+        pruning, a pruned-away optimal pair silently degrades the y* target for that
+        vehicle (see ImitationHandler.count_fallback_vehicles) -- this measures the
+        upstream cause instead of only the downstream symptom.
+
+        Ground-truth pairs are "requests served by the same vehicle in the optimal
+        solution" -- the same definition RequestGraphLabelBuilder.
+        build_positive_pairs_from_solution_payload uses to build the pruner's own
+        training labels, so recall here is directly comparable to the pruner's
+        offline eval metrics (see evaluate_pruner_metrics_all.py). Built from
+        self.imitation_handler.optimal_solution directly (already-parsed
+        {vehicle_id: [request_ids]}) rather than re-parsing the raw payload, to avoid
+        a second, possibly inconsistent, payload-key parsing path.
+
+        Returns None when pruning is disabled (trip_handler.allowed_request_pairs is
+        None) or when this batch has no optimal pairs to compare against, since
+        recall is undefined in both cases.
+        """
+        allowed_pairs = trip_handler.allowed_request_pairs
+        if allowed_pairs is None:
+            return None
+
+        batch_ids = {request.id for request in request_batch}
+        optimal_pairs: set[tuple[int, int]] = set()
+        for ordered_request_ids in self.imitation_handler.optimal_solution.values():
+            vehicle_batch_ids = [rid for rid in ordered_request_ids if rid in batch_ids]
+            for i in range(len(vehicle_batch_ids)):
+                for j in range(i + 1, len(vehicle_batch_ids)):
+                    optimal_pairs.add(tuple(sorted((vehicle_batch_ids[i], vehicle_batch_ids[j]))))
+
+        if not optimal_pairs:
+            return None
+
+        preserved_pairs = optimal_pairs & allowed_pairs
+        return {
+            PayloadKeys.STATS_PRUNER_OPTIMAL_PAIRS_TOTAL: len(optimal_pairs),
+            PayloadKeys.STATS_PRUNER_OPTIMAL_PAIRS_PRESERVED: len(preserved_pairs),
+            PayloadKeys.STATS_PRUNER_PAIR_RECALL: len(preserved_pairs) / len(optimal_pairs),
+        }
+
+    def _log_pruner_imitation_diagnostics(
+        self,
+        pruner_recall_stats: dict | None,
+        fallback_vehicle_count: int,
+        vehicles_considered: int,
+        current_time: float,
+    ) -> None:
+        """
+        2026-07-12: combines _measure_pruner_pair_recall (upstream: did pruning drop an
+        optimal pair) with ImitationHandler.count_fallback_vehicles (downstream: did a
+        vehicle's y* degrade to the no-positive-candidate fallback) into one log record,
+        so both can be correlated per iteration without re-deriving either from raw logs.
+        Purely observational -- no effect on training or assignment.
+        """
+        diagnostics = {
+            PayloadKeys.STATS_PRUNER_FALLBACK_VEHICLES: fallback_vehicle_count,
+            PayloadKeys.STATS_PRUNER_VEHICLES_CONSIDERED: vehicles_considered,
+        }
+        if pruner_recall_stats is not None:
+            diagnostics.update(pruner_recall_stats)
+
+        data_logger.info("PrunerImitationDiagnostics", extra={"timestamp": current_time, "stats": diagnostics})
+
+        if pruner_recall_stats is not None:
+            console_logger.info(
+                f"Pruner/imitation diagnostics: pair recall "
+                f"{pruner_recall_stats[PayloadKeys.STATS_PRUNER_PAIR_RECALL]:.3f} "
+                f"({pruner_recall_stats[PayloadKeys.STATS_PRUNER_OPTIMAL_PAIRS_PRESERVED]}/"
+                f"{pruner_recall_stats[PayloadKeys.STATS_PRUNER_OPTIMAL_PAIRS_TOTAL]} optimal pairs kept), "
+                f"fallback vehicles {fallback_vehicle_count}/{vehicles_considered}"
+            )
+        elif fallback_vehicle_count > 0:
+            console_logger.info(
+                f"Pruner/imitation diagnostics: pruner disabled or no optimal pairs in batch, "
+                f"fallback vehicles {fallback_vehicle_count}/{vehicles_considered}"
+            )
+
     def solve_iteration(self, subset_payload, iteration = 0, mode: str = "train"):
         """
         Solver for the entire payload that is given, based on the onlineRTVSolver but adapted to COAML pipeline.
@@ -320,7 +406,14 @@ class COAMLPipeline():
 
         if len(vehicle_handler.vehicles) != 0:
             single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
-            
+
+            # 2026-07-12: measure, right after pruning and before any ML scoring happens,
+            # whether the request-graph pruner (TripHandler.run() -> RequestGraphPruner)
+            # already dropped request pairs that belong to the offline-optimal solution
+            # for this batch. Diagnostic-only: does not affect trip_costs or the
+            # assignment. See _measure_pruner_pair_recall for the exact definition.
+            pruner_recall_stats = self._measure_pruner_pair_recall(trip_handler, request_batch)
+
             # Split run() so we can capture x_t for y_star extraction; result is identical to self.optimizer.run().
             self.coaml_optimizer.reset(single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map)
             self.default_optimizer.reset(single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map)
@@ -378,6 +471,26 @@ class COAMLPipeline():
                     reject_vehicle_ids=reject_vehicle_ids,
                     vehicle_to_trips_cost_map=vehicle_to_trips_cost_map,
                 )
+
+                # 2026-07-12: downstream half of the pruner/imitation diagnostic. Counts
+                # vehicles whose imitation scores are all <= 0 (build_y_star_per_vehicle_
+                # from_imit_scores would fall back to picking the minimum instead of a
+                # genuine positive match). Combined with pruner_recall_stats above, this
+                # lets us tell whether a low-recall pruning outcome is actually causing
+                # degraded imitation targets, instead of just guessing. Read-only, does
+                # not change y_star.
+                fallback_vehicle_count, vehicles_considered = ImitationHandler.count_fallback_vehicles(
+                    imitation_scores_with_reject=imitation_scores_with_reject,
+                    trip_vehicle_ids=trip_vehicle_ids,
+                    reject_vehicle_ids=reject_vehicle_ids,
+                )
+                self._log_pruner_imitation_diagnostics(
+                    pruner_recall_stats,
+                    fallback_vehicle_count,
+                    vehicles_considered,
+                    payload_object.current_time,
+                )
+
                 y_star = self._build_y_star_from_imitation_scores(
                     imitation_scores=imitation_scores_with_reject,
                     trip_vehicle_ids=trip_vehicle_ids,

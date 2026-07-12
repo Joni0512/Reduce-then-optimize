@@ -8,13 +8,17 @@ MODEL_PATH="outputs/models_v2/rgnn_mixed_all_pw1_v2/rgnn_mixed_all_pw1_v2_best_v
 for INSTANCE in "${INSTANCES[@]}"; do
   FILE="solutions/li_lim/manifests/${INSTANCE}.json"
 
-  python main.py --mode offline \
+  # 2026-07-12: fixed entry point path. main.py lives under rtv_solver/, not repo
+  # root -- "python main.py" always failed with FileNotFoundError, so this script
+  # had never actually been run end-to-end before (caught while smoke-testing the
+  # PrunerImitationDiagnostics logging in coaml_pipeline.py).
+  python rtv_solver/main.py --mode offline \
     --input_file "$FILE" \
     --max_cardinality 2 --batch_interval 400 --step_size 100 \
     --use_request_graph_pruner False \
     --output_dir "outputs/debug/pruner_sensitivity/${INSTANCE}_rho_noprune"
 
-  python main.py --mode coaml --epochs 1 \
+  python rtv_solver/main.py --mode coaml --epochs 1 \
     --input_file "$FILE" \
     --imitation_solution_file "$FILE" \
     --max_cardinality 2 --batch_interval 400 --step_size 100 \
@@ -22,7 +26,7 @@ for INSTANCE in "${INSTANCES[@]}"; do
     --output_dir "outputs/debug/pruner_sensitivity/${INSTANCE}_sil_noprune"
 
   for T in "${THRESHOLDS[@]}"; do
-    python main.py --mode offline \
+    python rtv_solver/main.py --mode offline \
       --input_file "$FILE" \
       --max_cardinality 2 --batch_interval 400 --step_size 100 \
       --use_request_graph_pruner True \
@@ -30,7 +34,7 @@ for INSTANCE in "${INSTANCES[@]}"; do
       --request_graph_threshold "$T" \
       --output_dir "outputs/debug/pruner_sensitivity/${INSTANCE}_rho_t${T}"
 
-    python main.py --mode coaml --epochs 1 \
+    python rtv_solver/main.py --mode coaml --epochs 1 \
       --input_file "$FILE" \
       --imitation_solution_file "$FILE" \
       --max_cardinality 2 --batch_interval 400 --step_size 100 \
