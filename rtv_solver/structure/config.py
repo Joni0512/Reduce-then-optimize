@@ -51,6 +51,16 @@ class Config:
     # since RequestGraphPruner instantiates RequestGraphEdgeGNNv2.
     REQUEST_GRAPH_MODEL_PATH: str = "outputs/models_v2_gnnv2/rgnn_mixed_c2_pw10_v2/rgnn_mixed_c2_pw10_v2_best_val_f3.pt" #new
     REQUEST_GRAPH_THRESHOLD: float = 0.5 #new
+    # 2026-07-14: request-only pruner (RequestPruner) - separate from the
+    # request-request pair pruner above, runs before it in TripHandler.run()
+    # and reduces the request count itself, not just which pairs may share a
+    # trip. See rtv_solver/pipeline/request_pruner.py for the model/class,
+    # and rtv_solver/pipeline/train_request_pruner.py + sweep_request_pruner.py
+    # for how the default checkpoint below was selected (ROC-AUC-ranked,
+    # 5-seed sweep, 13 pre-solve-computable features).
+    USE_REQUEST_PRUNER: bool = False
+    REQUEST_PRUNER_MODEL_PATH: str = "outputs/request_pruner_mlp/request_pruner_mlp_h32_l1_d0p0_pw1p0/request_pruner_mlp_h32_l1_d0p0_pw1p0_best_val_f3.pt"
+    REQUEST_PRUNER_THRESHOLD: float = 0.3
     LARGEST_TSP: int = 8
     SHARE_COST_FACTOR: float = 10
     REBALANCING: bool = False
@@ -144,6 +154,20 @@ class Config:
             ),
             REQUEST_GRAPH_THRESHOLD=getattr(
                 args, "request_graph_threshold", 0.5
+            ),
+            # 2026-07-14: request-only pruner flags, mirrors the request-graph
+            # (pair) pruner flags above - see USE_REQUEST_PRUNER comment in
+            # the dataclass fields for context.
+            USE_REQUEST_PRUNER=cls.str_to_bool(
+                getattr(args, "use_request_pruner", "False")
+            ),
+            REQUEST_PRUNER_MODEL_PATH=getattr(
+                args,
+                "request_pruner_model_path",
+                "outputs/request_pruner_mlp/request_pruner_mlp_h32_l1_d0p0_pw1p0/request_pruner_mlp_h32_l1_d0p0_pw1p0_best_val_f3.pt",
+            ),
+            REQUEST_PRUNER_THRESHOLD=getattr(
+                args, "request_pruner_threshold", 0.3
             ),
             MAX_THREAD_CNT = args.max_thread_cnt,
             RTV_TIMEOUT = args.rtv_timeout,

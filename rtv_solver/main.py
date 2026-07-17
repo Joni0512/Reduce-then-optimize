@@ -107,6 +107,30 @@ if __name__ == "__main__":
         default=0.5,
         help="Score threshold used to keep request-request pairs."
 )
+
+    # 2026-07-14: Request pruning parameters - request-only pruner
+    # (RequestPruner), separate from and runs before the request-graph pair
+    # pruner above. See rtv_solver/pipeline/request_pruner.py.
+    parser.add_argument(
+        "--use_request_pruner",
+        type=str,
+        default="False",
+        help="Enable MLP-based request-only pruning before trip generation."
+    )
+
+    parser.add_argument(
+        "--request_pruner_model_path",
+        type=str,
+        default="outputs/request_pruner_mlp/request_pruner_mlp_h32_l1_d0p0_pw1p0/request_pruner_mlp_h32_l1_d0p0_pw1p0_best_val_f3.pt",
+        help="Path to the trained request pruner MLP checkpoint."
+    )
+
+    parser.add_argument(
+        "--request_pruner_threshold",
+        type=float,
+        default=0.3,
+        help="Score threshold used to keep individual requests (candidates only - urgent requests are always force-kept, see RequestPruner)."
+    )
     # alternative input files
     # parser.add_argument('--input_file', type=str,           default="test_nc/ttm/test_10r_1v_repeat6_simple.pkl", help='Request input file') 
     # parser.add_argument('--input_file', type=str,           default="inputs/wilson_nc_initial.pkl", help='Request input file') 

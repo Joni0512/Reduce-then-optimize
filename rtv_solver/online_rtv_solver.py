@@ -71,11 +71,18 @@ class OnlineRTVSolver:
 
         return feasible_time_slots
 
-    def solve_pdptw_rtv(self, payload, iteration = 0): # TODO do we need to add current_time
+    def solve_pdptw_rtv(self, payload, iteration = 0, current_time = None): # 2026-07-14: current_time added (was a TODO) - needed by RequestPruner for its urgency force-keep rule, see TripHandler
         """
         Solver for the entire payload.
-        
-        With conifg.return_depot, this method will not add the final trips to the depot. The user has to call finalize_driverRuns(...) to add those final stops. 
+
+        With conifg.return_depot, this method will not add the final trips to the depot. The user has to call finalize_driverRuns(...) to add those final stops.
+
+        current_time: 2026-07-14, optional, defaults to None. Only required
+        when config.USE_REQUEST_PRUNER is True - passed through to
+        TripHandler, which needs it to score how urgent each active request
+        currently is. Existing callers that don't pass it (single-shot
+        --mode online/optimal_solution runs) are unaffected as long as
+        USE_REQUEST_PRUNER stays False for them.
         """
         # initalize network and payload
         needs_server_matrix_build = NetworkHandler.init_from_payload(
@@ -130,7 +137,8 @@ class OnlineRTVSolver:
                 request_batch,
                 active_requests,
                 iteration,
-                self.config)
+                self.config,
+                current_time=current_time)  # 2026-07-14: added for RequestPruner, see solve_pdptw_rtv docstring
             single_trip_map, trip_list, trip_costs, vehicle_to_trips_cost_map, trip_to_vehicle_cost_map = trip_handler.run()
             for trip_cost in trip_costs:
                 console_logger.debug(f"trip cost: {trip_cost.trip_no}, {trip_cost.cost}, {trip_cost.get_request_order_str()}")
@@ -141,12 +149,21 @@ class OnlineRTVSolver:
         if len(vehicle_handler.vehicles) != 0:
             
             optimizer = CO_TripCostMinimization(self.config)
-            optimizer.reset(single_trip_map, 
-                            trip_list, 
-                            trip_costs, 
-                            vehicle_to_trips_cost_map, 
+            optimizer.reset(single_trip_map,
+                            trip_list,
+                            trip_costs,
+                            vehicle_to_trips_cost_map,
                             trip_to_vehicle_cost_map )
-            result = optimizer.run(request_batch, active_requests)
+            # 2026-07-14: use trip_handler.requests, not request_batch - when
+            # USE_REQUEST_PRUNER is on, TripHandler.run() reassigns
+            # self.requests to a smaller, pruned subset (see trip_handler.py),
+            # and single_trip_map only has entries for THAT subset. Passing
+            # the original, unpruned request_batch here would make solve_ilp
+            # try to look up single_trip_map[request.id] for a pruned-away
+            # request and crash with a KeyError. When the pruner is off,
+            # trip_handler.requests is unchanged from request_batch, so this
+            # is a no-op for existing behavior.
+            result = optimizer.run(trip_handler.requests, active_requests)
 
             # TODO add rebalancing handling including the assignment itself and validate its correct behavior
             # if self.config.REBALANCING:

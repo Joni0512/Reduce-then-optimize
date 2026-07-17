@@ -137,10 +137,67 @@ MODEL_CONFIGS: dict[str, dict[str, list[str]]] = {
     # same file. This is not a generalization test, just a feasibility check that the
     # pipeline trains at all on NYC-derived data. Run with
     # --manifest_dir solutions/nyc/manifests --models nyc_morning500_mc3.
+    # SUPERSEDED by nyc_morning500_mc3_fixed below - this run's labels came from a
+    # RollingHorizon run where apply_gnn_pruning() silently deleted every R-R edge
+    # (USE_GNN_PRUNING had no off-switch yet), so no real pooling ever happened. Kept
+    # here only as a record of the bug, do not train on this one.
     "nyc_morning500_mc3": {
         "train": ["nyc_morning500_mc3"],
         "val": ["nyc_morning500_mc3"],
         "test": ["nyc_morning500_mc3"],
+    },
+    # 2026-07-10: corrected version, run after fixing the RollingHorizon pruning bug
+    # (USE_GNN_PRUNING now defaults to false and actually leaves R-R edges alone).
+    "nyc_morning500_mc3_fixed": {
+        "train": ["nyc_morning500_mc3_fixed"],
+        "val": ["nyc_morning500_mc3_fixed"],
+        "test": ["nyc_morning500_mc3_fixed"],
+    },
+    # 2026-07-10: dense/narrow-window instance (900 requests / 40min, ~8.6x denser
+    # than nyc_morning500_mc3_fixed) - applying the morning500 checkpoint here
+    # untrained showed a clear domain-shift (recall/F3 much worse than on its own
+    # training instance). This config trains directly on the dense instance instead,
+    # for a fair same-instance comparison.
+    "nyc_dense900_40min": {
+        "train": ["nyc_dense900_40min"],
+        "val": ["nyc_dense900_40min"],
+        "test": ["nyc_dense900_40min"],
+    },
+    # 2026-07-14: larger/denser scale test (2000 requests / 30min, VEHICLE_LIMIT
+    # 1000, CARSIZE 3) - for the "does the pruner still help at bigger scale +
+    # more frequent reoptimization" sweep. Labels from label_builder_nyc.py run
+    # against the existing un-pruned baseline solve in results/nyc_dense2000_30min.
+    "nyc_dense2000_30min": {
+        "train": ["nyc_dense2000_30min"],
+        "val": ["nyc_dense2000_30min"],
+        "test": ["nyc_dense2000_30min"],
+    },
+    # 2026-07-14: same requests/graph as nyc_dense2000_30min, but labels are "same
+    # vehicle_id, no overlap check" instead of strict temporal overlap - matches
+    # Li&Lim's labeling convention and what VehicleHandler.can_serve_trips actually
+    # accepts (sequential, non-overlapping combinations are valid RTV trip
+    # candidates). See label_builder_nyc.py docstring. 1190 positive pairs here vs.
+    # 834 for the overlap-only version on the same run.
+    "nyc_dense2000_30min_naive": {
+        "train": ["nyc_dense2000_30min_naive"],
+        "val": ["nyc_dense2000_30min_naive"],
+        "test": ["nyc_dense2000_30min_naive"],
+    },
+    # 2026-07-16: train/holdout split - restricted to 1400 of the 2000 dense2000 requests
+    # (random split, seed 42, see solutions/nyc/manifests/nyc_dense2000_{train,holdout}_ids.csv).
+    # The remaining 600 requests never appear here, so RHO/COAML pilots sampled from the
+    # holdout file are a genuine unseen-data test - unlike every prior NYC pilot this
+    # session, which had 100% node overlap with the training graph (see conversation
+    # 2026-07-16: "ist das richtig gemacht zwischen Training und Testsatz?").
+    "nyc_dense2000_train1400_overlap": {
+        "train": ["nyc_dense2000_train1400_overlap"],
+        "val": ["nyc_dense2000_train1400_overlap"],
+        "test": ["nyc_dense2000_train1400_overlap"],
+    },
+    "nyc_dense2000_train1400_naive": {
+        "train": ["nyc_dense2000_train1400_naive"],
+        "val": ["nyc_dense2000_train1400_naive"],
+        "test": ["nyc_dense2000_train1400_naive"],
     },
 }
 
@@ -213,9 +270,7 @@ class MetricLog:
     mean_neg: float
 
 
-# ---------------------------------------------------------------------------
 # Dataset builder
-# ---------------------------------------------------------------------------
 
 
 def build_graph_dataset(payload_path: Path, config: Config, split: str) -> dict | None:
@@ -404,6 +459,11 @@ def train_one_run(
     patience: int,
     seed: int,
     gnn_version: str = "v2",
+    run_suffix: str = "",
+    checkpoint_selection: str = "fixed_threshold",
+    use_balanced_sampling: bool = True,
+    weight_decay: float = 0.0,
+    grad_clip_norm: float = 0.0,
 ) -> list[MetricLog]:
     set_seed(seed)
 
@@ -412,7 +472,11 @@ def train_one_run(
     # training-script version - previously this was hardcoded to "_v2" regardless of
     # which model class was trained, which is exactly the naming confusion that led
     # to the v1/v2 mismatch bug (see request_graph_pruner.py).
-    run_name = f"rgnn_{base_model}_pw{pw_name}_{gnn_version}"
+    # 2026-07-11: optional run_suffix appended on top (e.g. "_e200p40" for a longer
+    # epochs/patience budget), so re-running the same (base_model, pos_weight,
+    # gnn_version) with different training settings lands in a new run_dir instead of
+    # overwriting the existing checkpoint - old runs are kept as a record for comparison.
+    run_name = f"rgnn_{base_model}_pw{pw_name}_{gnn_version}{run_suffix}"
     run_dir = output_dir / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -457,7 +521,7 @@ def train_one_run(
         )
 
     criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight], dtype=torch.float32))
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode="max",
@@ -476,6 +540,10 @@ def train_one_run(
         "gnn_version": gnn_version,
         "base_model": base_model,
         "pos_weight": pos_weight,
+        "checkpoint_selection": checkpoint_selection,
+        "use_balanced_sampling": use_balanced_sampling,
+        "weight_decay": weight_decay,
+        "grad_clip_norm": grad_clip_norm,
         "seed": seed,
         "epochs": epochs,
         "learning_rate": learning_rate,
@@ -495,22 +563,48 @@ def train_one_run(
         total_loss = 0.0
 
         for ds in train_sets:
-            idx = balanced_indices(ds["labels"])
             optimizer.zero_grad()
             logits = model(ds["x"], ds["edge_index"], ds["edge_attr"])
-            loss = criterion(logits[idx], ds["labels"][idx])
+            # 2026-07-11: use_balanced_sampling toggles the 1:1 pos/neg subsampling
+            # on top of pos_weight - see Step 2 ablation (balanced sampling vs.
+            # pos_weight, not both at once). Disabled: train on every edge, let
+            # pos_weight alone carry the class-imbalance correction.
+            if use_balanced_sampling:
+                idx = balanced_indices(ds["labels"])
+                loss = criterion(logits[idx], ds["labels"][idx])
+            else:
+                loss = criterion(logits, ds["labels"])
             loss.backward()
+            if grad_clip_norm > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
             optimizer.step()
             total_loss += float(loss.item())
 
         avg_loss = total_loss / len(train_sets)
 
-        # Select checkpoint by average validation F3 at threshold 0.5.
-        # We log other thresholds, but checkpoint selection stays stable and simple.
-        selection_threshold = 0.5
-        val_f3 = average_metric(model, val_sets, "f3", selection_threshold) if val_sets else 0.0
-        val_recall = average_metric(model, val_sets, "recall", selection_threshold) if val_sets else 0.0
-        val_precision = average_metric(model, val_sets, "precision", selection_threshold) if val_sets else 0.0
+        # 2026-07-11: checkpoint_selection="fixed_threshold" (default, unchanged
+        # behavior) always reads F3 at threshold 0.5, even though we know from our
+        # own threshold sweeps that the best operating point varies by several
+        # points of F3 across thresholds and differs between runs - so the 0.5-only
+        # checkpoint isn't necessarily the one that would win a downstream sweep.
+        # "best_across_thresholds" instead scans every threshold in `thresholds`
+        # each epoch and selects/checkpoints on whichever one currently has the
+        # highest F3 (val_recall/val_precision are then reported at that same
+        # threshold, not always 0.5) - costs ~2x the validation compute per epoch,
+        # negligible at our current runtimes.
+        if val_sets:
+            if checkpoint_selection == "best_across_thresholds":
+                val_f3_per_threshold = {t: average_metric(model, val_sets, "f3", t) for t in thresholds}
+                selection_threshold = max(val_f3_per_threshold, key=val_f3_per_threshold.get)
+                val_f3 = val_f3_per_threshold[selection_threshold]
+            else:
+                selection_threshold = 0.5
+                val_f3 = average_metric(model, val_sets, "f3", selection_threshold)
+            val_recall = average_metric(model, val_sets, "recall", selection_threshold)
+            val_precision = average_metric(model, val_sets, "precision", selection_threshold)
+        else:
+            selection_threshold = 0.5
+            val_f3 = val_recall = val_precision = 0.0
         scheduler.step(val_f3)
 
         improved = val_f3 > best_val_f3 + 1e-8
@@ -537,10 +631,11 @@ def train_one_run(
 
             current_lr = optimizer.param_groups[0]["lr"]
             logging.info(
-                "Epoch %03d/%03d | loss=%.4f | val_prec=%.3f | val_rec=%.3f | val_f3=%.3f | best_f3=%.3f @%d | lr=%.5f | %.0fs",
+                "Epoch %03d/%03d | loss=%.4f | th=%.1f | val_prec=%.3f | val_rec=%.3f | val_f3=%.3f | best_f3=%.3f @%d | lr=%.5f | %.0fs",
                 epoch,
                 epochs - 1,
                 avg_loss,
+                selection_threshold,
                 val_precision,
                 val_recall,
                 val_f3,
@@ -655,6 +750,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--message_passing_steps", type=int, default=2)
     parser.add_argument("--patience", type=int, default=25, help="Early stopping patience. Use 0 to disable.")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--run_suffix", type=str, default="",
+                         help="Appended to run_name (e.g. '_e200p40') so re-running the same "
+                              "(base_model, pos_weight, gnn_version) with different epochs/patience "
+                              "doesn't overwrite the existing checkpoint.")
+    parser.add_argument("--checkpoint_selection", choices=["fixed_threshold", "best_across_thresholds"],
+                         default="fixed_threshold",
+                         help="fixed_threshold (default, unchanged): always select/checkpoint on F3 at "
+                              "threshold 0.5. best_across_thresholds: scan all --thresholds each epoch "
+                              "and select on whichever currently has the highest F3.")
+    parser.add_argument("--no_balanced_sampling", action="store_true",
+                         help="Disable the 1:1 pos/neg balanced_indices() subsampling and train on every "
+                              "edge instead - lets pos_weight alone carry the class-imbalance correction "
+                              "(Step 2 ablation: balanced sampling vs. pos_weight, not both at once).")
+    parser.add_argument("--weight_decay", type=float, default=0.0, help="Adam weight_decay. 0 = disabled (default).")
+    parser.add_argument("--grad_clip_norm", type=float, default=0.0,
+                         help="Max gradient norm for clip_grad_norm_. 0 = disabled (default).")
     return parser.parse_args()
 
 
@@ -707,6 +818,11 @@ def main() -> None:
                 patience=args.patience,
                 seed=args.seed,
                 gnn_version=args.gnn_version,
+                run_suffix=args.run_suffix,
+                checkpoint_selection=args.checkpoint_selection,
+                use_balanced_sampling=not args.no_balanced_sampling,
+                weight_decay=args.weight_decay,
+                grad_clip_norm=args.grad_clip_norm,
             )
             all_logs.extend(logs)
             # Persist after every run so partial results are safe.

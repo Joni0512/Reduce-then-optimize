@@ -393,12 +393,17 @@ class COAMLPipeline():
         
         try:
             # generate and assign trips to each vehicle using the RTV approach solved by an ILP
+            # 2026-07-16: current_time now passed through - USE_REQUEST_PRUNER needs it
+            # for its urgency force-keep rule (see TripHandler.run()'s ValueError guard).
+            # payload_object.current_time already exists at this point (used further down
+            # for feature_builder.build_matrix_from_trip_handler), just wasn't threaded here yet.
             trip_handler = TripHandler(
                 vehicle_handler.vehicles,
                 request_batch,
                 active_requests,
                 iteration,
-                self.config)
+                self.config,
+                current_time=payload_object.current_time)
         except Exception as e:
             raise e
         
@@ -448,9 +453,20 @@ class COAMLPipeline():
                     feature_scores = feature_scores_with_reject
                     reject_action_scores = torch.empty(0, dtype=feature_scores_with_reject.dtype)
                 
+                # 2026-07-16: use trip_handler.requests (post-RequestPruner list), NOT the
+                # raw request_batch, for both calls below. solve_ilp() does
+                # self.single_trip_map[request.id] for every request it's given (see
+                # CO_ScoreMaximization.solve_ilp) - single_trip_map only has entries for
+                # requests that survived TripHandler.run()'s pruning step, so passing the
+                # full, unpruned request_batch here raises a KeyError the moment
+                # USE_REQUEST_PRUNER actually removes something (found by running the
+                # request pruner through mode="optimal" for the first time - see
+                # run_opt_single_instance.py). transform_solution_to_assignment() must be
+                # given the SAME list in the SAME order as solve_ilp(), since x_r's indices
+                # are positional against that requests list.
                 ilp_model, x_t, x_r, x_reject = self.coaml_optimizer.solve_ilp(
                     feature_scores,
-                    request_batch, 
+                    trip_handler.requests,
                     active_requests,
                     penalty=self.config.ILP_PENALTY,
                     keep_active=self.config.KEEP_ACTIVE,
@@ -461,10 +477,18 @@ class COAMLPipeline():
                     ilp_model,
                     x_t,
                     x_r,
-                    request_batch,
+                    trip_handler.requests,
                     x_reject=x_reject,
                     reject_vehicle_ids=reject_vehicle_ids,
                 )
+                # 2026-07-16: request_batch (full, NOT trip_handler.requests) is correct
+                # here on purpose - this only reads which requests the OFFICIAL optimal
+                # solution assigns per vehicle (_measure_pruner_pair_recall /
+                # score_trip_costs_against_optimal_by_vehicle), it never indexes into
+                # single_trip_map, so there's no KeyError risk. Using the full batch means
+                # a request pruned away before trip generation still correctly shows up as
+                # "not matched by any candidate trip" in the imitation score, instead of
+                # silently vanishing from the ground truth.
                 imitation_scores_with_reject, trip_vehicle_ids = self._build_imitation_scores_with_reject(
                     trip_costs=trip_costs,
                     request_batch=request_batch,
@@ -498,6 +522,13 @@ class COAMLPipeline():
                 )
 
                 # calculate the true optimal solution based on the imitation scores
+                # 2026-07-16: request_batch (full) here too - transform_optimal_solution_
+                # to_assignment() only uses `requests` for a length/logging count
+                # (request_count - trip_count = unassigned_trip_count), it never indexes
+                # single_trip_map, so no KeyError risk. Using the full batch means a
+                # pruned-away request correctly counts as "unassigned this round" here too,
+                # consistent with how `unserved_requests` is computed further down from the
+                # full request_batch as well.
                 optimal_result = self.coaml_optimizer.transform_optimal_solution_to_assignment(
                     y_star,
                     request_batch,
@@ -511,18 +542,22 @@ class COAMLPipeline():
                 # THIS result must be used for future comparisons
             
             # calculate default solution based on the ILP minimizing trip costs (used for FY loss), actually not really required as we have the optimal solution available, definitely not in this run because it just reiterates the offline solution
+            # 2026-07-16: same trip_handler.requests fix as coaml_optimizer above -
+            # CO_TripCostMinimization.solve_ilp() also does self.single_trip_map[request.id]
+            # per request, so this crashes with the raw request_batch too once pruning
+            # actually removes a request.
             trip_obj_scores = np.fromiter((tc.cost for tc in trip_costs), dtype=float, count=len(trip_costs))
             default_ilp_model, default_x_t, default_x_r = self.default_optimizer.solve_ilp(
-                trip_obj_scores, 
-                request_batch, 
-                active_requests, 
-                penalty=self.config.ILP_PENALTY, 
+                trip_obj_scores,
+                trip_handler.requests,
+                active_requests,
+                penalty=self.config.ILP_PENALTY,
                 keep_active=self.config.KEEP_ACTIVE)
             default_result = self.default_optimizer.transform_solution_to_assignment(
                 default_ilp_model,
                 default_x_t,
                 default_x_r,
-                request_batch,
+                trip_handler.requests,
                 x_reject=None,
                 reject_vehicle_ids=[],
             )
@@ -597,14 +632,19 @@ class COAMLPipeline():
 
             # compute Fenchel-Young loss from known optimal solution
             if len(feature_tensor_with_reject) > 0:
+                # 2026-07-16: pass trip_handler.requests separately from request_batch -
+                # see _compute_fy_loss_from_optimal_solution's docstring for why it needs
+                # both (imitation-score ground truth vs. the MAP oracle's ILP calls have
+                # different, incompatible requirements for which list to use).
                 self._compute_fy_loss_from_optimal_solution(
                     feature_matrix_with_reject,
-                    single_trip_map, 
-                    trip_list, 
+                    single_trip_map,
+                    trip_list,
                     trip_costs,
-                    vehicle_to_trips_cost_map, 
+                    vehicle_to_trips_cost_map,
                     trip_to_vehicle_cost_map,
-                    request_batch, 
+                    request_batch,
+                    trip_handler.requests,
                     active_requests,
                     reject_vehicle_ids,
                 )
@@ -718,6 +758,7 @@ class COAMLPipeline():
         vehicle_to_trips_cost_map: dict,
         trip_to_vehicle_cost_map: dict,
         request_batch: list,
+        pruned_requests: list,
         active_requests: dict,
         reject_vehicle_ids: list[int] | None = None,
     ) -> None:
@@ -730,6 +771,22 @@ class COAMLPipeline():
         The result is stored in self.last_loss.  If the ILP did not yield a
         feasible solution (y_star is all-zero), the loss is skipped and
         self.last_loss is set to None.
+
+        2026-07-16: takes TWO different request lists on purpose, because the two
+        things this method does need different ones:
+        - `request_batch` (full, pre-pruning): used only to look up which requests
+          the OFFICIAL optimal solution assigns per vehicle
+          (_build_imitation_scores_with_reject -> score_trip_costs_against_optimal_
+          by_vehicle). Never indexed into single_trip_map, so the full batch is
+          safe AND correct here - a request pruned away before trip generation
+          should still show up as "not matched by any candidate trip".
+        - `pruned_requests` (== trip_handler.requests, post-RequestPruner): used
+          for the MAP oracle (make_map_oracle -> CO_ScoreMaximization.solve_ilp),
+          which does self.single_trip_map[request.id] per request. Passing the
+          full request_batch here raises a KeyError the moment the request pruner
+          actually removes something, exactly like the coaml_optimizer/
+          default_optimizer calls in solve_iteration() above - same underlying
+          cause, just a third call site that needed the same fix.
 
         Side effects:
             Sets self.last_loss.
@@ -753,8 +810,9 @@ class COAMLPipeline():
             raise RuntimeError("Y_star must have some values as we consider the reject action separately. The score optimizer must make a decision of some sort.")
 
         feature_tensor = torch.tensor(feature_matrix, dtype=torch.float32)
-        scores = self.model(feature_tensor)    
+        scores = self.model(feature_tensor)
 
+        # pruned_requests, not request_batch - see this method's docstring for why.
         oracle = make_map_oracle(
             self.coaml_optimizer,
             single_trip_map,
@@ -762,7 +820,7 @@ class COAMLPipeline():
             trip_costs,
             vehicle_to_trips_cost_map,
             trip_to_vehicle_cost_map,
-            request_batch,
+            pruned_requests,
             active_requests,
             self.config,
             reject_vehicle_ids=reject_vehicle_ids,

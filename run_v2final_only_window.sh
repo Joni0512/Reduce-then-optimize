@@ -1,0 +1,54 @@
+#!/bin/bash
+# v2_final-only (pruner on) for RH + COAML, all 12 instances, for a given
+# window config + threshold. Companion to run_baseline_only_window.sh /
+# run_v1final_only_window.sh.
+#
+# Usage: ./run_v2final_only_window.sh <batch_interval> <step_size> <threshold> [seed]
+# Example: ./run_v2final_only_window.sh 200 100 0.5      (seed defaults to 42)
+# Example: ./run_v2final_only_window.sh 200 100 0.5 1    (seed 1 -> folder suffix _seed1)
+set -u
+
+BATCH_INTERVAL="${1:?usage: run_v2final_only_window.sh <batch_interval> <step_size> <threshold> [seed]}"
+STEP_SIZE="${2:?usage: run_v2final_only_window.sh <batch_interval> <step_size> <threshold> [seed]}"
+THRESHOLD="${3:?usage: run_v2final_only_window.sh <batch_interval> <step_size> <threshold> [seed]}"
+SEED="${4:-42}"
+TSUFFIX="${THRESHOLD/./}"
+SEED_SUFFIX=""
+[ "$SEED" != "42" ] && SEED_SUFFIX="_seed${SEED}"
+
+BASE_OUT="new_tests/final_compare/bi${BATCH_INTERVAL}_ss${STEP_SIZE}"
+INSTANCES="lc108 lc109 lc207 lc208 lr111 lr112 lr210 lr211 lrc107 lrc108 lrc207 lrc208"
+V2_MODEL="outputs/models_v2_gnnv2/rgnn_mixed_c2_pw2_v2_final/rgnn_mixed_c2_pw2_v2_final_best_val_f3.pt"
+
+echo "=== RH v2_final t${TSUFFIX} (12 runs), bi${BATCH_INTERVAL}_ss${STEP_SIZE}, seed=${SEED} ==="
+for inst in $INSTANCES; do
+  echo ">>> rh/v2final_t${TSUFFIX}${SEED_SUFFIX}/${inst}"
+  time python rtv_solver/main.py \
+    --mode offline \
+    --input_file "solutions/li_lim/manifests/${inst}.json" \
+    --input_dir "solutions/li_lim/manifests/" \
+    --imitation_solution_file "solutions/li_lim/manifests/${inst}.json" \
+    --use_request_graph_pruner True \
+    --request_graph_model_path "$V2_MODEL" \
+    --request_graph_threshold "$THRESHOLD" \
+    --seed "$SEED" \
+    --max_cardinality 2 --batch_interval "$BATCH_INTERVAL" --step_size "$STEP_SIZE" \
+    --output_dir "${BASE_OUT}/rh_v2final_t${TSUFFIX}${SEED_SUFFIX}/${inst}"
+done
+
+echo "=== COAML v2_final t${TSUFFIX} (12 runs), bi${BATCH_INTERVAL}_ss${STEP_SIZE}, seed=${SEED} ==="
+for inst in $INSTANCES; do
+  echo ">>> coaml/v2final_t${TSUFFIX}${SEED_SUFFIX}/${inst}"
+  time python rtv_solver/main.py \
+    --mode coaml --input_dir "" \
+    --input_file "solutions/li_lim/manifests/${inst}.json" \
+    --imitation_solution_file "solutions/li_lim/manifests/${inst}.json" \
+    --use_request_graph_pruner True \
+    --request_graph_model_path "$V2_MODEL" \
+    --request_graph_threshold "$THRESHOLD" \
+    --seed "$SEED" \
+    --max_cardinality 2 --batch_interval "$BATCH_INTERVAL" --step_size "$STEP_SIZE" \
+    --output_dir "${BASE_OUT}/coaml_v2final_t${TSUFFIX}${SEED_SUFFIX}/${inst}"
+done
+
+echo "=== V2_FINAL DONE (24/24), bi${BATCH_INTERVAL}_ss${STEP_SIZE} t${TSUFFIX}, seed=${SEED} ==="

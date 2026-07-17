@@ -1,0 +1,387 @@
+{
+  "built_at": "2026-07-17 16:36:19",
+  "rh_baseline_dir": "outputs/eval_rh_no_learning_bi400_ss80",
+  "feature_names": [
+    "pickup_lat",
+    "pickup_lon",
+    "dropoff_lat",
+    "dropoff_lon",
+    "earliest_pickup_time",
+    "pickup_window_length",
+    "trip_distance_euclidean",
+    "wheelchair",
+    "local_request_count_10min",
+    "time_until_latest_pickup",
+    "time_since_earliest_pickup",
+    "num_active_requests",
+    "requests_per_vehicle",
+    "num_idle_vehicles_proxy",
+    "requests_per_idle_vehicle"
+  ],
+  "feature_groups": {
+    "base": [
+      "pickup_lat",
+      "pickup_lon",
+      "dropoff_lat",
+      "dropoff_lon",
+      "earliest_pickup_time",
+      "pickup_window_length",
+      "trip_distance_euclidean",
+      "wheelchair",
+      "local_request_count_10min"
+    ],
+    "urgency": [
+      "time_until_latest_pickup",
+      "time_since_earliest_pickup"
+    ],
+    "context_static": [
+      "num_active_requests",
+      "requests_per_vehicle"
+    ],
+    "context_idle_proxy": [
+      "num_idle_vehicles_proxy",
+      "requests_per_idle_vehicle"
+    ]
+  },
+  "label_definition": "1.0 if the request appears in assigned_requests for that rolling-horizon window (got a vehicle THIS window), else 0.0 (unserved this window, rolls over to the next one). Source: outputs/eval_rh_no_learning_bi400_ss80/<instance>/rh_no_learning/assignment_data.jsonl, the USE_REQUEST_GRAPH_PRUNER=false baseline run.",
+  "normalization": "NOT applied - features are raw. Normalize at train time using TRAIN-split statistics only (see request_pruner_signal_check.py for the per-window vs. train-set-fixed distinction that matters for the context features).",
+  "split_source": "train_models_v2.MODEL_CONFIGS['mixed_all']",
+  "instances": {
+    "lc101": {
+      "split": "train",
+      "num_windows": 9,
+      "num_rows": 185,
+      "positive_rate": 0.800000011920929
+    },
+    "lc102": {
+      "split": "train",
+      "num_windows": 14,
+      "num_rows": 195,
+      "positive_rate": 0.7076923251152039
+    },
+    "lc103": {
+      "split": "train",
+      "num_windows": 14,
+      "num_rows": 269,
+      "positive_rate": 0.5613383054733276
+    },
+    "lc104": {
+      "split": "train",
+      "num_windows": 14,
+      "num_rows": 309,
+      "positive_rate": 0.5760517716407776
+    },
+    "lc105": {
+      "split": "train",
+      "num_windows": 9,
+      "num_rows": 159,
+      "positive_rate": 0.7547169923782349
+    },
+    "lc106": {
+      "split": "train",
+      "num_windows": 7,
+      "num_rows": 181,
+      "positive_rate": 0.7182320356369019
+    },
+    "lr101": {
+      "split": "train",
+      "num_windows": 2,
+      "num_rows": 70,
+      "positive_rate": 0.7714285850524902
+    },
+    "lr102": {
+      "split": "train",
+      "num_windows": 2,
+      "num_rows": 82,
+      "positive_rate": 0.7439024448394775
+    },
+    "lr103": {
+      "split": "train",
+      "num_windows": 2,
+      "num_rows": 79,
+      "positive_rate": 0.6582278609275818
+    },
+    "lr104": {
+      "split": "train",
+      "num_windows": 3,
+      "num_rows": 106,
+      "positive_rate": 0.4150943458080292
+    },
+    "lr105": {
+      "split": "train",
+      "num_windows": 2,
+      "num_rows": 81,
+      "positive_rate": 0.6790123581886292
+    },
+    "lr106": {
+      "split": "train",
+      "num_windows": 2,
+      "num_rows": 82,
+      "positive_rate": 0.5853658318519592
+    },
+    "lr107": {
+      "split": "train",
+      "num_windows": 3,
+      "num_rows": 89,
+      "positive_rate": 0.5056179761886597
+    },
+    "lr108": {
+      "split": "train",
+      "num_windows": 3,
+      "num_rows": 101,
+      "positive_rate": 0.4356435537338257
+    },
+    "lrc101": {
+      "split": "train",
+      "num_windows": 2,
+      "num_rows": 85,
+      "positive_rate": 0.6235294342041016
+    },
+    "lrc102": {
+      "split": "train",
+      "num_windows": 3,
+      "num_rows": 94,
+      "positive_rate": 0.5744680762290955
+    },
+    "lrc103": {
+      "split": "train",
+      "num_windows": 3,
+      "num_rows": 102,
+      "positive_rate": 0.47058823704719543
+    },
+    "lrc104": {
+      "split": "train",
+      "num_windows": 3,
+      "num_rows": 108,
+      "positive_rate": 0.40740740299224854
+    },
+    "lrc105": {
+      "split": "train",
+      "num_windows": 3,
+      "num_rows": 94,
+      "positive_rate": 0.5531914830207825
+    },
+    "lc201": {
+      "split": "train",
+      "num_windows": 33,
+      "num_rows": 220,
+      "positive_rate": 0.6863636374473572
+    },
+    "lc202": {
+      "split": "train",
+      "num_windows": 42,
+      "num_rows": 450,
+      "positive_rate": 0.40444445610046387
+    },
+    "lc203": {
+      "split": "train",
+      "num_windows": 42,
+      "num_rows": 725,
+      "positive_rate": 0.30344828963279724
+    },
+    "lc204": {
+      "split": "train",
+      "num_windows": 42,
+      "num_rows": 873,
+      "positive_rate": 0.2531500458717346
+    },
+    "lc205": {
+      "split": "train",
+      "num_windows": 30,
+      "num_rows": 239,
+      "positive_rate": 0.7196652889251709
+    },
+    "lr201": {
+      "split": "train",
+      "num_windows": 9,
+      "num_rows": 218,
+      "positive_rate": 0.3302752375602722
+    },
+    "lr202": {
+      "split": "train",
+      "num_windows": 13,
+      "num_rows": 282,
+      "positive_rate": 0.20921985805034637
+    },
+    "lr203": {
+      "split": "train",
+      "num_windows": 13,
+      "num_rows": 339,
+      "positive_rate": 0.19764012098312378
+    },
+    "lr204": {
+      "split": "train",
+      "num_windows": 13,
+      "num_rows": 366,
+      "positive_rate": 0.12295082211494446
+    },
+    "lr205": {
+      "split": "train",
+      "num_windows": 11,
+      "num_rows": 248,
+      "positive_rate": 0.24596774578094482
+    },
+    "lr206": {
+      "split": "train",
+      "num_windows": 13,
+      "num_rows": 287,
+      "positive_rate": 0.18815331161022186
+    },
+    "lr207": {
+      "split": "train",
+      "num_windows": 13,
+      "num_rows": 429,
+      "positive_rate": 0.10955710709095001
+    },
+    "lrc201": {
+      "split": "train",
+      "num_windows": 9,
+      "num_rows": 211,
+      "positive_rate": 0.3270142078399658
+    },
+    "lrc202": {
+      "split": "train",
+      "num_windows": 12,
+      "num_rows": 272,
+      "positive_rate": 0.22794117033481598
+    },
+    "lrc203": {
+      "split": "train",
+      "num_windows": 12,
+      "num_rows": 302,
+      "positive_rate": 0.215231791138649
+    },
+    "lrc204": {
+      "split": "train",
+      "num_windows": 12,
+      "num_rows": 358,
+      "positive_rate": 0.18994413316249847
+    },
+    "lrc205": {
+      "split": "train",
+      "num_windows": 8,
+      "num_rows": 236,
+      "positive_rate": 0.26271185278892517
+    },
+    "lc107": {
+      "split": "val",
+      "num_windows": 8,
+      "num_rows": 173,
+      "positive_rate": 0.7803468108177185
+    },
+    "lr109": {
+      "split": "val",
+      "num_windows": 2,
+      "num_rows": 92,
+      "positive_rate": 0.47826087474823
+    },
+    "lr110": {
+      "split": "val",
+      "num_windows": 3,
+      "num_rows": 91,
+      "positive_rate": 0.4395604431629181
+    },
+    "lrc106": {
+      "split": "val",
+      "num_windows": 2,
+      "num_rows": 89,
+      "positive_rate": 0.49438202381134033
+    },
+    "lc206": {
+      "split": "val",
+      "num_windows": 30,
+      "num_rows": 305,
+      "positive_rate": 0.5180327892303467
+    },
+    "lr208": {
+      "split": "val",
+      "num_windows": 13,
+      "num_rows": 389,
+      "positive_rate": 0.1156812310218811
+    },
+    "lr209": {
+      "split": "val",
+      "num_windows": 9,
+      "num_rows": 318,
+      "positive_rate": 0.16981132328510284
+    },
+    "lrc206": {
+      "split": "val",
+      "num_windows": 10,
+      "num_rows": 262,
+      "positive_rate": 0.21374045312404633
+    },
+    "lc108": {
+      "split": "test",
+      "num_windows": 7,
+      "num_rows": 187,
+      "positive_rate": 0.6684492230415344
+    },
+    "lc109": {
+      "split": "test",
+      "num_windows": 6,
+      "num_rows": 186,
+      "positive_rate": 0.5752688050270081
+    },
+    "lr111": {
+      "split": "test",
+      "num_windows": 3,
+      "num_rows": 103,
+      "positive_rate": 0.446601927280426
+    },
+    "lr112": {
+      "split": "test",
+      "num_windows": 3,
+      "num_rows": 99,
+      "positive_rate": 0.4040403962135315
+    },
+    "lrc107": {
+      "split": "test",
+      "num_windows": 3,
+      "num_rows": 94,
+      "positive_rate": 0.4893617033958435
+    },
+    "lrc108": {
+      "split": "test",
+      "num_windows": 3,
+      "num_rows": 97,
+      "positive_rate": 0.4329896867275238
+    },
+    "lc207": {
+      "split": "test",
+      "num_windows": 32,
+      "num_rows": 347,
+      "positive_rate": 0.5533141493797302
+    },
+    "lc208": {
+      "split": "test",
+      "num_windows": 31,
+      "num_rows": 382,
+      "positive_rate": 0.48691099882125854
+    },
+    "lr210": {
+      "split": "test",
+      "num_windows": 11,
+      "num_rows": 307,
+      "positive_rate": 0.19218240678310394
+    },
+    "lr211": {
+      "split": "test",
+      "num_windows": 10,
+      "num_rows": 339,
+      "positive_rate": 0.1150442510843277
+    },
+    "lrc207": {
+      "split": "test",
+      "num_windows": 9,
+      "num_rows": 288,
+      "positive_rate": 0.1770833283662796
+    },
+    "lrc208": {
+      "split": "test",
+      "num_windows": 10,
+      "num_rows": 328,
+      "positive_rate": 0.1554878056049347
+    }
+  }
+}

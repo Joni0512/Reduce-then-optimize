@@ -15,6 +15,7 @@ from rtv_solver.structure.vehicle import Vehicle
 from rtv_solver.handlers.vehicle_handler import VehicleHandler
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.pipeline.request_graph_pruner import RequestGraphPruner
+from rtv_solver.pipeline.request_pruner import RequestPruner  # 2026-07-14: request-only pruner, runs before RequestGraphPruner
 
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
@@ -42,15 +43,18 @@ class TripHandler:
                  requests: list[Request],
                  active_requests: dict[float, Request],
                  iteration: int,
-                 config: 'Config'):
+                 config: 'Config',
+                 current_time: float = None):  # 2026-07-14: added for RequestPruner, optional/backward-compatible
         self.config = config
         self.vehicles = vehicles
         self.requests = requests
         self.active_requests = active_requests
         self.iteration = iteration
+        self.current_time = current_time  # 2026-07-14: needed by RequestPruner's urgency force-keep rule
         # new pruning logic
         self.allowed_request_pairs = None
         self.request_graph_pruning_stats = None
+        self.request_pruning_stats = None  # 2026-07-14: request-only pruner stats, see run()
 
         self.trips: list[Trip] = []     # basically collects all the tripCost objects for the feasible trips that are generated
         self.ondemand_only_trip_map = {}    # {request_id: trip_id}
@@ -65,11 +69,57 @@ class TripHandler:
         Logs time spent on RTV generation.
         On timeout, returns whatever partial results were computed rather than raising.
         """
+        self.starting_time = time.time()
+
+        # 2026-07-14: Request-only pruning (RequestPruner).
+        # Runs BEFORE the request-graph (pair) pruner below, on the full
+        # active-request set - reduces self.requests itself, so both
+        # generate_ondemand_only_trips and the pair pruner's graph
+        # construction downstream work on the smaller set. Requests that
+        # aren't kept are NOT rejected - they simply aren't passed to trip
+        # generation this iteration; they remain in the caller's request
+        # state (see RequestHandler) and can be picked up again next window.
+        if self.config.USE_REQUEST_PRUNER:
+            if self.current_time is None:
+                raise ValueError(
+                    "USE_REQUEST_PRUNER is enabled but no current_time was "
+                    "provided to TripHandler - RequestPruner needs it for "
+                    "its urgency force-keep rule. Pass current_time through "
+                    "OnlineRTVSolver.solve_pdptw_rtv(..., current_time=...)."
+                )
+
+            request_pruner = RequestPruner(
+                model_path=self.config.REQUEST_PRUNER_MODEL_PATH,
+                threshold=self.config.REQUEST_PRUNER_THRESHOLD,
+                urgent_slack_seconds=self.config.STEP_SIZE,  # see request_pruner.py for why STEP_SIZE, not BATCH_INTERVAL
+            )
+
+            # 2026-07-16: active_requests must be force-kept too, not just
+            # urgent ones - see request_pruner.py's module docstring. Found
+            # by running USE_REQUEST_PRUNER through the COAML/OPT path on
+            # lc208: an already-committed request (id 19) got pruned because
+            # it wasn't urgent, and the downstream KEEP_ACTIVE consistency
+            # check crashed with ManifestConsistencyError since that request
+            # never got a chance to be constrained into the ILP at all.
+            self.requests, self.request_pruning_stats = request_pruner.filter_requests(
+                requests=self.requests,
+                current_time=self.current_time,
+                num_vehicles=len(self.vehicles),
+                active_request_ids=set(self.active_requests.keys()),
+            )
+
+            console_logger.info(
+                f"Request pruner: kept {self.request_pruning_stats['num_kept_total']}/"
+                f"{self.request_pruning_stats['num_requests_total']} requests "
+                f"({self.request_pruning_stats['num_force_kept_active']} force-kept as active, "
+                f"{self.request_pruning_stats['num_force_kept_urgent']} force-kept as urgent, "
+                f"{self.request_pruning_stats['num_pruned']} pruned)"
+            )
+
         # Request graph pruning:
         # Use the trained GNN to predict which request-request pairs are likely
         # to appear together in feasible trips. Only these pairs are considered
         # during shared trip generation, reducing the combinatorial search space.
-        self.starting_time = time.time()
         if self.config.USE_REQUEST_GRAPH_PRUNER:
 
             pruner = RequestGraphPruner(
@@ -87,6 +137,8 @@ class TripHandler:
             console_logger.info(
                 f"Allowed request pairs: "
                 f"{len(self.allowed_request_pairs)}"
+                f" / {self.request_graph_pruning_stats['num_edges_total']} candidate pairs"
+                f" (edge_reduction={self.request_graph_pruning_stats['edge_reduction']:.4f})"
             )
                 # TODO FIXME this does not count active vehicles # goal: if there is no more active vehicles, one can skip the iteration (major benefit for wilson)
         try:

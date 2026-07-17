@@ -1,0 +1,45 @@
+Loaded v2 checkpoint: /Users/joni/Desktop/Masterarbeit/Reduce-then-optimize/outputs/models_nyc/rgnn_nyc_dense2000_30min_pw5_v2/rgnn_nyc_dense2000_30min_pw5_v2_best_val_f3.pt
+Request graph: 1999000 unordered edges, 834 expert (genuinely pooled) pairs
+
+=== Baseline (no pruning), VEHICLE_LIMIT=1000 ===
+  runtime=1086.1s  service_rate=77.574751
+
+=== Threshold 0.4 ===
+  runtime=1036.5s  service_rate=77.408638  edge_reduction(op/global)=0.000/0.896  recall=0.887  f2=0.018  f3=0.034
+
+=== Threshold 0.5 ===
+  runtime=756.5s  service_rate=76.910299  edge_reduction(op/global)=0.070/0.964  recall=0.555  f2=0.031  f3=0.058
+
+=== Threshold 0.6 ===
+  runtime=281.3s  service_rate=79.734219  edge_reduction(op/global)=0.353/0.987  recall=0.331  f2=0.048  f3=0.084
+
+Saved table: /Users/joni/Desktop/Masterarbeit/external_repos/RollingHorizon/results/nyc_dense2000_10min_sweep_i60/nyc_dense2000_10min_sweep_i60_results.csv
+ threshold   runtime_s  service_rate  edge_reduction_operational   recall       f2       f3  edge_reduction_global
+       NaN 1086.098986     77.574751                    0.000000 1.000000      NaN      NaN               0.000000
+       0.4 1036.458435     77.408638                    0.000287 0.887290 0.017589 0.034494               0.896436
+       0.5  756.467739     76.910299                    0.070165 0.555156 0.030534 0.057884               0.963741
+       0.6  281.310454     79.734219                    0.352791 0.330935 0.048351 0.084375               0.987391
+Saved plots: /Users/joni/Desktop/Masterarbeit/external_repos/RollingHorizon/results/nyc_dense2000_10min_sweep_i60/nyc_dense2000_10min_sweep_i60_plots.png
+Loaded v2 checkpoint: /Users/joni/Desktop/Masterarbeit/Reduce-then-optimize/outputs/models_nyc/rgnn_nyc_dense2000_30min_pw5_v2/rgnn_nyc_dense2000_30min_pw5_v2_best_val_f3.pt
+Request graph: 1999000 unordered edges, 834 expert (genuinely pooled) pairs
+
+=== Baseline (no pruning), VEHICLE_LIMIT=1000 ===
+  runtime=1439.9s  service_rate=78.07309
+
+=== Threshold 0.4 ===
+  runtime=1124.6s  service_rate=78.07309  edge_reduction(op/global)=0.000/0.896  recall=0.887  f2=0.018  f3=0.034
+
+=== Threshold 0.5 ===
+  runtime=899.5s  service_rate=79.401993  edge_reduction(op/global)=0.071/0.964  recall=0.555  f2=0.031  f3=0.058
+
+=== Threshold 0.6 ===
+  runtime=461.8s  service_rate=81.727575  edge_reduction(op/global)=0.357/0.987  recall=0.331  f2=0.048  f3=0.084
+
+Saved table: /Users/joni/Desktop/Masterarbeit/external_repos/RollingHorizon/results/nyc_dense2000_10min_sweep_i20/nyc_dense2000_10min_sweep_i20_results.csv
+ threshold   runtime_s  service_rate  edge_reduction_operational   recall       f2       f3  edge_reduction_global
+       NaN 1439.924906     78.073090                    0.000000 1.000000      NaN      NaN               0.000000
+       0.4 1124.600439     78.073090                    0.000272 0.887290 0.017589 0.034494               0.896436
+       0.5  899.496103     79.401993                    0.071067 0.555156 0.030534 0.057884               0.963741
+       0.6  461.784357     81.727575                    0.356677 0.330935 0.048351 0.084375               0.987391
+Saved plots: /Users/joni/Desktop/Masterarbeit/external_repos/RollingHorizon/results/nyc_dense2000_10min_sweep_i20/nyc_dense2000_10min_sweep_i20_plots.png
+ALL SWEEPS DONE Tue Jul 14 17:30:48 CEST 2026

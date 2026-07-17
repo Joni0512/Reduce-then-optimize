@@ -1,0 +1,21 @@
+2026-07-13 23:35:54,940 [INFO] Input file: solutions/nyc/manifests/nyc_dense900_40min.json
+2026-07-13 23:35:54,940 [INFO] Input dir (train): solutions/li_lim/manifests/
+2026-07-13 23:35:54,940 [INFO] Output directory: /Users/joni/Desktop/Masterarbeit/Reduce-then-optimize/outputs/new_tests/dense900_baseline/run_offline_mc2_bi400_ss100/nyc_dense900_40min_20260713_233554
+2026-07-13 23:35:54,940 [INFO]  --- Start: RTV simulation --- mode > offline
+2026-07-13 23:35:54,940 [INFO] Arguments: Config(DEBUG=False, CONFIG_FILE='', OVERRIDE=[], OUTPUT_DIR=PosixPath('/Users/joni/Desktop/Masterarbeit/Reduce-then-optimize/outputs/new_tests/dense900_baseline/run_offline_mc2_bi400_ss100/nyc_dense900_40min_20260713_233554'), INPUT_FILE='solutions/nyc/manifests/nyc_dense900_40min.json', INPUT_DIR='solutions/li_lim/manifests/', SERVER_URL='http://127.0.0.1:5001/', MAX_THREAD_CNT=16, RTV_TIMEOUT=1800, ILP_TIMEOUT=120, ILP_PENALTY=100000, MODE='offline', MAX_CARDINALITY=2, USE_REQUEST_GRAPH_PRUNER=False, REQUEST_GRAPH_MODEL_PATH='outputs/models_v2_gnnv2/rgnn_mixed_c2_pw10_v2/rgnn_mixed_c2_pw10_v2_best_val_f3.pt', REQUEST_GRAPH_THRESHOLD=0.5, LARGEST_TSP=16, SHARE_COST_FACTOR=5, REBALANCING=False, KEEP_ACTIVE=False, RETURN_DEPOT=True, INTERMEDIATE_LOCATION=False, WALK_DISTANCE_CUTOFF=0, STEP_SIZE=100, BATCH_INTERVAL=400, DWELL_PICKUP=180, DWELL_ALIGHT=90, TRAVEL_TIME_MARGIN=5, SEED=42, IMITATION_SOLUTION_FILE='solutions/nyc/manifests/nyc_dense900_40min.json', Y_STAR_TYPE='best_ordered_match', EPOCHS=3, LEARNING_RATE=0.0003, HIDDEN_DIM=64, NUM_SAMPLES=20, SIGMA=0.2)
+2026-07-13 23:35:54,940 [INFO] Loading input data from /Users/joni/Desktop/Masterarbeit/Reduce-then-optimize/solutions/nyc/manifests/nyc_dense900_40min.json with file type json
+2026-07-13 23:35:56,092 [INFO] === Iteration 0 offline RTV Solver at time 0 ===
+Traceback (most recent call last):
+  File "/Users/joni/Desktop/Masterarbeit/Reduce-then-optimize/rtv_solver/main.py", line 189, in <module>
+    updated_driver_runs = off_solver.solve_rtv(cleared_payload, config.BATCH_INTERVAL, config.STEP_SIZE)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/joni/Desktop/Masterarbeit/Reduce-then-optimize/rtv_solver/offline_rtv_solver.py", line 65, in solve_rtv
+    new_driver_runs, assignment_status = online_rtv_solver.solve_pdptw_rtv(new_payload, iteration)
+                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/joni/Desktop/Masterarbeit/Reduce-then-optimize/rtv_solver/online_rtv_solver.py", line 93, in solve_pdptw_rtv
+    payload_object = PayloadParser.get_payload_object(payload, dwell_pickup_default=self.config.DWELL_PICKUP, dwell_alight_default=self.config.DWELL_ALIGHT, online=True)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/joni/Desktop/Masterarbeit/Reduce-then-optimize/rtv_solver/handlers/payload_parser.py", line 139, in get_payload_object
+    last_time = state[PayloadKeys.DRIVER_STATE_DT_SEC]
+                ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyError: 'location_dt_seconds'

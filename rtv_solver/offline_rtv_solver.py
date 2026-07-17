@@ -61,8 +61,8 @@ class OfflineRTVSolver:
             # solve the RTV problem and update manifests
             if len(selected_requests) == 0:
                 new_driver_runs, assignment_status = driver_runs, {PayloadKeys.STATS_ASSIGNED: {}, PayloadKeys.STATS_UNSERVED: []}
-            else:    
-                new_driver_runs, assignment_status = online_rtv_solver.solve_pdptw_rtv(new_payload, iteration)
+            else:
+                new_driver_runs, assignment_status = online_rtv_solver.solve_pdptw_rtv(new_payload, iteration, current_time=current_time)  # 2026-07-14: current_time now passed through, needed by RequestPruner
             
             data_logger.info("Status", extra={"timestamp": current_time, "status": assignment_status})                
             # increment time (might not be the size of the batch) and iteration

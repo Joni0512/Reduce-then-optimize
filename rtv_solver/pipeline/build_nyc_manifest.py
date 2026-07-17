@@ -72,16 +72,37 @@ def main():
                          help="path (relative to RollingHorizon root) of the request slice used for that run")
     parser.add_argument("--out", default="solutions/nyc/manifests/nyc_morning500_mc3.json",
                          help="output path relative to this (Reduce-then-optimize) repo root")
+    # 2026-07-14: "naive" (same-vehicle, no overlap check) matches Li&Lim's labeling
+    # convention and what VehicleHandler.can_serve_trips actually accepts (sequential,
+    # non-overlapping combinations are valid trip candidates) - see label_builder_nyc.py
+    # docstring. "overlap" is kept for comparison against the original, stricter labels.
+    parser.add_argument("--pairs-label", choices=["overlap", "naive"], default="overlap",
+                         help="which label_builder_nyc.py output to use: 'overlap' (strict "
+                              "temporal overlap, original default) or 'naive' (same vehicle, "
+                              "any point in the run - matches Li&Lim's convention).")
+    # 2026-07-16: train/holdout split support - restricts the training graph to a subset
+    # of request IDs so a genuinely unseen holdout set exists for RHO/COAML pilot
+    # evaluation. Without this, every past NYC pilot (150/300/600 RHO, 80/200 COAML)
+    # sampled from the SAME 2000-request graph the checkpoint was trained on (100% node
+    # overlap, confirmed) - not a real generalization test, see conversation 2026-07-16.
+    parser.add_argument("--request-ids-file", type=str, default=None,
+                         help="optional CSV with a 'request_id' column - if set, only these "
+                              "requests (and only pairs where BOTH members are in this set) "
+                              "are included in the output manifest.")
     args = parser.parse_args()
 
     requests_csv = RH_ROOT / args.requests_csv
-    pairs_csv = RH_ROOT / "results" / args.run / "expert_pairs_overlap.csv"
+    pairs_csv = RH_ROOT / "results" / args.run / f"expert_pairs_{args.pairs_label}.csv"
 
     reqs = pd.read_csv(
         requests_csv, header=None,
         names=["request_id", "pickup_node", "pickup_lon", "pickup_lat",
                "dropoff_node", "dropoff_lon", "dropoff_lat", "time"],
     )
+
+    if args.request_ids_file:
+        allowed_ids = set(pd.read_csv(ROOT / args.request_ids_file)["request_id"])
+        reqs = reqs[reqs["request_id"].isin(allowed_ids)].reset_index(drop=True)
     reqs["t_sec"] = reqs["time"].apply(parse_time_to_seconds)
     reqs["t_sec"] -= reqs["t_sec"].min()  # anchor to 0 for this slice, matches Li&Lim manifest convention
 
@@ -131,6 +152,10 @@ def main():
     matrix = haversine_m(lats[:, None], lons[:, None], lats[None, :], lons[None, :]) / ASSUMED_SPEED_MPS
 
     pairs = pd.read_csv(pairs_csv)
+    if args.request_ids_file:
+        pairs = pairs[
+            pairs["request_id_a"].isin(allowed_ids) & pairs["request_id_b"].isin(allowed_ids)
+        ].reset_index(drop=True)
     driver_runs = [
         {
             # "state" must be present (any content) so PayloadParser treats this as
