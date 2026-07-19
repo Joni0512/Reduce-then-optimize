@@ -36,6 +36,15 @@ class Config:
     OUTPUT_DIR: Path = Path("outputs") / "debug"
     INPUT_FILE: str = "rtv-solver/inputs/wilson_nc_initial.pkl"
     INPUT_DIR: str = ""  # coaml mode only: directory of input files to process in batch
+    # 2026-07-19: coaml mode, single-payload train/val (NYC has one big request pool, not
+    # many Li&Lim-style instance files, so INPUT_DIR's directory split doesn't apply). If
+    # set, main.py trains on INPUT_FILE across EPOCHS and evaluates (mode="eval", no
+    # gradient) on VAL_INPUT_FILE each epoch, saving the best-val-service-rate checkpoint -
+    # see COAMLTrainingLoop._run_train_val_payloads.
+    VAL_INPUT_FILE: str = ""
+    # 2026-07-19: --epochs 1 coaml runs only - see argparse help in main.py.
+    COAML_MODEL_WEIGHTS: str = ""
+    COAML_SOLVE_MODE: str = "train"
     SERVER_URL: str = None # "http://127.0.0.1:5001/"
     MAX_THREAD_CNT: int = 16
     RTV_TIMEOUT: int = 120
@@ -84,6 +93,19 @@ class Config:
     HIDDEN_DIM: int = 64
     NUM_SAMPLES: int = 20
     SIGMA: float = 0.2
+    # 2026-07-19: comma-separated list of extra instance stems (e.g. "lc207,lc208")
+    # to ADD to training_loop.VALIDATION_FILES for this run, without touching
+    # TRAINING_FILES or the module-level defaults. Lets us evaluate on LC2/LR2/LRC2
+    # test instances - never covered by the standard 6-file val set - without
+    # silently changing what every other/future run validates on.
+    EXTRA_VALIDATION_FILES: str = ""
+    # 2026-07-19: same mechanism as EXTRA_VALIDATION_FILES but for training_loop.
+    # TRAINING_FILES - adds instance stems to what the SIL scoring MLP actually
+    # trains on (not just evaluates on). See EXTRA_VALIDATION_FILES comment and
+    # conversation "aber ist das alte Modell falsch..." for why this matters:
+    # without it, any class-2 evaluation gap is confounded with SIL never having
+    # trained on class-2 patterns at all, not attributable to the pruner.
+    EXTRA_TRAINING_FILES: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -139,6 +161,9 @@ class Config:
             OUTPUT_DIR = output_directory,
             INPUT_FILE = args.input_file,
             INPUT_DIR = getattr(args, "input_dir", "") or "",
+            VAL_INPUT_FILE = getattr(args, "val_input_file", "") or "",
+            COAML_MODEL_WEIGHTS = getattr(args, "coaml_model_weights", "") or "",
+            COAML_SOLVE_MODE = getattr(args, "coaml_solve_mode", "train") or "train",
             SERVER_URL = getattr(args, "server_url", None), # args.server_url,
             MODE = args.mode,
             USE_REQUEST_GRAPH_PRUNER=cls.str_to_bool(
@@ -169,6 +194,8 @@ class Config:
             REQUEST_PRUNER_THRESHOLD=getattr(
                 args, "request_pruner_threshold", 0.3
             ),
+            EXTRA_VALIDATION_FILES=getattr(args, "extra_validation_files", "") or "",
+            EXTRA_TRAINING_FILES=getattr(args, "extra_training_files", "") or "",
             MAX_THREAD_CNT = args.max_thread_cnt,
             RTV_TIMEOUT = args.rtv_timeout,
             ILP_TIMEOUT = args.ilp_timeout, 

@@ -77,12 +77,22 @@ if __name__ == "__main__":
     parser.add_argument('--num_samples', type=int, default=20, help='Number of samples for the Fenchel-Young loss')
     parser.add_argument('--sigma', type=float, default=0.2, help='Sigma for the Fenchel-Young loss')
     parser.add_argument('--y_star_type', type=str, choices=[TYPE_BEST_ORDERED_MATCH], default=TYPE_BEST_ORDERED_MATCH, help='Type of y_star to be used for the Fenchel-Young loss during imitation learning')
+    # 2026-07-19: single-file, single-epoch coaml runs (--epochs 1, the "else" branch in
+    # the MODE=='coaml' dispatch below) never loaded a pretrained trip-scoring checkpoint
+    # and always solved with the default mode="train" (expert-imitation replay) - fine for
+    # ad-hoc debugging, but meant there was no way to evaluate an already-trained model's
+    # own policy on a fresh holdout file. These two flags close that gap.
+    parser.add_argument('--coaml_model_weights', type=str, default="", help='COAML mode, --epochs 1 only: path to a saved trip-scoring checkpoint (from COAMLTrainingLoop/save_model_weights) to load before solving. Empty = fresh untrained model (old default behavior).')
+    parser.add_argument('--coaml_solve_mode', type=str, choices=['train', 'eval', 'optimal', 'offline'], default='train', help='COAML mode, --epochs 1 only: which assignment result solve_pdptw uses per iteration - "train" replays expert y*-matching (old default), "eval" uses the model\'s own learned scores, "offline" is pure cost-minimization (same objective as RHO).')
 
     # FILE MANAGEMENT
     parser.add_argument('--input_file', type=str,           default="solutions/li_lim/manifests/lc101.json", help='Path to a single input file (used for offline mode and coaml single-file runs)')
     parser.add_argument('--input_dir', type=str,            default="solutions/li_lim/manifests/", help='directory of training files for COAML mode')
+    parser.add_argument('--val_input_file', type=str,       default="", help='COAML mode, single-payload NYC-style: path to a separate validation manifest. If set (and --input_dir ""), trains on --input_file across --epochs and evaluates on this file each epoch (mode="eval"), saving the best-val-service-rate checkpoint.')
     parser.add_argument('--imitation_solution_file', type=str, default='solutions/li_lim/manifests/lc101.json', help='Path to the imitation solution file with the complete manifest of all trips for all vehicles')
     parser.add_argument('--output_dir', type=str,           default="debug", help='Output directory')
+    parser.add_argument('--extra_validation_files', type=str, default="", help='Comma-separated instance stems to ADD to the standard VALIDATION_FILES for this run only (e.g. "lc207,lc208,lr210,lr211,lrc207,lrc208"). Does not change TRAINING_FILES or affect other runs.')
+    parser.add_argument('--extra_training_files', type=str, default="", help='Comma-separated instance stems to ADD to the standard TRAINING_FILES for this run only (e.g. "lc201,lc202,...,lrc205"). Actually changes what the SIL scoring MLP trains on - unlike --extra_validation_files, this produces a genuinely different trained model.')
     
     # Request graph pruning parameters
     parser.add_argument(
@@ -168,7 +178,11 @@ if __name__ == "__main__":
 
     # COAML train/val dirs: training loop handles everything (load, train, validate, store)
     if config.MODE == 'coaml' and config.INPUT_DIR:
-        training_loop = COAMLTrainingLoop(config)
+        extra_val_files = [s.strip() for s in config.EXTRA_VALIDATION_FILES.split(",") if s.strip()]
+        extra_train_files = [s.strip() for s in config.EXTRA_TRAINING_FILES.split(",") if s.strip()]
+        training_loop = COAMLTrainingLoop(
+            config, extra_validation_files=extra_val_files, extra_training_files=extra_train_files
+        )
         training_result = training_loop.run()
         console_logger.info(f"All iteration losses: {training_result.all_iteration_losses}")
         console_logger.info(f"Run complete. Results @ {Path(config.OUTPUT_DIR)}")
@@ -215,8 +229,24 @@ if __name__ == "__main__":
             cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
             input_path = Path(__file__).resolve().parent.parent / config.INPUT_FILE
             if config.EPOCHS > 1:
+                # 2026-07-19: NYC-style single-payload train/val - separate from the
+                # Li&Lim --input_dir path (many small instance files). Trains the
+                # trip-scoring model on cleared_payload across config.EPOCHS, evaluating
+                # (mode="eval", no gradient) on VAL_INPUT_FILE each epoch and keeping the
+                # best-val-service-rate checkpoint - see
+                # COAMLTrainingLoop._run_train_val_payloads for why this was needed
+                # (previously every NYC "SIL" run trained AND was scored on the exact
+                # same small holdout payload, mode="train" only, no real val/eval split).
+                val_payload = None
+                val_input_path = None
+                if config.VAL_INPUT_FILE:
+                    val_input_path = Path(__file__).resolve().parent.parent / config.VAL_INPUT_FILE
+                    val_data = PayloadParser.load_input_data(val_input_path)
+                    val_payload = PayloadParser.clear_vehicle_manifests(val_data)
+                    val_payload[PayloadKeys.TIME_MATRIX] = val_data.get(PayloadKeys.TIME_MATRIX)
                 training_loop = COAMLTrainingLoop(
-                    config, cleared_payload, input_path=input_path
+                    config, cleared_payload, input_path=input_path,
+                    val_payload=val_payload, val_input_path=val_input_path,
                 )
                 training_result = training_loop.run()
                 updated_driver_runs = training_result.updated_driver_runs
@@ -225,7 +255,9 @@ if __name__ == "__main__":
                 rh_solver = COAMLPipeline(
                     config, cleared_payload, imitation_solution_path=input_path
                 )
-                updated_driver_runs = rh_solver.solve_pdptw(cleared_payload)
+                if config.COAML_MODEL_WEIGHTS:
+                    rh_solver.load_model_weights(config.COAML_MODEL_WEIGHTS)
+                updated_driver_runs = rh_solver.solve_pdptw(cleared_payload, mode=config.COAML_SOLVE_MODE)
                 console_logger.info(f"Loss history: {rh_solver.loss_history}")
         elif config.MODE == 'optimal_solution':
             max_cardinality = len(payload[PayloadKeys.REQUESTS])
