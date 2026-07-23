@@ -28,6 +28,12 @@ class RequestGraphFeatureBuilder:
         "pickup_time_difference",
         "pickup_window_overlap_seconds",
         "pickup_window_overlap_ratio",
+        # 2026-07-21: dropoff_window_overlap_seconds/ratio added (see
+        # add_edge_features below, computation kept) but temporarily removed
+        # from this list again -- v1_final/v2_final were trained with 10 edge
+        # features, so adding these 2 breaks state_dict loading for the
+        # existing checkpoints (edge_encoder expects [64,10], not [64,12]).
+        # Re-enable once v1_final/v2_final are retrained with 12 features.
         "direction_similarity",
         "cross_pickup1_dropoff2_distance",
         "cross_pickup2_dropoff1_distance",
@@ -125,6 +131,16 @@ class RequestGraphFeatureBuilder:
 
             data["pickup_window_overlap_seconds"] = overlap_seconds
             data["pickup_window_overlap_ratio"] = overlap_ratio
+
+            dropoff_overlap_seconds, dropoff_overlap_ratio = RequestGraphFeatureBuilder._window_overlap(
+                r1.earliest_arrival_time,
+                r1.latest_arrival_time,
+                r2.earliest_arrival_time,
+                r2.latest_arrival_time,
+            )
+
+            data["dropoff_window_overlap_seconds"] = dropoff_overlap_seconds
+            data["dropoff_window_overlap_ratio"] = dropoff_overlap_ratio
 
             data["direction_similarity"] = RequestGraphFeatureBuilder._direction_similarity(
                 r1,

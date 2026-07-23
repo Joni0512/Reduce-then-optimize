@@ -199,6 +199,34 @@ MODEL_CONFIGS: dict[str, dict[str, list[str]]] = {
         "val": ["nyc_dense2000_train1400_naive"],
         "test": ["nyc_dense2000_train1400_naive"],
     },
+    # 2026-07-18: labels rebuilt from the FULL 30min baseline run (nyc_dense2000_30min_full,
+    # completed on the LRZ cluster after fixing the local run's 07:15 stall/combinatorial
+    # blowup) instead of the truncated 15min one. Same 1400/600 train/holdout ID split as
+    # before (nyc_dense2000_{train,holdout}_ids.csv) for direct comparability, but now with
+    # far more positive pairs (962 overlap / 1969 naive vs. 421/585 before) and far more
+    # complete (boarding+alighting recorded) holdout requests (389 vs. 121 before).
+    "nyc_dense2000_full_train1400_overlap": {
+        "train": ["nyc_dense2000_full_train1400_overlap"],
+        "val": ["nyc_dense2000_full_train1400_overlap"],
+        "test": ["nyc_dense2000_full_train1400_overlap"],
+    },
+    "nyc_dense2000_full_train1400_naive": {
+        "train": ["nyc_dense2000_full_train1400_naive"],
+        "val": ["nyc_dense2000_full_train1400_naive"],
+        "test": ["nyc_dense2000_full_train1400_naive"],
+    },
+    # 2026-07-19: train==val==test above all pointed at the SAME 1400-node graph, so
+    # checkpoint_selection="best_across_thresholds" was picking epochs/thresholds based on
+    # training-set F3, not a held-out val set (Li&Lim's MODEL_CONFIGS uses disjoint instance
+    # files per split; this mirrors that for NYC by carving a disjoint 300-node val graph out
+    # of the 1400 train pool, seed=42 - see nyc_dense2000_{train1100,val300}_ids.csv). The
+    # existing 600-request holdout is untouched and still only used downstream in RHO/COAML
+    # pilots, never here.
+    "nyc_dense2000_full_train1100_val300_naive": {
+        "train": ["nyc_dense2000_full_train1100_naive"],
+        "val": ["nyc_dense2000_full_val300_naive"],
+        "test": ["nyc_dense2000_full_val300_naive"],
+    },
 }
 
 DEFAULT_POS_WEIGHTS = [1.0, 2.0, 3.0, 5.0, 7.5, 10.0]

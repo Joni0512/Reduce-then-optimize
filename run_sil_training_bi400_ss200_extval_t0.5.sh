@@ -1,35 +1,33 @@
 #!/bin/bash
-# 2026-07-19: SIL sweep at bi400/ss200, t=0.4, with BOTH TRAINING_FILES and
-# VALIDATION_FILES extended to mirror the pruners' own mixed-class split
-# (see run_sil_training_bi400_ss200_mixedclass_t0.5.sh for the full
-# rationale). This is the t=0.4 counterpart, meant to run on the cluster
-# in parallel with the local t=0.5 mixedclass run.
-# 2026-07-20: lc204 excluded from EXTRA_TRAIN - empirically found to add
-# ~160-200 minutes per epoch on its own (reproduced 3x locally; also the
-# reason the first cluster attempt at this run TIMED OUT after 8h without
-# finishing even the first variant). See run_sil_training_bi400_ss200_
-# mixedclass_t0.5.sh for the full note.
+# 2026-07-19: SIL sweep at bi400/ss200, t=0.5, but with VALIDATION_FILES
+# extended to include the LC2/LR2/LRC2 test instances (lc207,lc208,lr210,
+# lr211,lrc207,lrc208) via the new --extra_validation_files flag. These 6
+# instances are part of the pruners' own test set (MODEL_CONFIGS["mixed_all"])
+# but were never covered by the standard 6-file SIL VALIDATION_FILES - every
+# SIL result so far in this session only used LC1/LR1/LRC1. This checks
+# whether the damage-mechanism findings hold on the other half of the
+# classifier's held-out test set.
+# TRAINING_FILES is untouched - this does not retrain differently, only
+# evaluates on 6 more instances per epoch (12 total instead of 6).
 set -u
 
 REQUEST_PRUNER_MODEL="outputs/request_pruner_mlp_bi400_ss200/request_pruner_mlp_h32_l1_d0p0_pw1p0_lr0p03/request_pruner_mlp_h32_l1_d0p0_pw1p0_lr0p03_best_val_f3.pt"
-THRESHOLD=0.4
+THRESHOLD=0.5
 EXTRA_VAL="lc207,lc208,lr210,lr211,lrc207,lrc208"
-EXTRA_TRAIN="lc201,lc202,lc203,lc205,lr201,lr202,lr203,lr204,lr205,lr206,lr207,lrc201,lrc202,lrc203,lrc204,lrc205"
 
 run_variant() {
   local variant="$1" pruner_flags="$2"
-  echo "=== [$(date +%H:%M:%S)] SIL bi400/ss200 mixedclass t=0.4: $variant ==="
+  echo "=== [$(date +%H:%M:%S)] SIL bi400/ss200 extval t=0.5: $variant ==="
   ./venv/bin/python3 rtv_solver/main.py \
     --mode coaml \
     --input_dir "solutions/li_lim/manifests/" \
     --batch_interval 400 --step_size 200 --max_cardinality 2 \
     --learning_rate 0.0001 --epochs 5 \
     --extra_validation_files "$EXTRA_VAL" \
-    --extra_training_files "$EXTRA_TRAIN" \
     $pruner_flags \
     --seed 42 \
-    --output_dir "outputs/sil_training_bi400_ss200_mixedclass_${variant}_t0.4" \
-    > "sil_training_bi400_ss200_mixedclass_${variant}_t0.4.log" 2>&1
+    --output_dir "outputs/sil_training_bi400_ss200_extval_${variant}_t0.5" \
+    > "sil_training_bi400_ss200_extval_${variant}_t0.5.log" 2>&1
   echo "=== [$(date +%H:%M:%S)] DONE: $variant (exit $?) ==="
 }
 
@@ -38,4 +36,4 @@ run_variant "request" "--use_request_pruner True --request_pruner_model_path $RE
 run_variant "pair" "--use_request_pruner False --use_request_graph_pruner True --request_graph_threshold $THRESHOLD"
 run_variant "both" "--use_request_pruner True --request_pruner_model_path $REQUEST_PRUNER_MODEL --request_pruner_threshold $THRESHOLD --use_request_graph_pruner True --request_graph_threshold $THRESHOLD"
 
-echo "=== ALL 4 SIL bi400/ss200 mixedclass t=0.4 RUNS DONE ==="
+echo "=== ALL 4 SIL bi400/ss200 extval t=0.5 RUNS DONE ==="

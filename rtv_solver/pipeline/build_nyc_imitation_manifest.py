@@ -250,8 +250,12 @@ def main():
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(manifest_out))
     print(f"Wrote {len(requests_out)} requests across {len(driver_runs)} vehicles (real routes) -> {out_path}")
-    print("NOTE: effective window is ~15 minutes (07:00-07:15), not the full 30min the source run name implies "
-          "- see build_nyc_imitation_manifest.py module docstring.")
+    # 2026-07-18: only true for the original (07:15-truncated) baseline run - now that
+    # nyc_dense2000_30min_full completed the real 07:00-07:30 window, this note no longer
+    # applies to that run. Left conditional in case someone still points --run at the old one.
+    if args.run == "nyc_dense2000_30min":
+        print("NOTE: effective window is ~15 minutes (07:00-07:15), not the full 30min the source run name implies "
+              "- see build_nyc_imitation_manifest.py module docstring.")
 
 
 if __name__ == "__main__":
