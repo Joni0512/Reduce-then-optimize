@@ -127,7 +127,13 @@ if __name__ == "__main__":
         default="False",
         help="Enable MLP-based request-only pruning before trip generation."
     )
-
+    # parser for new imitation scoring rule (26.7)
+    parser.add_argument(
+        "--imitation_scoring_rule",
+        type=str,
+        choices=["legacy", "exponential_prefix"],
+        default="legacy"
+    )
     parser.add_argument(
         "--request_pruner_model_path",
         type=str,

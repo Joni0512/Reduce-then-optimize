@@ -22,6 +22,7 @@ from rtv_solver.structure.assignment_result import AssignmentResult
 
 from rtv_solver.pipeline import CO, CO_ScoreMaximization, CO_TripCostMinimization, CO_RebalancingCoverage, FeatureBuilder
 from rtv_solver.pipeline import FenchelYoungLoss, make_map_oracle, ScoringMLP
+# keep these constants for compatibility with commented out code in coaml_pipeline.py
 from rtv_solver.pipeline.imitation_handler import ImitationHandler, TYPE_BEST_ORDERED_MATCH, TYPE_BEST_UNORDERED_MATCH
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
@@ -251,28 +252,144 @@ class COAMLPipeline():
             )
         return imitation_scores_with_reject, trip_vehicle_ids
 
+
     def _build_y_star_from_imitation_scores(
         self,
         imitation_scores: torch.Tensor,
-        trip_vehicle_ids: list[int],
+        trip_costs: list[TripCost],
+        requests: list,
+        active_requests: dict,
         reject_vehicle_ids: list[int] | None = None,
     ) -> torch.Tensor:
         """
-        Convert imitation scores into binary y* according to configured strategy.
+        Build a globally feasible binary target vector y_star by maximizing the
+        imitation scores using the existing assignment ILP.
+
+        The imitation scores describe how well each generated vehicle-trip candidate
+        matches the expert solution. However, selecting the highest-scoring candidate
+        for each vehicle independently is not sufficient, because candidates belonging
+        to different vehicles may contain the same request. This can produce an invalid
+        target in which one request is assigned to multiple vehicles.
+
+        Instead, this method reuses the existing assignment ILP that is also used
+        during inference. Rather than optimizing the neural-network prediction scores,
+        the ILP objective is replaced by the imitation scores. This produces the
+        globally best feasible assignment with respect to the expert imitation scores.
+
+        The ILP enforces all assignment constraints, including:
+
+        - each vehicle selects at most one trip or reject action;
+        - each request is assigned at most once across all vehicles;
+        - only feasible vehicle-trip combinations can be selected;
+        - active-request constraints are respected when KEEP_ACTIVE is enabled.
+
+        The resulting solver decisions are converted into a binary vector with the same
+        layout as the input score vector:
+
+            [trip decisions..., reject-action decisions...]
+
+        where 1 indicates that an action is part of the globally optimal feasible
+        assignment and 0 indicates that it is not selected.
         """
         reject_vehicle_ids = reject_vehicle_ids or []
-        if self.config.Y_STAR_TYPE == TYPE_BEST_ORDERED_MATCH:
-            y_star = ImitationHandler.build_y_star_per_vehicle_from_imit_scores(
-                imitation_scores_with_reject=imitation_scores,
-                trip_vehicle_ids=trip_vehicle_ids,
-                reject_vehicle_ids=reject_vehicle_ids,
+        trip_count = len(trip_costs)
+
+        expected_length = trip_count + len(reject_vehicle_ids)
+        if imitation_scores.shape[0] != expected_length:
+            raise ValueError(
+                f"Imitation-score length mismatch: got "
+                f"{imitation_scores.shape[0]}, expected {expected_length}."
             )
-            if y_star.shape[0] != imitation_scores.shape[0]:
-                raise ValueError(f"y_star shape mismatch: got {y_star.shape[0]}, expected {imitation_scores.shape[0]}.")
-            if not torch.all((y_star == 0) | (y_star == 1)):
-                raise ValueError("y_star must be binary (0/1).")
-            return y_star
-        raise ValueError(f"Invalid y_star type: {self.config.Y_STAR_TYPE}")
+
+        #The score vector is ordered as: [scores for generated vehicle-trip candidates,
+        #scores for vehicle-specific reject actions].
+        # The ILP expects trip and reject scores separately.
+        trip_scores = (
+            imitation_scores[:trip_count]
+            .detach()
+            .cpu()
+            .numpy()
+        )
+
+        reject_scores = (
+            imitation_scores[trip_count:]
+            .detach()
+            .cpu()
+            .numpy()
+        )
+
+        # Solve one global assignment problem over all candidate trips and reject actions.
+        # The ILP maximizes the total imitation score while enforcing feasibility:
+        # each vehicle can select at most one action and each request can be assigned
+        # to at most one vehicle.
+
+        ilp_model, x_t, x_r, x_reject = self.coaml_optimizer.solve_ilp(
+            trip_scores,
+            requests,
+            active_requests,
+            penalty=self.config.ILP_PENALTY,
+            keep_active=self.config.KEEP_ACTIVE,
+            reject_action_scores=reject_scores,
+            reject_vehicle_ids=reject_vehicle_ids,
+        )
+
+        # First part of y_star: selected normal trips.
+        # x_t[idx] is a binary ILP variable. The 0.5 threshold robustly converts
+        # the solver's floating-point output into a binary target (0 or 1).
+        y_trip = torch.tensor(
+            [
+                1 if x_t[idx].X > 0.5 else 0
+                for idx in range(trip_count)
+            ],
+            dtype=imitation_scores.dtype,
+            device=imitation_scores.device,
+        )
+
+        # Second part: selected vehicle-specific reject actions.
+        y_reject = torch.tensor(
+            [
+                1 if (
+                    vehicle_id in x_reject
+                    and x_reject[vehicle_id].X > 0.5
+                ) else 0
+                for vehicle_id in reject_vehicle_ids
+            ],
+            dtype=imitation_scores.dtype,
+            device=imitation_scores.device,
+        )
+
+        y_star = torch.cat([y_trip, y_reject], dim=0)
+
+        if y_star.shape != imitation_scores.shape:
+            raise ValueError(
+                f"y_star shape mismatch: got {y_star.shape}, "
+                f"expected {imitation_scores.shape}."
+            )
+
+        return y_star
+    # old version of this function is commented out below but is still used for reference
+    #def _build_y_star_from_imitation_scores(
+    #    self,
+    #    imitation_scores: torch.Tensor,
+    #    trip_vehicle_ids: list[int],
+    #    reject_vehicle_ids: list[int] | None = None,
+    #) -> torch.Tensor:
+        #"""
+       # Convert imitation scores into binary y* according to configured strategy.
+       # """
+       # reject_vehicle_ids = reject_vehicle_ids or []
+       #if self.config.Y_STAR_TYPE == TYPE_BEST_ORDERED_MATCH:
+        #    y_star = ImitationHandler.build_y_star_per_vehicle_from_imit_scores(
+        #        imitation_scores_with_reject=imitation_scores,
+        #        trip_vehicle_ids=trip_vehicle_ids,
+        #        reject_vehicle_ids=reject_vehicle_ids,
+        #    )
+        #    if y_star.shape[0] != imitation_scores.shape[0]:
+        #        raise ValueError(f"y_star shape mismatch: got {y_star.shape[0]}, expected {imitation_scores.shape[0]}.")
+        #    if not torch.all((y_star == 0) | (y_star == 1)):
+        #        raise ValueError("y_star must be binary (0/1).")
+        #    return y_star
+       # raise ValueError(f"Invalid y_star type: {self.config.Y_STAR_TYPE}")
 
     def _measure_pruner_pair_recall(
         self,
@@ -285,7 +402,7 @@ class COAMLPipeline():
         pairs that belong to the offline-optimal solution loaded by ImitationHandler.
         Motivation: since ImitationHandler only ever scores the trips that survive
         pruning, a pruned-away optimal pair silently degrades the y* target for that
-        vehicle (see ImitationHandler.count_fallback_vehicles) -- this measures the
+        vehicle (see ImitationHandler.count_fallback_vehicles), this measures the
         upstream cause instead of only the downstream symptom.
 
         Ground-truth pairs are "requests served by the same vehicle in the optimal
@@ -515,11 +632,20 @@ class COAMLPipeline():
                     payload_object.current_time,
                 )
 
+                # Construct a globally feasible imitation target by maximizing the imitation
+                # scores with the assignment ILP instead of selecting the best trip per vehicle.
                 y_star = self._build_y_star_from_imitation_scores(
                     imitation_scores=imitation_scores_with_reject,
-                    trip_vehicle_ids=trip_vehicle_ids,
+                    trip_costs=trip_costs,
+                    requests=trip_handler.requests,
+                    active_requests=active_requests,
                     reject_vehicle_ids=reject_vehicle_ids,
                 )
+                #y_star = self._build_y_star_from_imitation_scores(
+                #    imitation_scores=imitation_scores_with_reject,
+                #    trip_vehicle_ids=trip_vehicle_ids,
+                #    reject_vehicle_ids=reject_vehicle_ids,
+                #)
 
                 # calculate the true optimal solution based on the imitation scores
                 # 2026-07-16: request_batch (full) here too - transform_optimal_solution_
@@ -798,11 +924,21 @@ class COAMLPipeline():
             reject_vehicle_ids=reject_vehicle_ids,
             vehicle_to_trips_cost_map=vehicle_to_trips_cost_map,
         )
+
+        # Build the globally optimal feasible imitation target using the assignment ILP.
         y_star = self._build_y_star_from_imitation_scores(
             imitation_scores=imitation_scores,
-            trip_vehicle_ids=trip_vehicle_ids,
+            trip_costs=trip_costs,
+            requests=pruned_requests,
+            active_requests=active_requests,
             reject_vehicle_ids=reject_vehicle_ids,
         )
+        # old method of building y_start from imitation scores, now replaced by the above MLP
+        #y_star = self._build_y_star_from_imitation_scores(
+        #    imitation_scores=imitation_scores,
+        #    trip_vehicle_ids=trip_vehicle_ids,
+        #    reject_vehicle_ids=reject_vehicle_ids,
+        #)
 
         if y_star.sum().item() == 0:
             console_logger.warning("FY loss skipped: Optimizer did not assign any RTVs.")

@@ -69,8 +69,13 @@ def _load_and_clear_payload(input_path: Path) -> dict:
     return PayloadParser.clear_vehicle_manifests(data)
 
 
-def _save_validation_results(cfg: Config, payload: dict, driver_runs: list) -> None:
-    """Parse manifests with StatsParser and save result_driver_runs.json + results.json."""
+def _save_validation_results(cfg: Config, payload: dict, driver_runs: list):
+    """Parse manifests with StatsParser and save result_driver_runs.json + results.json.
+
+    2026-07-26: now returns `stats` (previously None) so callers can aggregate
+    serviced/total_requests across files for a best-val-checkpoint decision
+    (see _run_train_val_dirs) without re-running StatsParser themselves.
+    """
     stats_payload = {
         PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
         PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
@@ -82,6 +87,7 @@ def _save_validation_results(cfg: Config, payload: dict, driver_runs: list) -> N
     evaluator.add_total_time(total_time=0.0)
     save_json(stats_payload, cfg.OUTPUT_DIR / "result_driver_runs.json")
     save_json({"stats": stats, "violations": violations}, cfg.OUTPUT_DIR / "results.json")
+    return stats
 
 
 @dataclass
@@ -166,7 +172,13 @@ class COAMLTrainingLoop:
         all_losses: list[Optional[float]] = []
         losses_per_file: dict[str, list[Optional[float]]] = {}
         last_driver_runs: list = []
-
+        # 2026-07-26: track the best-val-checkpoint across epochs (mirrors
+        # _run_train_val_payloads, which already did this) - this loop only saved
+        # periodic epoch snapshots and never recorded which one actually validated
+        # best, so a later epoch could silently be worse than an earlier one with
+        # no easy way to tell which checkpoint to use.
+        best_val_service_rate = -1.0
+        best_epoch = -1
 
         #validate files to see what rolling horizon can even do on the optimal path
         for v_path in val_files:
@@ -205,6 +217,10 @@ class COAMLTrainingLoop:
                 )
 
             # Validate: each epoch with the current model to run model on val files after complete training, store results per file
+            # 2026-07-26: pooled (micro-averaged) serviced/total_requests across all
+            # val files this epoch, used below to pick the best-val checkpoint.
+            epoch_serviced = 0
+            epoch_total_requests = 0
             for v_path in val_files:
                 v_cleared = _load_and_clear_payload(v_path)
                 out_dir = self.config.OUTPUT_DIR / "val" / f"epoch_{epoch}" /v_path.stem
@@ -215,7 +231,26 @@ class COAMLTrainingLoop:
                     imitation_solution_path=v_path,
                 )
                 driver_runs = pipeline.solve_pdptw(v_cleared, mode="eval")
-                _save_validation_results(file_cfg, v_cleared, driver_runs)
+                val_stats = _save_validation_results(file_cfg, v_cleared, driver_runs)
+                epoch_serviced += val_stats.serviced
+                epoch_total_requests += val_stats.total_requests
+
+            epoch_val_service_rate = epoch_serviced / max(epoch_total_requests, 1)
+            console_logger.info(
+                f"Epoch {epoch_num}: pooled val service rate = {epoch_val_service_rate:.4f} "
+                f"({epoch_serviced}/{epoch_total_requests} across {len(val_files)} files)"
+            )
+            if epoch_val_service_rate > best_val_service_rate:
+                best_val_service_rate = epoch_val_service_rate
+                best_epoch = epoch_num
+                torch.save(
+                    {"model_state_dict": self.model.state_dict()},
+                    self.config.OUTPUT_DIR / "coaml_model_weights_best_val.pt",
+                )
+        console_logger.info(
+            f"Best val service rate = {best_val_service_rate:.4f} at epoch {best_epoch} "
+            f"-> {self.config.OUTPUT_DIR / 'coaml_model_weights_best_val.pt'}"
+        )
         # save losses before it runs the further validation (derisking getting cut off from the results)
         save_json(losses_per_file, self.config.OUTPUT_DIR / "training_loss_per_file.json")
         

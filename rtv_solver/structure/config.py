@@ -93,6 +93,8 @@ class Config:
     HIDDEN_DIM: int = 64
     NUM_SAMPLES: int = 20
     SIGMA: float = 0.2
+    # Expert label scoring
+    IMITATION_SCORING_RULE: str = "legacy"
     # 2026-07-19: comma-separated list of extra instance stems (e.g. "lc207,lc208")
     # to ADD to training_loop.VALIDATION_FILES for this run, without touching
     # TRAINING_FILES or the module-level defaults. Lets us evaluate on LC2/LR2/LRC2
@@ -216,6 +218,12 @@ class Config:
             SEED = args.seed,
             IMITATION_SOLUTION_FILE = args.imitation_solution_file,
             Y_STAR_TYPE = args.y_star_type,
+            # add new config item
+            IMITATION_SCORING_RULE = getattr(
+                args,
+                "imitation_scoring_rule",
+                "legacy",
+            ),
             EPOCHS = getattr(args, "epochs", 1),
             LEARNING_RATE = getattr(args, "learning_rate", 1e-3),
             HIDDEN_DIM = getattr(args, "hidden_dim", 64),

@@ -21,9 +21,27 @@ import logging
 
 console_logger = logging.getLogger(BASIC_LOGGER)
 data_logger = logging.getLogger(DATA_LOGGER)
-
-TYPE_BEST_ORDERED_MATCH = "best_ordered_match"
+# keep these coonstants for compatibility with commmented out cod ein comal_pipeline.py
+TYPE_BEST_ORDERED_MATCH = "best_ordered_match" 
 TYPE_BEST_UNORDERED_MATCH = "best_unordered_match"
+
+# add new scoring rule that necessitates the first request of the optimal solution 
+# to be included and enable compairison between the two rules
+SCORING_RULE_LEGACY = "legacy"
+SCORING_RULE_EXPONENTIAL_PREFIX = "exponential_prefix"
+
+VALID_SCORING_RULES = {
+    SCORING_RULE_LEGACY,
+    SCORING_RULE_EXPONENTIAL_PREFIX,
+}
+
+# 2026-07-26: "no match" used to score 0, but append_reject_action_scores() only
+# gives the vehicle's reject action -10 when NONE of its trips score > 0 - so a
+# 0-scoring "no evidence" trip beat the -10 reject in the global y*-ILP
+# (0 > -10), meaning a vehicle with no real match got assigned an arbitrary
+# trip instead of the intended "reject" target. Must be more negative than the
+# reject penalty (-10) so the ordering positive match > reject > no match holds.
+NO_MATCH_SCORE = -100
 
 class ImitationHandler:
     """
@@ -259,9 +277,14 @@ class ImitationHandler:
 
         return combinations, counts_by_cardinality
 
+    #@staticmethod, old method name, not used anymore
+    #def score_combinations_against_solution(
+    #   combinations: list[tuple[int, ...]], optimal_solution: list[int]
+    #) -> torch.Tensor:
     @staticmethod
-    def score_combinations_against_solution(
-        combinations: list[tuple[int, ...]], optimal_solution: list[int]
+    def score_combinations_legacy(
+        combinations: list[tuple[int, ...]],
+        optimal_solution: list[int],
     ) -> torch.Tensor:
         """
         Score each combination against an optimal solution sequence.
@@ -297,9 +320,20 @@ class ImitationHandler:
             ordered_start_index = ImitationHandler._find_subsequence(
                 optimal_solution, combination_list
             )
-            permuted_start_index = ImitationHandler.find_permuted_subsequence(
-                optimal_solution, combination_list
-            )
+
+            # Historical experiment (disabled):
+            # Detect unordered matches (same request set, wrong order).
+            # This scoring strategy was evaluated during development but was discarded
+            # because the imitation objective should reward only correctly ordered
+            # prefixes of the expert solution.
+            #
+            # permuted_start_index = ImitationHandler.find_permuted_subsequence(
+            #     optimal_solution,
+            #     combination_list,
+            # )
+            #permuted_start_index = ImitationHandler.find_permuted_subsequence(
+            #    optimal_solution, combination_list
+            #)
 
             # Full ordered match for this combination length.
             if ordered_start_index != -1:
@@ -309,8 +343,9 @@ class ImitationHandler:
                     debug_dict[debug_dict_key] =  score_full_ordered_early_index, combination
                 else:
                     # Keep vector alignment: each combination must produce exactly one score.
-                    scores.append(0)
-                    debug_dict[debug_dict_key] = 0, combination
+                    # 2026-07-26: NO_MATCH_SCORE (not 0), see its definition above.
+                    scores.append(NO_MATCH_SCORE)
+                    debug_dict[debug_dict_key] = NO_MATCH_SCORE, combination
                 # else:
                     # DISCARDED option for score making
                     # - -10 * len(combination), if it starts at a later index
@@ -330,8 +365,9 @@ class ImitationHandler:
             #     continue
 
             # alternative score for all other cases
-            scores.append(0)
-            debug_dict[debug_dict_key] =  0, combination
+            # 2026-07-26: NO_MATCH_SCORE (not 0), see its definition above.
+            scores.append(NO_MATCH_SCORE)
+            debug_dict[debug_dict_key] =  NO_MATCH_SCORE, combination
 
         score_tensor = torch.tensor(scores)
         # print(debug_dict)
@@ -340,7 +376,77 @@ class ImitationHandler:
         if not torch.any(score_tensor > 0): 
             console_logger.info(f"IH: No positive scores found.")
         return score_tensor
+    # new scoring methood that requires the first request of optimal solution to be included to get a postiver score
+    @staticmethod
+    def score_combinations_exponential_prefix(
+        combinations: list[tuple[int, ...]],
+        optimal_solution: list[int],
+    ) -> torch.Tensor:
+        """
+        Score candidate trips according to their ordered prefix agreement with
+        the projected expert sequence.
 
+        A positive score requires the candidate trip to begin with the first
+        request of the expert sequence. Each additional consecutive prefix match
+        doubles the score:
+
+        prefix length 0 -> 0
+        prefix length 1 -> 1
+        prefix length 2 -> 2
+        prefix length 3 -> 4
+        prefix length k -> 2**(k - 1)
+        """
+        scores: list[int] = []
+
+        for combination in combinations:
+            prefix_length = 0
+
+            for candidate_request, expert_request in zip(
+                combination,
+                optimal_solution,
+            ):
+                if candidate_request != expert_request:
+                    break
+                prefix_length += 1
+
+            # 2026-07-26: NO_MATCH_SCORE (not 0) when there's no prefix match at all,
+            # see NO_MATCH_SCORE's definition above.
+            score = NO_MATCH_SCORE if prefix_length == 0 else 2 ** (prefix_length - 1)
+            scores.append(score)
+
+        score_tensor = torch.tensor(scores, dtype=torch.int64)
+
+        if not torch.any(score_tensor > 0):
+            console_logger.info("IH: No positive exponential-prefix scores found.")
+
+        return score_tensor
+
+    # centralized scoring method to select which rule is used for the imitation learning.
+    @staticmethod
+    def score_combinations_against_solution(
+        combinations: list[tuple[int, ...]],
+        optimal_solution: list[int],
+        scoring_rule: str,
+    ) -> torch.Tensor:
+        if scoring_rule not in VALID_SCORING_RULES:
+            raise ValueError(
+                f"Unknown scoring rule '{scoring_rule}'. "
+                f"Expected one of {sorted(VALID_SCORING_RULES)}."
+            )
+
+        if scoring_rule == SCORING_RULE_LEGACY:
+            return ImitationHandler.score_combinations_legacy(
+                combinations=combinations,
+                optimal_solution=optimal_solution,
+            )
+
+        if scoring_rule == SCORING_RULE_EXPONENTIAL_PREFIX:
+            return ImitationHandler.score_combinations_exponential_prefix(
+                combinations=combinations,
+                optimal_solution=optimal_solution,
+            )
+
+        raise RuntimeError("Unhandled scoring rule.")
     @staticmethod
     def tripCosts_to_request_combinations(tripCosts: list[TripCost]) -> list[tuple[int, ...]]:
         """
@@ -440,10 +546,18 @@ class ImitationHandler:
                 tuple(trip_costs[global_idx].get_ordered_request_ids())
                 for global_idx in ordered_global_indices
             ]
+            # adaption, that new scoring rule can be selected.
+            # information if new scoring rule is used is logged in the console to make sure the correct scoring rule is used.
+            console_logger.info(f"Using imitation scoring rule: {self.config.IMITATION_SCORING_RULE}")
             local_scores = self.score_combinations_against_solution(
                 combinations=combinations,
                 optimal_solution=optimal_by_vehicle[vehicle_id],
+                scoring_rule=self.config.IMITATION_SCORING_RULE,
             )
+            #local_scores = self.score_combinations_against_solution(
+            #    combinations=combinations,
+            #    optimal_solution=optimal_by_vehicle[vehicle_id],
+            #)
             for local_idx, global_idx in enumerate(ordered_global_indices):
                 trip_scores[global_idx] = local_scores[local_idx]
         return trip_scores, trip_vehicle_ids
@@ -589,13 +703,25 @@ class ImitationHandler:
             candidate_scores = imitation_scores_with_reject[candidate_indices]
             max_candidate_value = torch.max(candidate_scores)
             max_candidate_indices_local = torch.where(candidate_scores == max_candidate_value)[0]
+            # new rule to prevent multiple maximzm imitation scores for the same vehicle, will be overwritten later ba more sophisticated heuristics like selecting the trip with the lowest trip costs.
             if float(max_candidate_value.item()) != 0.0 and len(max_candidate_indices_local) > 1:
-                tied_global_indices = [candidate_indices[idx] for idx in max_candidate_indices_local.tolist()]
-                raise ValueError(
-                    "Ambiguous imitation scores for vehicle: multiple non-zero maxima found "
-                    f"(vehicle_id={vehicle_id}, value={float(max_candidate_value.item())}, "
-                    f"indices={tied_global_indices})."
-                )
+                tied_global_indices = [
+                    candidate_indices[idx]
+                    for idx in max_candidate_indices_local.tolist()
+                ]
+
+                console_logger.info(
+                    f"IH: Multiple maximum imitation scores for vehicle {vehicle_id}: "
+                    f"value={float(max_candidate_value.item())}, "
+                    f"indices={tied_global_indices}. Selecting first candidate."
+            )
+            #if float(max_candidate_value.item()) != 0.0 and len(max_candidate_indices_local) > 1:
+              #  tied_global_indices = [candidate_indices[idx] for idx in max_candidate_indices_local.tolist()]
+              #  raise ValueError(
+              #      "Ambiguous imitation scores for vehicle: multiple non-zero maxima found "
+              #      f"(vehicle_id={vehicle_id}, value={float(max_candidate_value.item())}, "
+              #      f"indices={tied_global_indices})."
+              #  )
             if torch.all(candidate_scores <= 0):
                 target_value = torch.min(candidate_scores)
             else:
@@ -673,7 +799,19 @@ if __name__ == "__main__":
         # max_cardinality=4,
     )
     print(counts)
-    scores = ImitationHandler.score_combinations_against_solution(combinations, solution)
+    #old scores, no there need to be two distinguishable ones
+    #scores = ImitationHandler.score_combinations_against_solution(combinations, solution)
+    
+    scores = ImitationHandler.score_combinations_against_solution(
+        combinations=combinations,
+        optimal_solution=solution,
+        scoring_rule=SCORING_RULE_LEGACY,
+    )
+    scores = ImitationHandler.score_combinations_against_solution(
+        combinations=combinations,
+        optimal_solution=solution,
+        scoring_rule=SCORING_RULE_EXPONENTIAL_PREFIX,
+    )
 
     # for score, combination in zip(scores, combinations):
     #     print(score, combination)

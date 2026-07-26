@@ -82,9 +82,40 @@ sich funktioniert.
 3. `self.fy_loss(scores, y_star, oracle)` — Oracle ist `make_map_oracle` →
    letztlich `CO_ScoreMaximization.solve_ilp`
 
-Nur Schritt 2 muss ersetzt werden. Rolling-Horizon-Logik (Batches über eine
-Episode/Instanz) existiert bereits in `COAMLTrainingLoop`
-(`training_loop.py`) und muss nicht neu gebaut werden.
+Rolling-Horizon-Logik (Batches über eine Episode/Instanz) existiert bereits
+in `COAMLTrainingLoop` (`training_loop.py`) und muss nicht neu gebaut werden.
+
+**Korrektur (Recherche 2026-07-24): Es ist NICHT nur eine Stelle, die
+ersetzt werden muss.** `solve_iteration` löst das ILP intern zweimal — einmal
+mit θ (→ `score_result`, die eigene Einschätzung des Netzes), einmal mit den
+Imitation-Scores aus der bekannten Optimallösung (→ `optimal_result`). Welches
+Ergebnis tatsächlich die Fahrzeuge bewegt und die Simulation in den nächsten
+Batch überführt, hängt vom `mode`-Parameter ab
+([coaml_pipeline.py:614-626](../rtv_solver/coaml_pipeline.py)):
+- `mode="train"` → `result = optimal_result` — die Simulation läuft beim
+  Trainieren **immer entlang der bekannten optimalen Route weiter**,
+  unabhängig davon, was das Netz vorhersagt (Teacher-Forcing)
+- `mode="eval"` → `result = score_result` — hier bestimmt die eigene
+  Vorhersage des Netzes den weiteren Simulationsverlauf
+
+`result` wird nicht nur geloggt, sondern bewegt tatsächlich die Fahrzeuge
+(`vehicle.apply_trip_insertion`, Zeile ~673-689) und bestimmt so den
+Zustand des nächsten Batches. Der bisherige `"train"`-Modus ist also reines
+Teacher-Forcing: das System erlebt beim Training nie die Konsequenzen seiner
+eigenen Entscheidungen. Für SRL ist das ein Problem — wir wollen ja gerade
+lernen, was die eigenen (ggf. noch schlechten) Aktionen für Konsequenzen
+haben; mit Teacher-Forcing gäbe es dafür kein Signal, weil die Simulation nie
+vom bekannten optimalen Pfad abweicht.
+
+**Drei koordinierte Stellen statt einer:**
+1. Neuer Modus-Zweig in `solve_iteration` (~Zeile 619): `result =
+   score_result` (wie `eval`) — Rollout folgt der eigenen Policy, nicht der
+   Optimallösung
+2. Loss-Berechnung: neue Methode (ruft `SRLTargetBuilder` statt
+   `ImitationHandler`/`_compute_fy_loss_from_optimal_solution`)
+3. `solve_pdptw`s Gradienten-Trigger (aktuell fest an `mode=="train"`
+   gekoppelt, [coaml_pipeline.py:152](../rtv_solver/coaml_pipeline.py)) muss
+   den neuen Modus mit auslösen
 
 Präzedenzfall im Code: `_compute_fy_loss_from_default_ilp()`
 (`coaml_pipeline.py`, Zeile ~727) baut `y_star` bereits aus einem on-the-fly
@@ -126,6 +157,43 @@ trip_count + reject_count):
 
 Einschränkung: rein myopisch, sieht keine Konsequenzen für spätere Batches
 innerhalb derselben Episode (Rolling-Horizon-Effekt).
+
+### Trial-Lauf für eine Instanz (z.B. lc101) — was dafür nötig ist
+
+Recherche 2026-07-24: Die Pipeline lädt für eine Li&Lim-Instanz nicht die
+rohe `inputs/li_lim/pdp_100/lc101.txt`, sondern
+`solutions/li_lim/manifests/lc101.json` — eine aufbereitete JSON-Payload
+(Depot/Requests/Fahrzeuge). Diese Datei enthält zusätzlich die vorberechneten
+optimalen Fahrer-Routen (menschlich lesbar auch in
+`solutions/li_lim/txt_files/lc101.txt`). Siehe
+[run_opt_single_instance.py:96-99](../rtv_solver/pipeline/run_opt_single_instance.py):
+
+```
+payload = PayloadParser.load_input_data(input_path)              # inkl. optimaler Routen
+cleared_payload = PayloadParser.clear_vehicle_manifests(payload)  # Routen entfernt
+```
+
+`clear_vehicle_manifests` entfernt die Routen wieder — genau der
+Sanitizing-Schritt, den ein SRL-Trial ohnehin braucht. Für den Trial-Lauf
+NICHT benötigt: `solutions/li_lim/txt_files/lc101.txt` und die
+Routen-Inhalte aus `lc101.json` (höchstens am Ende als Vergleichswert, nie
+als Trainingsinput).
+
+Bausteine für den Trial (Status):
+1. `lc101.json` laden + `clear_vehicle_manifests` — **vorhanden**
+2. `COAMLPipeline.solve_pdptw(payload, mode=...)` — durchläuft Batch für
+   Batch die Instanz, ruft intern `solve_iteration` auf — **vorhanden**
+   (`coaml_pipeline.py:93`)
+3. `ScoringMLP` — **vorhanden**, für einen reinen Mechanik-Test reicht ein
+   untrainiertes/zufällig initialisiertes Netz
+4. `CO_ScoreMaximization` als Oracle — **vorhanden**
+5. Perturb-und-Bewerten-Schleife (m Perturbationen → CO-Layer lösen →
+   Service Rate ablesen) — **einziger neuer Teil**, entspricht dem
+   `SRLTargetBuilder`-Entwurf oben
+
+Für einen minimalen ersten Test (nur "läuft die Mechanik für einen Batch
+durch") bietet sich `run_opt_single_instance.py` als Vorbild an — ein
+schlanker Einzel-Instanz-Runner ohne volle `COAMLTrainingLoop`-Infrastruktur.
 
 ## Phase 2 — mit Kritiker (später)
 
