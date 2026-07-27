@@ -2,7 +2,7 @@
 # 2026-07-27: same class-1 / mc2 / 5-epoch / no-pruner setup as
 # run_sil_training_bi200_ss100_class1_exp_prefix.sh, but bi200/ss50 (tighter
 # re-optimization step) instead of bi200/ss100.
-set -u
+set -eu
 
 echo "=== [$(date +%H:%M:%S)] SIL bi200/ss50 class1 exponential_prefix ==="
 ./venv/bin/python3 rtv_solver/main.py \

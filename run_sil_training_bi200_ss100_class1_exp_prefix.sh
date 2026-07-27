@@ -4,7 +4,7 @@
 # (see training_loop.py). Class-1 only (standard TRAINING_FILES/VALIDATION_FILES,
 # 23 train / 6 val - no override needed), bi200/ss100, mc2, 5 epochs, no pruner
 # (isolating the scoring-rule/target-construction change from the pruner).
-set -u
+set -eu
 
 echo "=== [$(date +%H:%M:%S)] SIL bi200/ss100 class1 exponential_prefix ==="
 ./venv/bin/python3 rtv_solver/main.py \

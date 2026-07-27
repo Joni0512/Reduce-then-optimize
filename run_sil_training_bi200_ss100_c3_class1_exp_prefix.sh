@@ -6,7 +6,7 @@
 # already showed several class-2 instances blowing up combinatorially (some
 # hit a 30min per-instance cap) - a full 23-file training epoch at cardinality 3
 # could take substantially longer per epoch than at cardinality 2.
-set -u
+set -eu
 
 echo "=== [$(date +%H:%M:%S)] SIL bi200/ss100 c3 class1 exponential_prefix ==="
 ./venv/bin/python3 rtv_solver/main.py \

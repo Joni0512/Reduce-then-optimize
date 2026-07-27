@@ -2,7 +2,7 @@
 # 2026-07-27: seed-1 counterpart to run_sil_training_bi200_ss50_class1_legacy.sh
 # (same class-1/mc2/5-epoch/no-pruner/bi200/ss50 setup, --seed 1 instead of 42).
 # legacy goes through the cheap per-vehicle y* selection (no global ILP needed).
-set -u
+set -eu
 
 echo "=== [$(date +%H:%M:%S)] SIL bi200/ss50 class1 legacy seed1 ==="
 ./venv/bin/python3 rtv_solver/main.py \

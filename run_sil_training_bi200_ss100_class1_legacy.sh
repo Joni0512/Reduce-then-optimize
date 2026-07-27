@@ -4,7 +4,7 @@
 # standard TRAINING_FILES/VALIDATION_FILES), same bi200/ss100/mc2/5-epoch/no-pruner
 # setup, only --imitation_scoring_rule differs (legacy vs exponential_prefix), for
 # a direct scoring-rule ablation with everything else held constant.
-set -u
+set -eu
 
 echo "=== [$(date +%H:%M:%S)] SIL bi200/ss100 class1 legacy ==="
 ./venv/bin/python3 rtv_solver/main.py \

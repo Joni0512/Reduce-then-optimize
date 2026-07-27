@@ -2,7 +2,7 @@
 # 2026-07-27: legacy-scoring-rule counterpart to
 # run_sil_training_bi200_ss100_c3_class1_exp_prefix.sh - same setup, only
 # --imitation_scoring_rule differs.
-set -u
+set -eu
 
 echo "=== [$(date +%H:%M:%S)] SIL bi200/ss100 c3 class1 legacy ==="
 ./venv/bin/python3 rtv_solver/main.py \

@@ -2,7 +2,7 @@
 # 2026-07-27: seed-1 counterpart to run_sil_training_bi200_ss50_class1_exp_prefix.sh
 # (same class-1/mc2/5-epoch/no-pruner/bi200/ss50 setup, --seed 1 instead of 42).
 # exponential_prefix goes through the global ILP y* construction.
-set -u
+set -eu
 
 echo "=== [$(date +%H:%M:%S)] SIL bi200/ss50 class1 exponential_prefix seed1 ==="
 ./venv/bin/python3 rtv_solver/main.py \

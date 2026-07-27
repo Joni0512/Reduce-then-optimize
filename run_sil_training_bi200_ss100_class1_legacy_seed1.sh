@@ -4,7 +4,7 @@
 # legacy goes through the cheap per-vehicle y* selection (no global ILP needed -
 # see coaml_pipeline._build_y_star_from_imitation_scores's SCORING_RULE_LEGACY
 # branch), so this should run noticeably faster than its exp_prefix counterpart.
-set -u
+set -eu
 
 echo "=== [$(date +%H:%M:%S)] SIL bi200/ss100 class1 legacy seed1 ==="
 ./venv/bin/python3 rtv_solver/main.py \
