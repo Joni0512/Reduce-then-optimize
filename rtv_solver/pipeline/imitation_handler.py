@@ -343,7 +343,13 @@ class ImitationHandler:
                     debug_dict[debug_dict_key] =  score_full_ordered_early_index, combination
                 else:
                     # Keep vector alignment: each combination must produce exactly one score.
-                    # 2026-07-26: NO_MATCH_SCORE (not 0), see its definition above.
+                    # 2026-07-27: NO_MATCH_SCORE again (not 0) - shared between legacy
+                    # and exponential_prefix so "positive match > reject (-10) > no
+                    # match" holds identically for both rules in the active ILP y*
+                    # construction (coaml_pipeline._build_y_star_from_imitation_scores).
+                    # build_y_star_per_vehicle_from_imit_scores (unreachable in the
+                    # active pipeline) is fixed separately to not need a rule-specific
+                    # no-match value at all - see its own comment below.
                     scores.append(NO_MATCH_SCORE)
                     debug_dict[debug_dict_key] = NO_MATCH_SCORE, combination
                 # else:
@@ -365,7 +371,8 @@ class ImitationHandler:
             #     continue
 
             # alternative score for all other cases
-            # 2026-07-26: NO_MATCH_SCORE (not 0), see its definition above.
+            # 2026-07-27: NO_MATCH_SCORE again, see comment on the other legacy
+            # no-match case above.
             scores.append(NO_MATCH_SCORE)
             debug_dict[debug_dict_key] =  NO_MATCH_SCORE, combination
 
@@ -629,6 +636,12 @@ class ImitationHandler:
         Multi-vehicle flows should prefer `build_y_star_per_vehicle_from_scores`.
         """
         # NOTE this will not be able to handle multiple vehicles if the scores are not separated by vehicle.
+        # 2026-07-27: dropped the old "all <=0 -> pick min" branch. It only produced
+        # "prefer reject" when no-match scored higher than the reject penalty (-10) -
+        # true when no-match was 0, inverted now that no-match is NO_MATCH_SCORE (-100,
+        # shared by both scoring rules, see NO_MATCH_SCORE's definition). A plain
+        # global max already gives positive match > reject (-10) > no-match (-100)
+        # without any special-casing. (This function has no callers currently.)
         max_value = torch.max(imitation_scores)
         max_indices = torch.where(imitation_scores == max_value)[0]
         if float(max_value.item()) != 0.0 and len(max_indices) > 1:
@@ -636,16 +649,6 @@ class ImitationHandler:
                 "Ambiguous imitation scores: multiple non-zero global maxima found "
                 f"(value={float(max_value.item())}, indices={max_indices.tolist()})."
             )
-        # assert that there is only one maximum value
-        # assert len(max_indices) == 1, f"There should be only one maximum value. {imitation_scores}"  
-        # not required anymore as we have a negative value for the reject action per vehicle 
-        # if all other values are zero or negative, set the minimum value to 1
-        if torch.all(imitation_scores <= 0):
-            min_value = torch.min(imitation_scores)
-            min_indices = torch.where(imitation_scores == min_value)[0]
-            y_star = torch.zeros_like(imitation_scores)
-            y_star[min_indices] = 1
-            return y_star
         y_star = torch.zeros_like(imitation_scores)
         y_star[max_indices] = 1
         return y_star
@@ -722,10 +725,12 @@ class ImitationHandler:
               #      f"(vehicle_id={vehicle_id}, value={float(max_candidate_value.item())}, "
               #      f"indices={tied_global_indices})."
               #  )
-            if torch.all(candidate_scores <= 0):
-                target_value = torch.min(candidate_scores)
-            else:
-                target_value = torch.max(candidate_scores)
+            # 2026-07-27: dropped the old "all <=0 -> pick min" branch, same reasoning
+            # as get_y_star_best_ordered_match above - a plain max already gives the
+            # right ordering (positive match > reject (-10) > no-match (-100)) for
+            # both scoring rules, no rule-specific no-match value needed. (This
+            # function has no active callers currently, see coaml_pipeline.py.)
+            target_value = torch.max(candidate_scores)
 
             selected_index = None
             for global_idx in candidate_indices:

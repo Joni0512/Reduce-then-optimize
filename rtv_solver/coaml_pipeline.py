@@ -23,7 +23,12 @@ from rtv_solver.structure.assignment_result import AssignmentResult
 from rtv_solver.pipeline import CO, CO_ScoreMaximization, CO_TripCostMinimization, CO_RebalancingCoverage, FeatureBuilder
 from rtv_solver.pipeline import FenchelYoungLoss, make_map_oracle, ScoringMLP
 # keep these constants for compatibility with commented out code in coaml_pipeline.py
-from rtv_solver.pipeline.imitation_handler import ImitationHandler, TYPE_BEST_ORDERED_MATCH, TYPE_BEST_UNORDERED_MATCH
+from rtv_solver.pipeline.imitation_handler import (
+    ImitationHandler,
+    TYPE_BEST_ORDERED_MATCH,
+    TYPE_BEST_UNORDERED_MATCH,
+    SCORING_RULE_LEGACY,
+)
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
@@ -290,8 +295,29 @@ class COAMLPipeline():
 
         where 1 indicates that an action is part of the globally optimal feasible
         assignment and 0 indicates that it is not selected.
+
+        2026-07-27: under SCORING_RULE_LEGACY, positively-scored trips are exact
+        full-subsequence matches against each vehicle's OWN expert continuation, so
+        two vehicles can never have a positive score on the same request (the
+        expert manifest assigns each request to exactly one vehicle) - the cross-
+        vehicle collision this ILP exists to prevent is structurally impossible for
+        legacy. So for legacy, skip the (comparatively expensive) global ILP and use
+        the cheap independent per-vehicle selection instead
+        (ImitationHandler.build_y_star_per_vehicle_from_imit_scores). exponential_prefix
+        keeps the global ILP: its partial-credit scoring can score a trip positively
+        for a vehicle even when the trip carries a request truly owned by a
+        different vehicle (only the matching prefix is checked), so cross-vehicle
+        collisions are a real risk there.
         """
         reject_vehicle_ids = reject_vehicle_ids or []
+        if self.config.IMITATION_SCORING_RULE == SCORING_RULE_LEGACY:
+            trip_vehicle_ids = [trip_cost.vehicle_id for trip_cost in trip_costs]
+            return ImitationHandler.build_y_star_per_vehicle_from_imit_scores(
+                imitation_scores_with_reject=imitation_scores,
+                trip_vehicle_ids=trip_vehicle_ids,
+                reject_vehicle_ids=reject_vehicle_ids,
+            )
+
         trip_count = len(trip_costs)
 
         expected_length = trip_count + len(reject_vehicle_ids)
