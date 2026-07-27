@@ -8,6 +8,11 @@
 # the rest unattended.
 set -eu
 
+# 2026-07-28: takes an optional first arg - a job ID already submitted (e.g. from
+# a previous partial run of this script) to chain the first pending job after,
+# instead of submitting it fresh. Leave empty for a normal full run.
+already_running_id="${1:-}"
+
 JOBS=(
   submit_sil_bi200_ss100_class1_exp_prefix_seed1.sbatch
   submit_sil_bi200_ss50_class1_exp_prefix_seed1.sbatch
@@ -19,13 +24,21 @@ JOBS=(
   submit_sil_bi100_ss50_c3_class1_legacy.sbatch
 )
 
-prev_id=""
+# sbatch --parsable -M serial returns "jobid;cluster" (e.g. "5344211;serial") -
+# strip everything from the first ";" so --dependency=afterany:<id> gets a
+# plain job ID, not the raw "jobid;cluster" string (which caused "Job
+# dependency problem" the first time this ran).
+prev_id="$already_running_id"
+if [ -n "$prev_id" ]; then
+  echo "Chaining after already-submitted job: $prev_id"
+fi
 for job in "${JOBS[@]}"; do
   if [ -z "$prev_id" ]; then
-    id=$(sbatch -M serial --parsable "$job")
+    raw_id=$(sbatch -M serial --parsable "$job")
   else
-    id=$(sbatch -M serial --parsable --dependency=afterany:"$prev_id" "$job")
+    raw_id=$(sbatch -M serial --parsable --dependency=afterany:"$prev_id" "$job")
   fi
+  id="${raw_id%%;*}"
   echo "Submitted $job as job $id (depends on: ${prev_id:-none})"
   prev_id="$id"
 done
