@@ -93,6 +93,12 @@ class Config:
     HIDDEN_DIM: int = 64
     NUM_SAMPLES: int = 20
     SIGMA: float = 0.2
+    # 2026-07-30: additive alongside ScoringMLP (the "mlp" default) - lets
+    # training_loop.py/coaml_pipeline.py construct a CandidateScoringGNN
+    # instead when no explicit `model=` is passed in, so both can be run
+    # side by side for comparison without touching the existing MLP path.
+    MODEL_TYPE: str = "mlp"  # "mlp" | "gnn"
+    GNN_NUM_MESSAGE_PASSING_LAYERS: int = 1
     # Expert label scoring
     IMITATION_SCORING_RULE: str = "legacy"
     # 2026-07-19: comma-separated list of extra instance stems (e.g. "lc207,lc208")
@@ -108,6 +114,12 @@ class Config:
     # without it, any class-2 evaluation gap is confounded with SIL never having
     # trained on class-2 patterns at all, not attributable to the pruner.
     EXTRA_TRAINING_FILES: str = ""
+    # 2026-07-26: unlike EXTRA_*_FILES (additive), these REPLACE training_loop's
+    # standard TRAINING_FILES/VALIDATION_FILES entirely when non-empty - needed
+    # for a "class-2-only" training variant, which a purely additive flag can't
+    # express (no way to "add" the class-1 files' absence).
+    OVERRIDE_TRAINING_FILES: str = ""
+    OVERRIDE_VALIDATION_FILES: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -198,6 +210,8 @@ class Config:
             ),
             EXTRA_VALIDATION_FILES=getattr(args, "extra_validation_files", "") or "",
             EXTRA_TRAINING_FILES=getattr(args, "extra_training_files", "") or "",
+            OVERRIDE_TRAINING_FILES=getattr(args, "override_training_files", "") or "",
+            OVERRIDE_VALIDATION_FILES=getattr(args, "override_validation_files", "") or "",
             MAX_THREAD_CNT = args.max_thread_cnt,
             RTV_TIMEOUT = args.rtv_timeout,
             ILP_TIMEOUT = args.ilp_timeout, 
@@ -228,7 +242,9 @@ class Config:
             LEARNING_RATE = getattr(args, "learning_rate", 1e-3),
             HIDDEN_DIM = getattr(args, "hidden_dim", 64),
             NUM_SAMPLES = getattr(args, "num_samples", 20),
-            SIGMA = getattr(args, "sigma", 0.2)
+            SIGMA = getattr(args, "sigma", 0.2),
+            MODEL_TYPE = getattr(args, "model_type", "mlp") or "mlp",
+            GNN_NUM_MESSAGE_PASSING_LAYERS = getattr(args, "gnn_num_message_passing_layers", 1),
         )
         # some checks to fail early if the config is not valid
         assert config.STEP_SIZE <= config.BATCH_INTERVAL, f"MUST: Step size {config.STEP_SIZE} <= batch interval {config.BATCH_INTERVAL}"

@@ -76,6 +76,11 @@ if __name__ == "__main__":
     parser.add_argument('--hidden_dim', type=int, default=64, help='Hidden dimension for the MLP model')
     parser.add_argument('--num_samples', type=int, default=20, help='Number of samples for the Fenchel-Young loss')
     parser.add_argument('--sigma', type=float, default=0.2, help='Sigma for the Fenchel-Young loss')
+    # 2026-07-30: additive alongside the default ScoringMLP - lets a run use
+    # CandidateScoringGNN (rtv_solver/pipeline/candidate_scoring_gnn.py)
+    # instead, so both can be trained/evaluated side by side for comparison.
+    parser.add_argument('--model_type', type=str, choices=['mlp', 'gnn'], default='mlp', help='Trip-scoring model: "mlp" (ScoringMLP, default) or "gnn" (CandidateScoringGNN, conflict-graph message passing).')
+    parser.add_argument('--gnn_num_message_passing_layers', type=int, default=1, help='Only used when --model_type gnn. Number of conflict-graph message-passing layers.')
     parser.add_argument('--y_star_type', type=str, choices=[TYPE_BEST_ORDERED_MATCH], default=TYPE_BEST_ORDERED_MATCH, help='Type of y_star to be used for the Fenchel-Young loss during imitation learning')
     # 2026-07-19: single-file, single-epoch coaml runs (--epochs 1, the "else" branch in
     # the MODE=='coaml' dispatch below) never loaded a pretrained trip-scoring checkpoint
@@ -93,7 +98,14 @@ if __name__ == "__main__":
     parser.add_argument('--output_dir', type=str,           default="debug", help='Output directory')
     parser.add_argument('--extra_validation_files', type=str, default="", help='Comma-separated instance stems to ADD to the standard VALIDATION_FILES for this run only (e.g. "lc207,lc208,lr210,lr211,lrc207,lrc208"). Does not change TRAINING_FILES or affect other runs.')
     parser.add_argument('--extra_training_files', type=str, default="", help='Comma-separated instance stems to ADD to the standard TRAINING_FILES for this run only (e.g. "lc201,lc202,...,lrc205"). Actually changes what the SIL scoring MLP trains on - unlike --extra_validation_files, this produces a genuinely different trained model.')
-    
+    # 2026-07-26: unlike extra_training_files/extra_validation_files (additive, union
+    # with the standard 23/6-file split), these REPLACE the standard split entirely -
+    # needed for a "class-2-only" training variant (no way to express "class-1 files
+    # minus themselves" via a purely additive flag). Empty (default) = no override,
+    # falls back to the standard TRAINING_FILES/VALIDATION_FILES + extra_* as before.
+    parser.add_argument('--override_training_files', type=str, default="", help='Comma-separated instance stems that REPLACE (not add to) the standard TRAINING_FILES for this run only (e.g. for a class-2-only variant: "lc201,lc202,lc203,lc205,lc206,lr201,...").')
+    parser.add_argument('--override_validation_files', type=str, default="", help='Comma-separated instance stems that REPLACE (not add to) the standard VALIDATION_FILES for this run only (e.g. "lc207,lc208,lr210,lr211,lrc207,lrc208").')
+
     # Request graph pruning parameters
     parser.add_argument(
         "--use_request_graph_pruner",
@@ -186,8 +198,14 @@ if __name__ == "__main__":
     if config.MODE == 'coaml' and config.INPUT_DIR:
         extra_val_files = [s.strip() for s in config.EXTRA_VALIDATION_FILES.split(",") if s.strip()]
         extra_train_files = [s.strip() for s in config.EXTRA_TRAINING_FILES.split(",") if s.strip()]
+        override_train_files = [s.strip() for s in config.OVERRIDE_TRAINING_FILES.split(",") if s.strip()]
+        override_val_files = [s.strip() for s in config.OVERRIDE_VALIDATION_FILES.split(",") if s.strip()]
         training_loop = COAMLTrainingLoop(
-            config, extra_validation_files=extra_val_files, extra_training_files=extra_train_files
+            config,
+            extra_validation_files=extra_val_files,
+            extra_training_files=extra_train_files,
+            override_training_files=override_train_files,
+            override_validation_files=override_val_files,
         )
         training_result = training_loop.run()
         console_logger.info(f"All iteration losses: {training_result.all_iteration_losses}")

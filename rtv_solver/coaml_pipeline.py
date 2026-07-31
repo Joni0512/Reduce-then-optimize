@@ -22,6 +22,7 @@ from rtv_solver.structure.assignment_result import AssignmentResult
 
 from rtv_solver.pipeline import CO, CO_ScoreMaximization, CO_TripCostMinimization, CO_RebalancingCoverage, FeatureBuilder
 from rtv_solver.pipeline import FenchelYoungLoss, make_map_oracle, ScoringMLP
+from rtv_solver.pipeline.candidate_scoring_gnn import build_scoring_model, CandidateConflictGraphBuilder
 # keep these constants for compatibility with commented out code in coaml_pipeline.py
 from rtv_solver.pipeline.imitation_handler import (
     ImitationHandler,
@@ -60,7 +61,7 @@ class COAMLPipeline():
             self,
             config: Config,
             offline_payload: dict,
-            model: ScoringMLP | None = None,
+            model: ScoringMLP | torch.nn.Module | None = None,
             epoch: int = 1,
             imitation_solution_path: Path | str | None = None,
         ):
@@ -75,9 +76,16 @@ class COAMLPipeline():
         self.config = config
         self.offline_payload = offline_payload
         self.feature_builder = FeatureBuilder(offline_payload, self.config)
-        self.model = model if model is not None else ScoringMLP(
-            feature_dim=FeatureBuilder.FEATURE_SIZE, hidden_dim=config.HIDDEN_DIM
+        # 2026-07-30: additive - config.MODEL_TYPE selects "mlp" (ScoringMLP,
+        # default, unchanged) or "gnn" (CandidateScoringGNN) when no explicit
+        # `model=` is passed in. See build_scoring_model and self._score below.
+        self.model = model if model is not None else build_scoring_model(
+            config.MODEL_TYPE,
+            feature_dim=FeatureBuilder.FEATURE_SIZE,
+            hidden_dim=config.HIDDEN_DIM,
+            num_message_passing_layers=config.GNN_NUM_MESSAGE_PASSING_LAYERS,
         )
+        self._candidate_graph_builder = CandidateConflictGraphBuilder()
         self.fy_loss = FenchelYoungLoss(num_samples=config.NUM_SAMPLES, sigma=config.SIGMA) # alternative 0.1 or 0.05 for less variance
         self.imitation_handler = ImitationHandler(config, imitation_solution_path=imitation_solution_path)
         
@@ -503,6 +511,33 @@ class COAMLPipeline():
                 f"fallback vehicles {fallback_vehicle_count}/{vehicles_considered}"
             )
 
+    def _score(
+        self,
+        feature_tensor: torch.Tensor,
+        trip_costs: list[TripCost],
+        reject_vehicle_ids: list[int],
+    ) -> torch.Tensor:
+        """
+        Score `feature_tensor` (rows: trip candidates..., then reject actions)
+        with self.model, building a CandidateGraph first if the model needs one.
+
+        2026-07-30: single choke point for both self.model(...) call sites in
+        this file (the main ILP-scoring call below and the FY-loss call in
+        _compute_fy_loss_from_optimal_solution), so ScoringMLP and
+        CandidateScoringGNN can be swapped via config.MODEL_TYPE without
+        duplicating the branch. FenchelYoungLoss/make_map_oracle only ever
+        perturb and re-solve over the already-computed score vector - they
+        never call self.model again - so this one call site per iteration is
+        sufficient; no edge_index needs to be threaded any deeper.
+        """
+        if not getattr(self.model, "requires_graph", False):
+            return self.model(feature_tensor)
+
+        graph = self._candidate_graph_builder.build(
+            trip_costs, reject_vehicle_ids, device=feature_tensor.device
+        )
+        return self.model(feature_tensor, graph.edge_index)
+
     def solve_iteration(self, subset_payload, iteration = 0, mode: str = "train"):
         """
         Solver for the entire payload that is given, based on the onlineRTVSolver but adapted to COAML pipeline.
@@ -585,7 +620,9 @@ class COAMLPipeline():
             )
             if len(feature_tensor_with_reject) > 0: # TODO we need to be able to handle the case where there are no reject actions
                 # situation: debug_case1.sh returns an empty set of requests, so feature_tensor_with_reject is empty and then we do not have optimal solution or score_solution. Solutoin: either handle it without any features etc. and return the reject action or set up a backup for when the result is selected (because optimaL_result is thus referenced before assignment)
-                feature_scores_with_reject = self.model(feature_tensor_with_reject)
+                feature_scores_with_reject = self._score(
+                    feature_tensor_with_reject, trip_costs, reject_vehicle_ids
+                )
                 num_reject_actions = len(reject_vehicle_ids)
                 if num_reject_actions > 0:
                     # Respect the same ordering as in add_reject_action_entries():
@@ -972,7 +1009,7 @@ class COAMLPipeline():
             raise RuntimeError("Y_star must have some values as we consider the reject action separately. The score optimizer must make a decision of some sort.")
 
         feature_tensor = torch.tensor(feature_matrix, dtype=torch.float32)
-        scores = self.model(feature_tensor)
+        scores = self._score(feature_tensor, trip_costs, reject_vehicle_ids)
 
         # pruned_requests, not request_batch - see this method's docstring for why.
         oracle = make_map_oracle(

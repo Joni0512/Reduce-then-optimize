@@ -9,6 +9,7 @@ from rtv_solver.coaml_pipeline import COAMLPipeline
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
 from rtv_solver.pipeline.model_simpleScoring import ScoringMLP
+from rtv_solver.pipeline.candidate_scoring_gnn import build_scoring_model
 from rtv_solver.pipeline.feat_builder import FeatureBuilder
 from rtv_solver.schema.payload_keys import PayloadKeys
 from rtv_solver.structure.config import Config
@@ -111,17 +112,25 @@ class COAMLTrainingLoop:
         self,
         config: Config,
         payload: dict | None = None,
-        model: ScoringMLP | None = None,
+        model: ScoringMLP | torch.nn.Module | None = None,
         input_path: Path | None = None,
         extra_validation_files: list[str] | None = None,
         extra_training_files: list[str] | None = None,
+        override_training_files: list[str] | None = None,
+        override_validation_files: list[str] | None = None,
         val_payload: dict | None = None,
         val_input_path: Path | None = None,
     ) -> None:
         self.config = config
         self.payload = payload
-        self.model = model or ScoringMLP(
-            feature_dim=FeatureBuilder.FEATURE_SIZE, hidden_dim=config.HIDDEN_DIM
+        # 2026-07-30: additive - config.MODEL_TYPE selects "mlp" (ScoringMLP,
+        # default, unchanged) or "gnn" (CandidateScoringGNN) when no explicit
+        # `model=` is passed in. See build_scoring_model.
+        self.model = model or build_scoring_model(
+            config.MODEL_TYPE,
+            feature_dim=FeatureBuilder.FEATURE_SIZE,
+            hidden_dim=config.HIDDEN_DIM,
+            num_message_passing_layers=config.GNN_NUM_MESSAGE_PASSING_LAYERS,
         )
         # TODO load model from existing file to improve learning
         self.input_path = input_path
@@ -138,8 +147,18 @@ class COAMLTrainingLoop:
         # plain domain shift (SIL never having seen class-2 patterns at all),
         # not attributable to the pruner specifically. Passing the pruner's own
         # 17 class-2 train instances here removes that confound.
-        self.train_stems = set(TRAINING_FILES) | set(extra_training_files or [])
-        self.val_stems = set(VALIDATION_FILES) | set(extra_validation_files or [])
+        # 2026-07-26: override_* REPLACES the standard 23/6-file split entirely
+        # (e.g. a "class-2-only" variant), unlike extra_* which only adds to it -
+        # a purely additive flag can't express "train on class-2 files instead of
+        # class-1", only "class-1 plus class-2".
+        if override_training_files:
+            self.train_stems = set(override_training_files)
+        else:
+            self.train_stems = set(TRAINING_FILES) | set(extra_training_files or [])
+        if override_validation_files:
+            self.val_stems = set(override_validation_files)
+        else:
+            self.val_stems = set(VALIDATION_FILES) | set(extra_validation_files or [])
 
     def run(self) -> TrainingLoopResult:
         if self.config.INPUT_DIR:
