@@ -2,7 +2,7 @@
 #SBATCH --job-name=sil_c1_leg_gnnC1L_s5
 #SBATCH --clusters=serial
 #SBATCH --partition=serial_long
-#SBATCH --qos=cm4_serial
+#SBATCH --qos=cm4_serial_long
 #SBATCH --time=1-00:00:00
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
