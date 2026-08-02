@@ -131,6 +131,7 @@ class COAMLTrainingLoop:
             feature_dim=FeatureBuilder.FEATURE_SIZE,
             hidden_dim=config.HIDDEN_DIM,
             num_message_passing_layers=config.GNN_NUM_MESSAGE_PASSING_LAYERS,
+            combine=config.GNN_COMBINE,
         )
         # TODO load model from existing file to improve learning
         self.input_path = input_path

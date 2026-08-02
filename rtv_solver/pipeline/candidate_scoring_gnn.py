@@ -306,6 +306,90 @@ class MeanGraphSAGELayer(nn.Module):
         return self.layer_norm(node_embeddings + updated)
 
 
+class ConcatGraphSAGELayer(nn.Module):
+    """
+    # Ablation stage 2 (2026-08-02): sum-combine -> concat-combine, following
+    # GraphSAGE's own aggregator formulation (Algorithm 1, line 5:
+    # h_v^k <- sigma(W^k . CONCAT(h_v^{k-1}, h_N(v)^{k-1}))), as opposed to the
+    # "convolutional" mean-based variant (our MeanGraphSAGELayer above, which
+    # the paper defines separately in Eq. 2 by replacing that CONCAT with a
+    # single averaged sum). The GraphSAGE paper reports concat gives
+    # "significant gains" over that sum/convolutional variant (Section 3.3).
+    #
+    # Intuition: MeanGraphSAGELayer transforms "myself" and "my neighbours"
+    # SEPARATELY (two independent weight matrices) and only ADDS the two
+    # already-transformed results together - like mixing blue and red paint
+    # into purple, the two signals are blended and the network can no longer
+    # tell how much came from which side. Here, "myself" and "my neighbours"
+    # are instead glued together side-by-side (concatenated) BEFORE a single
+    # shared weight matrix sees them - like writing "Me: X, Neighbours: Y" on
+    # one sheet - both signals stay distinguishable, and the one shared matrix
+    # can learn how they should interact instead of only being able to sum
+    # two independently-computed pieces.
+    """
+
+    def __init__(self, hidden_dim: int, dropout: float = 0.0) -> None:
+        super().__init__()
+        # single shared transform over the concatenated [self ; neighbour_mean]
+        # vector, vs. MeanGraphSAGELayer's two separate self_linear/
+        # neighbour_linear matrices - this is the actual ablation variable.
+        self.combine_linear = nn.Linear(hidden_dim * 2, hidden_dim)
+        self.layer_norm = nn.LayerNorm(hidden_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(
+        self,
+        node_embeddings: torch.Tensor,
+        edge_index: torch.Tensor,
+    ) -> torch.Tensor:
+        if node_embeddings.ndim != 2:
+            raise ValueError(
+                "node_embeddings must have shape [num_nodes, hidden_dim]."
+            )
+        if edge_index.ndim != 2 or edge_index.shape[0] != 2:
+            raise ValueError("edge_index must have shape [2, num_edges].")
+
+        # Identical neighbour-mean computation to MeanGraphSAGELayer - the
+        # aggregation type itself (mean vs. pooling) is ablation stage 3, not
+        # this one, so it is deliberately left unchanged here.
+        num_nodes, hidden_dim = node_embeddings.shape
+        neighbour_sum = node_embeddings.new_zeros((num_nodes, hidden_dim))
+        neighbour_count = node_embeddings.new_zeros((num_nodes, 1))
+
+        if edge_index.numel() > 0:
+            source_nodes = edge_index[0]
+            target_nodes = edge_index[1]
+
+            neighbour_sum.index_add_(
+                0,
+                target_nodes,
+                node_embeddings[source_nodes],
+            )
+            neighbour_count.index_add_(
+                0,
+                target_nodes,
+                torch.ones(
+                    (target_nodes.shape[0], 1),
+                    dtype=node_embeddings.dtype,
+                    device=node_embeddings.device,
+                ),
+            )
+
+        mean_neighbours = neighbour_sum / neighbour_count.clamp_min(1.0)
+
+        # THE ablation-2 change: concatenate raw self + neighbour-mean, then
+        # ONE shared linear layer sees both together (vs. MeanGraphSAGELayer's
+        # two separate linears whose outputs get summed).
+        combined = torch.cat([node_embeddings, mean_neighbours], dim=-1)
+        updated = F.relu(self.combine_linear(combined))
+        updated = self.dropout(updated)
+
+        # Same residual + LayerNorm structure as MeanGraphSAGELayer, kept
+        # identical on purpose so this ablation isolates only the combine
+        # method.
+        return self.layer_norm(node_embeddings + updated)
+
+
 class CandidateScoringGNN(nn.Module):
     """
     Score all RTV candidates jointly using the Version-B conflict graph.
@@ -365,6 +449,7 @@ class CandidateScoringGNN(nn.Module):
         *,
         num_message_passing_layers: int = 1,
         dropout: float = 0.0,
+        combine: str = "sum",
     ) -> None:
         super().__init__()
 
@@ -376,10 +461,17 @@ class CandidateScoringGNN(nn.Module):
             raise ValueError(
                 "num_message_passing_layers must be at least one."
             )
+        # Ablation stage 2 (2026-08-02): "sum" = MeanGraphSAGELayer (stage 0/1
+        # baseline, self and neighbour-mean transformed separately then
+        # summed), "concat" = ConcatGraphSAGELayer (self and neighbour-mean
+        # concatenated before one shared transform, per GraphSAGE Algorithm 1).
+        if combine not in ("sum", "concat"):
+            raise ValueError(f"combine must be 'sum' or 'concat', got {combine!r}.")
 
         self.feature_dim = feature_dim
         self.hidden_dim = hidden_dim
         self.num_message_passing_layers = num_message_passing_layers
+        self.combine = combine
 
         self.encoder = nn.Sequential(
             nn.Linear(feature_dim, hidden_dim),
@@ -387,8 +479,9 @@ class CandidateScoringGNN(nn.Module):
             nn.LayerNorm(hidden_dim),
         )
 
+        layer_cls = MeanGraphSAGELayer if combine == "sum" else ConcatGraphSAGELayer
         self.message_passing_layers = nn.ModuleList(
-            MeanGraphSAGELayer(hidden_dim, dropout=dropout)
+            layer_cls(hidden_dim, dropout=dropout)
             for _ in range(num_message_passing_layers)
         )
 
@@ -439,12 +532,14 @@ def build_scoring_model(
     hidden_dim: int,
     *,
     num_message_passing_layers: int = 1,
+    combine: str = "sum",
 ) -> nn.Module:
     """
     Factory for the trip-scoring model, additive alongside plain ScoringMLP
     construction so training_loop.py/coaml_pipeline.py can build either model
     from Config.MODEL_TYPE without duplicating the branch in both places.
     Does not change or remove the ScoringMLP path - "mlp" stays the default.
+    `combine` is ignored for "mlp" (ablation stage 2 only applies to the GNN).
     """
     if model_type == "mlp":
         return ScoringMLP(feature_dim=feature_dim, hidden_dim=hidden_dim)
@@ -453,5 +548,6 @@ def build_scoring_model(
             feature_dim=feature_dim,
             hidden_dim=hidden_dim,
             num_message_passing_layers=num_message_passing_layers,
+            combine=combine,
         )
     raise ValueError(f"Unknown model_type: {model_type!r} (expected 'mlp' or 'gnn').")
