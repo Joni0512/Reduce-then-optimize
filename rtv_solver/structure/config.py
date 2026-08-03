@@ -103,6 +103,10 @@ class Config:
     # (GraphSAGEMeanLayer, Algorithm 1), or "pool" (GraphSAGEPoolLayer, Eq. 3).
     # Ignored when MODEL_TYPE="mlp".
     GNN_AGGREGATOR: str = "gcn"  # "gcn" | "mean" | "pool"
+    # 2026-08-03: HP-tuning grid stage 2 - threads the existing dropout
+    # constructor parameter on CandidateScoringGNN through from the CLI
+    # (previously always 0.0, never passed by build_scoring_model() callers).
+    DROPOUT: float = 0.0
     # Expert label scoring
     IMITATION_SCORING_RULE: str = "legacy"
     # 2026-07-19: comma-separated list of extra instance stems (e.g. "lc207,lc208")
@@ -250,6 +254,7 @@ class Config:
             MODEL_TYPE = getattr(args, "model_type", "mlp") or "mlp",
             GNN_NUM_MESSAGE_PASSING_LAYERS = getattr(args, "gnn_num_message_passing_layers", 1),
             GNN_AGGREGATOR = getattr(args, "gnn_aggregator", "gcn") or "gcn",
+            DROPOUT = getattr(args, "dropout", 0.0),
         )
         # some checks to fail early if the config is not valid
         assert config.STEP_SIZE <= config.BATCH_INTERVAL, f"MUST: Step size {config.STEP_SIZE} <= batch interval {config.BATCH_INTERVAL}"

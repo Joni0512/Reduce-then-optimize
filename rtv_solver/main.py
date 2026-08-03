@@ -81,6 +81,12 @@ if __name__ == "__main__":
     # instead, so both can be trained/evaluated side by side for comparison.
     parser.add_argument('--model_type', type=str, choices=['mlp', 'gnn'], default='mlp', help='Trip-scoring model: "mlp" (ScoringMLP, default) or "gnn" (CandidateScoringGNN, conflict-graph message passing).')
     parser.add_argument('--gnn_num_message_passing_layers', type=int, default=1, help='Only used when --model_type gnn. Number of conflict-graph message-passing layers.')
+    # 2026-08-03: HP-tuning grid stage 2 - dropout was already a constructor
+    # parameter on CandidateScoringGNN/GCNMeanLayer/GraphSAGEMeanLayer/
+    # GraphSAGEPoolLayer but was never threaded through from main.py/config.py
+    # (training_loop.py and coaml_pipeline.py called build_scoring_model()
+    # without a dropout= argument, so it silently stayed at its 0.0 default).
+    parser.add_argument('--dropout', type=float, default=0.0, help='Only used when --model_type gnn. Dropout applied after each message-passing layer.')
     # 2026-08-02: aggregator ablation - "gcn" (Eq. 2, self+neighbours meaned
     # together before one shared linear layer), "mean" (GraphSAGE Algorithm 1,
     # self and neighbour-mean concatenated before one shared linear layer), or

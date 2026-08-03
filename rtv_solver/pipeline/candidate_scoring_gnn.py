@@ -639,14 +639,15 @@ def build_scoring_model(
     *,
     num_message_passing_layers: int = 1,
     aggregator: str = "gcn",
+    dropout: float = 0.0,
 ) -> nn.Module:
     """
     Factory for the trip-scoring model, additive alongside plain ScoringMLP
     construction so training_loop.py/coaml_pipeline.py can build either model
     from Config.MODEL_TYPE without duplicating the branch in both places.
     Does not change or remove the ScoringMLP path - "mlp" stays the default.
-    `aggregator` is ignored for "mlp" (the aggregator ablation only applies
-    to the GNN).
+    `aggregator`/`dropout` are ignored for "mlp" (both only apply to the GNN;
+    ScoringMLP has no dropout of its own here).
     """
     if model_type == "mlp":
         return ScoringMLP(feature_dim=feature_dim, hidden_dim=hidden_dim)
@@ -656,5 +657,6 @@ def build_scoring_model(
             hidden_dim=hidden_dim,
             num_message_passing_layers=num_message_passing_layers,
             aggregator=aggregator,
+            dropout=dropout,
         )
     raise ValueError(f"Unknown model_type: {model_type!r} (expected 'mlp' or 'gnn').")

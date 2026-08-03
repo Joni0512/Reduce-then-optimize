@@ -85,6 +85,7 @@ class COAMLPipeline():
             hidden_dim=config.HIDDEN_DIM,
             num_message_passing_layers=config.GNN_NUM_MESSAGE_PASSING_LAYERS,
             aggregator=config.GNN_AGGREGATOR,
+            dropout=config.DROPOUT,
         )
         self._candidate_graph_builder = CandidateConflictGraphBuilder()
         self.fy_loss = FenchelYoungLoss(num_samples=config.NUM_SAMPLES, sigma=config.SIGMA) # alternative 0.1 or 0.05 for less variance
