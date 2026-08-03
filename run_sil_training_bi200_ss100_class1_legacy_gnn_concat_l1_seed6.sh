@@ -13,7 +13,7 @@ echo "=== [$(date +%H:%M:%S)] SIL bi200/ss100 class1 legacy - GNN Concat 1L seed
   --learning_rate 0.0001 --epochs 5 \
   --imitation_scoring_rule legacy \
   --use_request_pruner False --use_request_graph_pruner False \
-  --model_type gnn --gnn_num_message_passing_layers 1 --gnn_combine concat \
+  --model_type gnn --gnn_num_message_passing_layers 1 --gnn_aggregator mean \
   --seed 6 \
   --output_dir "outputs/sil_training_bi200_ss100_class1_legacy_gnn_concat_l1_seed6" \
   > "sil_training_bi200_ss100_class1_legacy_gnn_concat_l1_seed6.log" 2>&1
