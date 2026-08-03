@@ -81,9 +81,12 @@ if __name__ == "__main__":
     # instead, so both can be trained/evaluated side by side for comparison.
     parser.add_argument('--model_type', type=str, choices=['mlp', 'gnn'], default='mlp', help='Trip-scoring model: "mlp" (ScoringMLP, default) or "gnn" (CandidateScoringGNN, conflict-graph message passing).')
     parser.add_argument('--gnn_num_message_passing_layers', type=int, default=1, help='Only used when --model_type gnn. Number of conflict-graph message-passing layers.')
-    # 2026-08-02: ablation stage 2 - "sum" (stage 0/1 baseline) vs "concat"
-    # (GraphSAGE Algorithm 1 combine method). Only used when --model_type gnn.
-    parser.add_argument('--gnn_combine', type=str, choices=['sum', 'concat'], default='sum', help='Only used when --model_type gnn. How each message-passing layer combines self and neighbour-mean embeddings: "sum" (two separate transforms, then add) or "concat" (concatenate raw, then one shared transform - GraphSAGE Algorithm 1).')
+    # 2026-08-02: aggregator ablation - "gcn" (Eq. 2, self+neighbours meaned
+    # together before one shared linear layer), "mean" (GraphSAGE Algorithm 1,
+    # self and neighbour-mean concatenated before one shared linear layer), or
+    # "pool" (Eq. 3, elementwise max over per-neighbour transforms, then
+    # concatenated with self). Only used when --model_type gnn.
+    parser.add_argument('--gnn_aggregator', type=str, choices=['gcn', 'mean', 'pool'], default='gcn', help='Only used when --model_type gnn. How each message-passing layer aggregates self and neighbours: "gcn" (mean(self, neighbours) through one shared linear layer - GraphSAGE Eq. 2), "mean" (concat(self, neighbour-mean) through one shared linear layer - GraphSAGE Algorithm 1), or "pool" (concat(self, elementwise-max of per-neighbour transforms) through one shared linear layer - GraphSAGE Eq. 3).')
     parser.add_argument('--y_star_type', type=str, choices=[TYPE_BEST_ORDERED_MATCH], default=TYPE_BEST_ORDERED_MATCH, help='Type of y_star to be used for the Fenchel-Young loss during imitation learning')
     # 2026-07-19: single-file, single-epoch coaml runs (--epochs 1, the "else" branch in
     # the MODE=='coaml' dispatch below) never loaded a pretrained trip-scoring checkpoint

@@ -99,10 +99,10 @@ class Config:
     # side by side for comparison without touching the existing MLP path.
     MODEL_TYPE: str = "mlp"  # "mlp" | "gnn"
     GNN_NUM_MESSAGE_PASSING_LAYERS: int = 1
-    # 2026-08-02: ablation stage 2 - "sum" (MeanGraphSAGELayer, stage 0/1
-    # baseline) vs "concat" (ConcatGraphSAGELayer, per GraphSAGE Algorithm 1).
+    # 2026-08-02: aggregator ablation - "gcn" (GCNMeanLayer, Eq. 2), "mean"
+    # (GraphSAGEMeanLayer, Algorithm 1), or "pool" (GraphSAGEPoolLayer, Eq. 3).
     # Ignored when MODEL_TYPE="mlp".
-    GNN_COMBINE: str = "sum"  # "sum" | "concat"
+    GNN_AGGREGATOR: str = "gcn"  # "gcn" | "mean" | "pool"
     # Expert label scoring
     IMITATION_SCORING_RULE: str = "legacy"
     # 2026-07-19: comma-separated list of extra instance stems (e.g. "lc207,lc208")
@@ -249,7 +249,7 @@ class Config:
             SIGMA = getattr(args, "sigma", 0.2),
             MODEL_TYPE = getattr(args, "model_type", "mlp") or "mlp",
             GNN_NUM_MESSAGE_PASSING_LAYERS = getattr(args, "gnn_num_message_passing_layers", 1),
-            GNN_COMBINE = getattr(args, "gnn_combine", "sum") or "sum",
+            GNN_AGGREGATOR = getattr(args, "gnn_aggregator", "gcn") or "gcn",
         )
         # some checks to fail early if the config is not valid
         assert config.STEP_SIZE <= config.BATCH_INTERVAL, f"MUST: Step size {config.STEP_SIZE} <= batch interval {config.BATCH_INTERVAL}"

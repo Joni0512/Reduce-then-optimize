@@ -230,16 +230,27 @@ class CandidateConflictGraphBuilder:
                 )
 
 
-class MeanGraphSAGELayer(nn.Module):
+class GCNMeanLayer(nn.Module):
     """
-    Minimal mean-aggregation GraphSAGE layer implemented in plain PyTorch.
+    # 2026-08-02: renamed from ConvolutionalMeanLayer and forward() corrected.
+    # The previous version transformed self and neighbour-mean SEPARATELY
+    # (self_linear(self) + neighbour_linear(mean_neighbours)) and only summed
+    # the two already-transformed results. That is mathematically just a
+    # reparameterization of concat+linear (splitting one weight matrix W into
+    # two blocks W_self/W_neigh gives W[h_v; h_N] = W_self h_v + W_neigh h_N),
+    # NOT the paper's actual GCN-style aggregator - verified numerically
+    # against ConcatGraphSAGELayer, diff ~1e-7. This version now implements
+    # the paper's real Eq. 2 (Section 3.3):
+    #   h_v^k = sigma(W^k . MEAN({h_v^{k-1}} union {h_u^{k-1} : u in N(v)}))
+    # i.e. self and neighbours are averaged together FIRST, into one vector,
+    # which then passes through a single shared linear layer - so the network
+    # can no longer tell how much of the result came from itself vs. its
+    # neighbours (unlike GraphSAGEMeanLayer below, which keeps them
+    # distinguishable via concatenation before the shared transform).
 
-    For every node, the layer combines:
-    - a transformation of its own representation, and
-    - a transformation of the mean representation of its conflict neighbours.
-
-    A custom implementation keeps the first prototype independent of
-    torch-geometric and makes the message-passing operation transparent.
+    GCN-style ("convolutional") mean-aggregation layer implemented in plain
+    PyTorch, independent of torch-geometric so the message-passing operation
+    stays transparent.
 
     # REVIEW (2026-07-30): single homogeneous edge type - "same vehicle" and
     # "same request" conflicts are mixed into the same mean-aggregation. These
@@ -252,8 +263,7 @@ class MeanGraphSAGELayer(nn.Module):
 
     def __init__(self, hidden_dim: int, dropout: float = 0.0) -> None:
         super().__init__()
-        self.self_linear = nn.Linear(hidden_dim, hidden_dim)
-        self.neighbour_linear = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.linear = nn.Linear(hidden_dim, hidden_dim)
         self.layer_norm = nn.LayerNorm(hidden_dim)
         self.dropout = nn.Dropout(dropout)
 
@@ -292,13 +302,14 @@ class MeanGraphSAGELayer(nn.Module):
                 ),
             )
 
-        mean_neighbours = neighbour_sum / neighbour_count.clamp_min(1.0)
+        # Eq. 2: self and neighbours are pooled into ONE mean vector before
+        # any transformation - this is what makes it the GCN-style variant
+        # rather than GraphSAGEMeanLayer's concat-then-transform.
+        sum_with_self = neighbour_sum + node_embeddings
+        count_with_self = neighbour_count + 1.0
+        mean_with_self = sum_with_self / count_with_self
 
-        updated = (
-            self.self_linear(node_embeddings)
-            + self.neighbour_linear(mean_neighbours)
-        )
-        updated = F.relu(updated)
+        updated = F.relu(self.linear(mean_with_self))
         updated = self.dropout(updated)
 
         # The residual connection preserves the candidate's own information
@@ -306,33 +317,33 @@ class MeanGraphSAGELayer(nn.Module):
         return self.layer_norm(node_embeddings + updated)
 
 
-class ConcatGraphSAGELayer(nn.Module):
+class GraphSAGEMeanLayer(nn.Module):
     """
-    # Ablation stage 2 (2026-08-02): sum-combine -> concat-combine, following
+    # 2026-08-02: renamed from ConcatGraphSAGELayer (unchanged logic) as part
+    # of the GCN/mean aggregator naming cleanup - this class was already
+    # correct and needed no fix, unlike GCNMeanLayer above. Implements
     # GraphSAGE's own aggregator formulation (Algorithm 1, line 5:
     # h_v^k <- sigma(W^k . CONCAT(h_v^{k-1}, h_N(v)^{k-1}))), as opposed to the
-    # "convolutional" mean-based variant (our MeanGraphSAGELayer above, which
-    # the paper defines separately in Eq. 2 by replacing that CONCAT with a
-    # single averaged sum). The GraphSAGE paper reports concat gives
-    # "significant gains" over that sum/convolutional variant (Section 3.3).
+    # GCN-style mean-based variant (GCNMeanLayer above, which the paper defines
+    # separately in Eq. 2 by replacing that CONCAT with a single averaged sum
+    # over self+neighbours). The GraphSAGE paper reports concat gives
+    # "significant gains" over that GCN-style variant (Section 3.3).
     #
-    # Intuition: MeanGraphSAGELayer transforms "myself" and "my neighbours"
-    # SEPARATELY (two independent weight matrices) and only ADDS the two
-    # already-transformed results together - like mixing blue and red paint
-    # into purple, the two signals are blended and the network can no longer
-    # tell how much came from which side. Here, "myself" and "my neighbours"
-    # are instead glued together side-by-side (concatenated) BEFORE a single
-    # shared weight matrix sees them - like writing "Me: X, Neighbours: Y" on
-    # one sheet - both signals stay distinguishable, and the one shared matrix
-    # can learn how they should interact instead of only being able to sum
-    # two independently-computed pieces.
+    # Intuition: GCNMeanLayer pools "myself" and "my neighbours" into one mean
+    # vector BEFORE any transformation - like mixing blue and red paint into
+    # purple first, so the network can no longer tell how much came from
+    # which side. Here, "myself" and "my neighbours" are instead glued
+    # together side-by-side (concatenated) BEFORE a single shared weight
+    # matrix sees them - like writing "Me: X, Neighbours: Y" on one sheet -
+    # both signals stay distinguishable, and the one shared matrix can learn
+    # how they should interact instead of only seeing an already-blended mean.
     """
 
     def __init__(self, hidden_dim: int, dropout: float = 0.0) -> None:
         super().__init__()
         # single shared transform over the concatenated [self ; neighbour_mean]
-        # vector, vs. MeanGraphSAGELayer's two separate self_linear/
-        # neighbour_linear matrices - this is the actual ablation variable.
+        # vector, vs. GCNMeanLayer's single mean(self, neighbours) vector -
+        # this is the actual ablation variable.
         self.combine_linear = nn.Linear(hidden_dim * 2, hidden_dim)
         self.layer_norm = nn.LayerNorm(hidden_dim)
         self.dropout = nn.Dropout(dropout)
@@ -349,9 +360,8 @@ class ConcatGraphSAGELayer(nn.Module):
         if edge_index.ndim != 2 or edge_index.shape[0] != 2:
             raise ValueError("edge_index must have shape [2, num_edges].")
 
-        # Identical neighbour-mean computation to MeanGraphSAGELayer - the
-        # aggregation type itself (mean vs. pooling) is ablation stage 3, not
-        # this one, so it is deliberately left unchanged here.
+        # Same neighbour-sum/count computation as GCNMeanLayer - only the
+        # combine step below (concat vs. mean-into-one-vector) differs.
         num_nodes, hidden_dim = node_embeddings.shape
         neighbour_sum = node_embeddings.new_zeros((num_nodes, hidden_dim))
         neighbour_count = node_embeddings.new_zeros((num_nodes, 1))
@@ -377,16 +387,102 @@ class ConcatGraphSAGELayer(nn.Module):
 
         mean_neighbours = neighbour_sum / neighbour_count.clamp_min(1.0)
 
-        # THE ablation-2 change: concatenate raw self + neighbour-mean, then
-        # ONE shared linear layer sees both together (vs. MeanGraphSAGELayer's
-        # two separate linears whose outputs get summed).
+        # THE ablation change: concatenate raw self + neighbour-mean, then
+        # ONE shared linear layer sees both together (vs. GCNMeanLayer's
+        # single mean(self, neighbours) vector through one linear layer).
         combined = torch.cat([node_embeddings, mean_neighbours], dim=-1)
         updated = F.relu(self.combine_linear(combined))
         updated = self.dropout(updated)
 
-        # Same residual + LayerNorm structure as MeanGraphSAGELayer, kept
-        # identical on purpose so this ablation isolates only the combine
-        # method.
+        # Same residual + LayerNorm structure as GCNMeanLayer, kept identical
+        # on purpose so this ablation isolates only the aggregator method.
+        return self.layer_norm(node_embeddings + updated)
+
+
+class GraphSAGEPoolLayer(nn.Module):
+    """
+    2026-08-03: third aggregator, GraphSAGE-pool (paper Eq. 3).
+
+    GCNMeanLayer and GraphSAGEMeanLayer both combine neighbours by AVERAGING
+    them - every neighbour contributes equally to the result, so one neighbour
+    with an extreme value gets diluted by the others. This layer instead:
+
+    1. runs EVERY neighbour through its own small linear + ReLU transform
+       (`self.pool_linear`), and
+    2. takes the ELEMENTWISE MAXIMUM across all of a node's (transformed)
+       neighbours, instead of their mean.
+
+    Why max instead of mean: taking the max means each output dimension picks
+    out whichever neighbour scored highest on that dimension, so a single
+    strongly-conflicting neighbour can no longer be "averaged away" by many
+    mild ones. Intuition for this use case: if even one competing candidate
+    is a serious conflict (e.g. wants the same request), that should show up
+    in the aggregated signal - it should not get watered down just because
+    the node also has several harmless neighbours.
+
+    After pooling, this reuses the exact same "concatenate with self, then one
+    shared linear layer" combine step as GraphSAGEMeanLayer, so this ablation
+    isolates only the mean-vs-pool aggregation choice, nothing else.
+    """
+
+    def __init__(self, hidden_dim: int, dropout: float = 0.0) -> None:
+        super().__init__()
+        # Applied to EVERY node once, since any node can be someone's neighbour.
+        self.pool_linear = nn.Linear(hidden_dim, hidden_dim)
+        # Same shared combine step as GraphSAGEMeanLayer (concat -> one linear).
+        self.combine_linear = nn.Linear(hidden_dim * 2, hidden_dim)
+        self.layer_norm = nn.LayerNorm(hidden_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(
+        self,
+        node_embeddings: torch.Tensor,
+        edge_index: torch.Tensor,
+    ) -> torch.Tensor:
+        if node_embeddings.ndim != 2:
+            raise ValueError(
+                "node_embeddings must have shape [num_nodes, hidden_dim]."
+            )
+        if edge_index.ndim != 2 or edge_index.shape[0] != 2:
+            raise ValueError("edge_index must have shape [2, num_edges].")
+
+        num_nodes, hidden_dim = node_embeddings.shape
+
+        # Step 1: transform every node once. Whether a given transformed
+        # vector is actually used depends on who has it as a neighbour.
+        transformed = F.relu(self.pool_linear(node_embeddings))
+
+        # Step 2: for every node, take the elementwise max over its
+        # neighbours' transformed vectors (instead of the mean used by the
+        # other two layers). Start from -inf so max works correctly, then
+        # fix up nodes with zero neighbours afterwards.
+        pooled = node_embeddings.new_full((num_nodes, hidden_dim), float("-inf"))
+        if edge_index.numel() > 0:
+            source_nodes = edge_index[0]
+            target_nodes = edge_index[1]
+            pooled.index_reduce_(
+                0,
+                target_nodes,
+                transformed[source_nodes],
+                "amax",
+                include_self=True,
+            )
+
+        # A node with no neighbours never got written above and is still
+        # -inf in every dimension - replace that with 0 (no neighbour signal)
+        # instead of propagating -inf through the rest of the network.
+        no_neighbours = torch.isinf(pooled)
+        pooled = torch.where(no_neighbours, torch.zeros_like(pooled), pooled)
+
+        # Same combine step as GraphSAGEMeanLayer: concatenate self with the
+        # aggregated neighbour vector, then one shared linear layer.
+        combined = torch.cat([node_embeddings, pooled], dim=-1)
+        updated = F.relu(self.combine_linear(combined))
+        updated = self.dropout(updated)
+
+        # Same residual + LayerNorm structure as the other two layers, kept
+        # identical on purpose so this ablation isolates only the aggregation
+        # method (mean vs. pool).
         return self.layer_norm(node_embeddings + updated)
 
 
@@ -430,7 +526,7 @@ class CandidateScoringGNN(nn.Module):
     # 3. num_message_passing_layers defaults to 1 (only 1-hop conflict
     #    propagation) - worth trying 2 once the pipeline runs end-to-end.
     # 4. Single homogeneous edge type mixing two different conflict kinds
-    #    (see MeanGraphSAGELayer review above).
+    #    (see GCNMeanLayer review above).
     #
     # Next step (as requested): a standalone test script exercising
     # CandidateConflictGraphBuilder + CandidateScoringGNN against real
@@ -449,7 +545,7 @@ class CandidateScoringGNN(nn.Module):
         *,
         num_message_passing_layers: int = 1,
         dropout: float = 0.0,
-        combine: str = "sum",
+        aggregator: str = "gcn",
     ) -> None:
         super().__init__()
 
@@ -461,17 +557,22 @@ class CandidateScoringGNN(nn.Module):
             raise ValueError(
                 "num_message_passing_layers must be at least one."
             )
-        # Ablation stage 2 (2026-08-02): "sum" = MeanGraphSAGELayer (stage 0/1
-        # baseline, self and neighbour-mean transformed separately then
-        # summed), "concat" = ConcatGraphSAGELayer (self and neighbour-mean
-        # concatenated before one shared transform, per GraphSAGE Algorithm 1).
-        if combine not in ("sum", "concat"):
-            raise ValueError(f"combine must be 'sum' or 'concat', got {combine!r}.")
+        # 2026-08-02: "combine" ("sum"/"concat") renamed to "aggregator"
+        # ("gcn"/"mean"/"pool") to name the three GraphSAGE paper variants
+        # directly. "gcn" = GCNMeanLayer (Eq. 2: self+neighbours meaned
+        # together, then one shared linear layer), "mean" = GraphSAGEMeanLayer
+        # (Algorithm 1: self and neighbour-mean concatenated before one shared
+        # linear layer), "pool" = GraphSAGEPoolLayer (Eq. 3: elementwise max
+        # over per-neighbour transforms, then concatenated with self).
+        if aggregator not in ("gcn", "mean", "pool"):
+            raise ValueError(
+                f"aggregator must be 'gcn', 'mean', or 'pool', got {aggregator!r}."
+            )
 
         self.feature_dim = feature_dim
         self.hidden_dim = hidden_dim
         self.num_message_passing_layers = num_message_passing_layers
-        self.combine = combine
+        self.aggregator = aggregator
 
         self.encoder = nn.Sequential(
             nn.Linear(feature_dim, hidden_dim),
@@ -479,7 +580,12 @@ class CandidateScoringGNN(nn.Module):
             nn.LayerNorm(hidden_dim),
         )
 
-        layer_cls = MeanGraphSAGELayer if combine == "sum" else ConcatGraphSAGELayer
+        layer_classes = {
+            "gcn": GCNMeanLayer,
+            "mean": GraphSAGEMeanLayer,
+            "pool": GraphSAGEPoolLayer,
+        }
+        layer_cls = layer_classes[aggregator]
         self.message_passing_layers = nn.ModuleList(
             layer_cls(hidden_dim, dropout=dropout)
             for _ in range(num_message_passing_layers)
@@ -532,14 +638,15 @@ def build_scoring_model(
     hidden_dim: int,
     *,
     num_message_passing_layers: int = 1,
-    combine: str = "sum",
+    aggregator: str = "gcn",
 ) -> nn.Module:
     """
     Factory for the trip-scoring model, additive alongside plain ScoringMLP
     construction so training_loop.py/coaml_pipeline.py can build either model
     from Config.MODEL_TYPE without duplicating the branch in both places.
     Does not change or remove the ScoringMLP path - "mlp" stays the default.
-    `combine` is ignored for "mlp" (ablation stage 2 only applies to the GNN).
+    `aggregator` is ignored for "mlp" (the aggregator ablation only applies
+    to the GNN).
     """
     if model_type == "mlp":
         return ScoringMLP(feature_dim=feature_dim, hidden_dim=hidden_dim)
@@ -548,6 +655,6 @@ def build_scoring_model(
             feature_dim=feature_dim,
             hidden_dim=hidden_dim,
             num_message_passing_layers=num_message_passing_layers,
-            combine=combine,
+            aggregator=aggregator,
         )
     raise ValueError(f"Unknown model_type: {model_type!r} (expected 'mlp' or 'gnn').")
