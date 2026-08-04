@@ -142,6 +142,20 @@ if __name__ == "__main__":
         help="Score threshold used to keep request-request pairs."
 )
 
+    parser.add_argument(
+        "--request_graph_geographic",
+        type=str,
+        default="False",
+        help="Use haversine (real-world meters) instead of naive Euclidean distance for request graph pruner features. Must match how the loaded checkpoint was trained - True for the NYC pair-pruner checkpoints, False (default) for Li&Lim."
+    )
+
+    parser.add_argument(
+        "--request_graph_num_layers",
+        type=int,
+        default=2,
+        help="Message-passing depth for v1 request graph GNN checkpoints (not auto-detected from the state_dict, unlike v2 - must match how the loaded checkpoint was trained)."
+    )
+
     # 2026-07-14: Request pruning parameters - request-only pruner
     # (RequestPruner), separate from and runs before the request-graph pair
     # pruner above. See rtv_solver/pipeline/request_pruner.py.

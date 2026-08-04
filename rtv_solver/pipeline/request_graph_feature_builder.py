@@ -42,12 +42,24 @@ class RequestGraphFeatureBuilder:
     ]
 
     @staticmethod
-    def add_features(G):
-        RequestGraphFeatureBuilder.add_node_features(G)
-        RequestGraphFeatureBuilder.add_edge_features(G)
+    def add_features(G, geographic: bool = False):
+        # 2026-08-02: `geographic` added because NYC's lat/lon are real WGS84
+        # degrees (curved-earth), while Li&Lim's lat/lon fields actually hold
+        # the benchmark's abstract flat-grid X/Y coordinates (see
+        # li_lim_parser.py) - plain Euclidean distance is correct for Li&Lim
+        # but distorts NYC distances direction-dependently (verified: ~24%
+        # under-weights east-west vs. north-south at NYC's latitude).
+        # Default False keeps Li&Lim's behavior byte-identical.
+        RequestGraphFeatureBuilder.add_node_features(G, geographic=geographic)
+        RequestGraphFeatureBuilder.add_edge_features(G, geographic=geographic)
         return G
     @staticmethod
-    def add_node_features(G):
+    def add_node_features(G, geographic: bool = False):
+        distance_fn = (
+            RequestGraphFeatureBuilder._haversine_distance_m
+            if geographic
+            else RequestGraphFeatureBuilder._euclidean_distance
+        )
         for node_id, data in G.nodes(data=True):
             req = data["request"]
 
@@ -66,7 +78,10 @@ class RequestGraphFeatureBuilder:
                 req.latest_pickup_time - req.earliest_pickup_time
             )
 
-            data["trip_distance_euclidean"] = RequestGraphFeatureBuilder._euclidean_distance(
+            # 2026-08-02: uses haversine (meters) when geographic=True; name
+            # kept as "trip_distance_euclidean" so NODE_FEATURES/checkpoint
+            # column order is unaffected - only the underlying metric changes.
+            data["trip_distance_euclidean"] = distance_fn(
                 pickup_lat,
                 pickup_lon,
                 dropoff_lat,
@@ -82,6 +97,12 @@ class RequestGraphFeatureBuilder:
 
                 other_req = other_data["request"]
 
+                # NOTE 2026-08-02: still plain Euclidean with a fixed 10.0
+                # threshold regardless of `geographic` - that threshold is
+                # tuned for Li&Lim's grid units and is not yet meaningful for
+                # NYC's real coordinates (would need a meter-based cutoff).
+                # Known open issue, intentionally not touched here - no
+                # agreed-on meter value yet.
                 spatial_dist = RequestGraphFeatureBuilder._euclidean_distance(
                     req.origin.lat,
                     req.origin.lon,
@@ -99,19 +120,24 @@ class RequestGraphFeatureBuilder:
             data["local_request_count_10min"] = float(local_request_count)
         return G
     @staticmethod
-    def add_edge_features(G):
+    def add_edge_features(G, geographic: bool = False):
+        distance_fn = (
+            RequestGraphFeatureBuilder._haversine_distance_m
+            if geographic
+            else RequestGraphFeatureBuilder._euclidean_distance
+        )
         for u, v, data in G.edges(data=True):
             r1 = G.nodes[u]["request"]
             r2 = G.nodes[v]["request"]
 
-            data["pickup_distance"] = RequestGraphFeatureBuilder._euclidean_distance(
+            data["pickup_distance"] = distance_fn(
                 r1.origin.lat,
                 r1.origin.lon,
                 r2.origin.lat,
                 r2.origin.lon,
             )
 
-            data["dropoff_distance"] = RequestGraphFeatureBuilder._euclidean_distance(
+            data["dropoff_distance"] = distance_fn(
                 r1.destination.lat,
                 r1.destination.lon,
                 r2.destination.lat,
@@ -147,28 +173,28 @@ class RequestGraphFeatureBuilder:
                 r2,
             )
 
-            trip_distance_1 = RequestGraphFeatureBuilder._euclidean_distance(
+            trip_distance_1 = distance_fn(
                 r1.origin.lat,
                 r1.origin.lon,
                 r1.destination.lat,
                 r1.destination.lon,
             )
 
-            trip_distance_2 = RequestGraphFeatureBuilder._euclidean_distance(
+            trip_distance_2 = distance_fn(
                 r2.origin.lat,
                 r2.origin.lon,
                 r2.destination.lat,
                 r2.destination.lon,
             )
 
-            data["cross_pickup1_dropoff2_distance"] = RequestGraphFeatureBuilder._euclidean_distance(
+            data["cross_pickup1_dropoff2_distance"] = distance_fn(
                 r1.origin.lat,
                 r1.origin.lon,
                 r2.destination.lat,
                 r2.destination.lon,
             )
 
-            data["cross_pickup2_dropoff1_distance"] = RequestGraphFeatureBuilder._euclidean_distance(
+            data["cross_pickup2_dropoff1_distance"] = distance_fn(
                 r2.origin.lat,
                 r2.origin.lon,
                 r1.destination.lat,
@@ -220,6 +246,24 @@ class RequestGraphFeatureBuilder:
             (lat1 - lat2) ** 2
             + (lon1 - lon2) ** 2
         )
+
+    @staticmethod
+    def _haversine_distance_m(lat1, lon1, lat2, lon2):
+        # 2026-08-02: added for NYC (geographic=True) - real-distance
+        # counterpart to _euclidean_distance, same formula already used
+        # elsewhere in the pipeline (build_nyc_manifest.py, feat_builder.py's
+        # _calc_geo_distance_meter) so the pruner's notion of distance matches
+        # the solver's. Not used for Li&Lim, whose lat/lon fields hold flat
+        # grid coordinates, not real degrees.
+        R = 6371000.0
+        p1, p2 = math.radians(lat1), math.radians(lat2)
+        dphi = math.radians(lat2 - lat1)
+        dlambda = math.radians(lon2 - lon1)
+        a = (
+            math.sin(dphi / 2) ** 2
+            + math.cos(p1) * math.cos(p2) * math.sin(dlambda / 2) ** 2
+        )
+        return 2 * R * math.asin(math.sqrt(a))
 
     @staticmethod
     def _window_overlap(start1, end1, start2, end2):

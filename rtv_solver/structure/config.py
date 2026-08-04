@@ -60,6 +60,13 @@ class Config:
     # since RequestGraphPruner instantiates RequestGraphEdgeGNNv2.
     REQUEST_GRAPH_MODEL_PATH: str = "outputs/models_v2_gnnv2/rgnn_mixed_c2_pw10_v2/rgnn_mixed_c2_pw10_v2_best_val_f3.pt" #new
     REQUEST_GRAPH_THRESHOLD: float = 0.5 #new
+    # 2026-08-04: NYC pair-pruner test - geographic must match how the loaded
+    # checkpoint was trained (RequestGraphFeatureBuilder.add_features), and
+    # num_layers must match the checkpoint's message_passing_steps for v1
+    # checkpoints (not auto-detected from the state_dict, unlike v2). Defaults
+    # keep the existing Li&Lim v2 default checkpoint's behavior unchanged.
+    REQUEST_GRAPH_GEOGRAPHIC: bool = False
+    REQUEST_GRAPH_NUM_LAYERS: int = 2
     # 2026-07-14: request-only pruner (RequestPruner) - separate from the
     # request-request pair pruner above, runs before it in TripHandler.run()
     # and reduces the request count itself, not just which pairs may share a
@@ -201,6 +208,12 @@ class Config:
             ),
             REQUEST_GRAPH_THRESHOLD=getattr(
                 args, "request_graph_threshold", 0.5
+            ),
+            REQUEST_GRAPH_GEOGRAPHIC=cls.str_to_bool(
+                getattr(args, "request_graph_geographic", "False")
+            ),
+            REQUEST_GRAPH_NUM_LAYERS=getattr(
+                args, "request_graph_num_layers", 2
             ),
             # 2026-07-14: request-only pruner flags, mirrors the request-graph
             # (pair) pruner flags above - see USE_REQUEST_PRUNER comment in

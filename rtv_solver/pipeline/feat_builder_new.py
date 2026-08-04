@@ -1,5 +1,3 @@
-#TODO: abaltion study to see which feature groups are most useful for the mode performance
-
 from __future__ import annotations
 
 from typing import Dict, Iterable, List, Tuple, Union
@@ -77,7 +75,26 @@ class TripFeatures:
     t_norm_num_requests_by_vehicle_max_capacity: float = 0.0
 
 
-@dataclass 
+@dataclass
+class CandidateRequestFeatures:
+    """
+    2026-07-30: compact candidate-specific counterpart to the (now genuinely
+    global) future-demand grid - see _candidate_request_location_features and
+    _global_future_demand_features. Previously the 49-cell grid was computed
+    over just this candidate's own 1-2 requests, which is almost always
+    sparse/near-empty and largely redundant with tc_travel_time_to_first_pickup
+    (see feature-group ablation in outputs/ablation_bi200_ss100_class1_legacy -
+    the grid contributed ~0 to service rate there, most likely because of this).
+    This replaces that with the actual non-redundant signal a per-candidate
+    grid cell was trying to provide: where this candidate's own request(s) are,
+    and how urgent the most pressing one is.
+    """
+    cr_norm_lat: float = 0.5  # mean pickup latitude of this candidate's own requests; 0.5 = no requests / center of map (never a valid real position, same convention as v_norm_lat_next_position)
+    cr_norm_lon: float = 0.5
+    cr_urgency: float = 0.0  # max decay score (see _global_future_demand_features) across this candidate's own requests; 1.0 = due now, 0.0 = no requests or beyond look-ahead horizon
+
+
+@dataclass
 class TripCostFeatures:
     """1D feature scores for each request-trip-vehicle combination for aggregated information; that also defines the blank defaults if nothing can be calculated"""
     # tc_cost: float = 0.0
@@ -106,7 +123,11 @@ class TripCostFeatures:
 
 class FeatureBuilder:
     ENABLE_TRIP_COMPOSITION_FEATURES = True # include explicit trip-composition signal
-    _BASE_FEATURE_SIZE = 82
+    # 2026-07-30: base = 6 (state) + 11 (vehicle) + 15 (tripcost) + 49 (global future
+    # demand grid) + 3 (candidate request location) + 1 (reject flag) = 85.
+    # (Previously documented as 82 = 6+11+"17"(actually 15)+49+1 - the "17" was a
+    # stale comment in build_from_components, not a real extra 2 features.)
+    _BASE_FEATURE_SIZE = 85
     _TRIP_COMPOSITION_FEATURE_SIZE = 2
     FEATURE_SIZE = _BASE_FEATURE_SIZE + (
         _TRIP_COMPOSITION_FEATURE_SIZE if ENABLE_TRIP_COMPOSITION_FEATURES else 0
@@ -171,6 +192,14 @@ class FeatureBuilder:
         requests_by_id = {r.id: r for r in requests}
         features: List[FeatureVector] = []
 
+        # 2026-07-30: computed once per call, not per trip_cost row - this only
+        # depends on the batch's full request pool and current_time, identical
+        # for every row (same as state_features, which is still recomputed per
+        # row below - left as-is to keep this change scoped to the future-demand
+        # split). See _global_future_demand_features for why this now uses the
+        # full `requests` list instead of one candidate's own requests.
+        global_future_demand = self._global_future_demand_features(requests, current_time)
+
         for tc in trip_costs:
             trip = trips[tc.trip_no]
             vehicle = vehicles.get(tc.vehicle_id)
@@ -184,12 +213,13 @@ class FeatureBuilder:
             if self.ENABLE_TRIP_COMPOSITION_FEATURES:
                 fv.update(self._trip_features(trip, vehicle))                   # 2 items
             fv.update(self._vehicle_features(vehicle, vehicles, current_time))  # 11 items
-            fv.update(self._trip_cost_features(tc, current_time))               # 17 items
-            fv.update(self._future_requests_features(trip_requests, current_time)) # 49 items
+            fv.update(self._trip_cost_features(tc, current_time))               # 15 items
+            fv.update(global_future_demand)                                     # 49 items - global, same for every row this call
+            fv.update(self._candidate_request_location_features(trip_requests, current_time)) # 3 items - this candidate's own requests
             # fv.update(self._request_aggregate_features(trip_requests))
             fv[self.REJECT_FLAG_FEATURE_NAME] = 0.0
 
-            # current total = 82 items (or 84 if trip composition features are enabled)
+            # current total = 85 items (or 87 if trip composition features are enabled)
 
             features.append(fv)
 
@@ -243,6 +273,7 @@ class FeatureBuilder:
         feature_names: List[str],
         vehicles: Dict[int, Vehicle],
         current_time: float,
+        requests: List[Request] = (),
     ) -> Tuple[np.ndarray, List[int]]:
         """
         Append one synthetic reject-action row per vehicle.
@@ -250,8 +281,19 @@ class FeatureBuilder:
         For each vehicle, the added row includes:
         - current state features
         - that vehicle's features
-        - empty future-request features
+        - the same global future-demand grid every trip-candidate row for this
+          batch gets (rejecting a candidate doesn't change what else is
+          pending, so this should carry the real signal, not zeros)
+        - candidate-request-location features at their "no candidate" default
+          (no request is actually attached to a reject action)
         - `action_reject_flag` set to 1
+
+        2026-07-30: `requests` is the same full batch request list passed to
+        build_from_components/build_matrix - needed now that future-demand is
+        computed globally rather than per (empty) candidate. Defaults to ()
+        for backward compatibility with existing call sites; passing nothing
+        just means reject rows fall back to an all-zero global-demand grid
+        (the old behavior) until callers are updated to pass it through.
 
         Returns:
             matrix_with_reject_rows, reject_vehicle_ids
@@ -273,14 +315,16 @@ class FeatureBuilder:
         reject_vehicle_ids = sorted(vehicles.keys())
         # Keep deterministic vehicle ordering so appended reject rows map consistently to reject variables/scores across components.
         state_features = self._state_features(current_time, vehicles)
-        empty_future_features = self._future_requests_features([], current_time)
+        global_future_demand = self._global_future_demand_features(list(requests), current_time)
+        no_candidate_location = self._candidate_request_location_features([], current_time)
         reject_rows: list[list[float]] = []
 
         for vehicle_id in reject_vehicle_ids:
             row_features: FeatureVector = {}
             row_features.update(state_features)
             row_features.update(self._vehicle_features(vehicles[vehicle_id], vehicles, current_time))
-            row_features.update(empty_future_features)
+            row_features.update(global_future_demand)
+            row_features.update(no_candidate_location)
             row_features[self.REJECT_FLAG_FEATURE_NAME] = 1.0
 
             reject_rows.append(
@@ -527,10 +571,20 @@ class FeatureBuilder:
         # print(trip_cost.trip_no, trip_cost.vehicle_id, features)
         return asdict(features)
 
-    def _future_requests_features(self, requests: List[Request], current_time: float) -> FeatureVector:
+    def _global_future_demand_features(self, requests: List[Request], current_time: float) -> FeatureVector:
         """
         Aggregates future request pickup demand onto a 7x7 geographic grid with interval-based
         temporal decay.
+
+        2026-07-30: `requests` must be the FULL currently-known/pending request
+        pool for this batch (e.g. build_from_components' own `requests` param,
+        which is trip_handler.requests upstream) - NOT one trip candidate's own
+        requests. This is a genuinely global, batch-level signal: identical for
+        every trip_cost row and for the reject rows in the same
+        build_from_components()/add_reject_action_entries() call, since it only
+        depends on current_time and the batch's request pool. See
+        _candidate_request_location_features for the (small, non-grid)
+        candidate-specific counterpart this replaced within each row.
 
         The operating area (defined by min/max lat and lon) is divided into a 7x7 grid.
         For each request, the pickup origin is mapped to a grid cell and a decay
@@ -545,14 +599,16 @@ class FeatureBuilder:
         Requests whose earliest_pickup_time falls beyond the look-ahead horizon
         (4 * BATCH_INTERVAL) are ignored. Dropoff location and capacity are not used.
 
-        Returns a 49-element FeatureVector keyed as ``fr_grid_{row}_{col}`` where row 0 / col 0
+        Returns a 49-element FeatureVector keyed as ``gfd_grid_{row}_{col}`` where row 0 / col 0
         corresponds to the south-west corner of the operating area (min lat / min lon).
 
         Parameters
         ----------
         requests : List[Request]
-            Candidate requests. Requests already due (earliest_pickup_time <= current_time)
-            are treated as immediate demand (interval 1).
+            The full batch's currently-known/pending requests (not just one
+            candidate's own requests). Requests already due
+            (earliest_pickup_time <= current_time) are treated as immediate
+            demand (interval 1).
         current_time : float
             Current simulation time.
 
@@ -601,12 +657,58 @@ class FeatureBuilder:
             grid[row, col] += decay
 
         return {
-            f"fr_grid_{row}_{col}": float(grid[row, col])
+            f"gfd_grid_{row}_{col}": float(grid[row, col])
             for row in range(GRID_SIZE)
             for col in range(GRID_SIZE)
         }
-    
-    @staticmethod       
+
+    def _candidate_request_location_features(self, requests: List[Request], current_time: float) -> FeatureVector:
+        """
+        Compact candidate-specific counterpart to _global_future_demand_features:
+        where this trip candidate's OWN request(s) are, and how urgent the most
+        pressing one is. `requests` here is deliberately just the 1-2 (up to
+        max_cardinality) requests already inside this candidate trip - the
+        opposite scope of _global_future_demand_features's full batch pool.
+
+        Mean pickup position keeps this cheap and cardinality-agnostic rather
+        than padding per-request slots; urgency reuses the same interval-decay
+        scale as the global grid (1.0 = due now, decaying to 0 beyond the
+        4*BATCH_INTERVAL look-ahead horizon) so both features are on a
+        comparable scale.
+        """
+        features = CandidateRequestFeatures()
+        if not requests:
+            return asdict(features)
+
+        # Normalize to [0, 1] fractional position within the operating area,
+        # same lat_range/lon_range basis _global_future_demand_features uses
+        # to place a request into its grid cell - keeps both features on a
+        # comparable [0, 1] scale and consistent with the 0.5 "center of map"
+        # default (mirrors v_norm_lat_next_position's convention).
+        lat_range = self.max_lat - self.min_lat
+        lon_range = self.max_lon - self.min_lon
+        lats = [request.origin.lat for request in requests]
+        lons = [request.origin.lon for request in requests]
+        mean_lat = sum(lats) / len(lats)
+        mean_lon = sum(lons) / len(lons)
+        features.cr_norm_lat = (mean_lat - self.min_lat) / lat_range if lat_range > 0 else 0.0
+        features.cr_norm_lon = (mean_lon - self.min_lon) / lon_range if lon_range > 0 else 0.0
+
+        best_decay = 0.0
+        for request in requests:
+            offset = request.earliest_pickup_time - current_time
+            if offset <= 0:
+                interval_index = 1
+            else:
+                interval_index = int(offset // self.config.BATCH_INTERVAL) + 1
+            if interval_index > 4:  # beyond the look-ahead horizon, same cutoff as the global grid
+                continue
+            best_decay = max(best_decay, 0.5 ** (interval_index - 1))
+        features.cr_urgency = best_decay
+
+        return asdict(features)
+
+    @staticmethod
     def _calc_geo_distance_meter(loc1: tuple[float, float], loc2: tuple[float, float]):
         """
         each location must be defined as a tuple with (lat, lon)

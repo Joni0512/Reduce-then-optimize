@@ -55,12 +55,18 @@ class RequestGraphPruner:
         # would silently mismatch whatever num_layers a given run was trained with.
         num_layers: int = 2,
         device: str = "cpu",
+        # 2026-08-04: NYC checkpoints are trained with geographic=True (haversine
+        # distance features, see RequestGraphFeatureBuilder.add_features) - this
+        # must match at inference time or the model sees a different distance
+        # metric than it was trained on. Default False keeps Li&Lim unaffected.
+        geographic: bool = False,
     ):
         self.model_path = Path(model_path)
         self.threshold = threshold
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
         self.device = torch.device(device)
+        self.geographic = geographic
 
         self.model = None
         self.gnn_version = None
@@ -91,7 +97,7 @@ class RequestGraphPruner:
             }
 
         G = RequestGraphFullBuilder.build(requests)
-        G = RequestGraphFeatureBuilder.add_features(G)
+        G = RequestGraphFeatureBuilder.add_features(G, geographic=self.geographic)
 
         node_matrix, edge_index, edge_matrix, node_ids = (
             RequestGraphFeatureBuilder.to_numpy(G)

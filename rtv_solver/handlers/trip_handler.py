@@ -125,6 +125,8 @@ class TripHandler:
             pruner = RequestGraphPruner(
                 model_path=self.config.REQUEST_GRAPH_MODEL_PATH,
                 threshold=self.config.REQUEST_GRAPH_THRESHOLD,
+                num_layers=self.config.REQUEST_GRAPH_NUM_LAYERS,
+                geographic=self.config.REQUEST_GRAPH_GEOGRAPHIC,
             )
 
             (
