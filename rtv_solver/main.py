@@ -87,6 +87,11 @@ if __name__ == "__main__":
     # (training_loop.py and coaml_pipeline.py called build_scoring_model()
     # without a dropout= argument, so it silently stayed at its 0.0 default).
     parser.add_argument('--dropout', type=float, default=0.0, help='Only used when --model_type gnn. Dropout applied after each message-passing layer.')
+    # 2026-08-05: HP-tuning stage 2 - optional wandb logging/sweep support.
+    # Off by default so existing scripts/behavior are unaffected; a wandb
+    # sweep agent sets this via its `command:` template.
+    parser.add_argument('--use_wandb', type=str, default='False', choices=['True', 'False'], help='Log per-epoch val service rate to Weights & Biases (for sweeps/tracking). Off by default.')
+    parser.add_argument('--wandb_project', type=str, default='rtv-solver-hp-sweep', help='Only used when --use_wandb True.')
     # 2026-08-02: aggregator ablation - "gcn" (Eq. 2, self+neighbours meaned
     # together before one shared linear layer), "mean" (GraphSAGE Algorithm 1,
     # self and neighbour-mean concatenated before one shared linear layer), or
@@ -226,6 +231,13 @@ if __name__ == "__main__":
         extra_train_files = [s.strip() for s in config.EXTRA_TRAINING_FILES.split(",") if s.strip()]
         override_train_files = [s.strip() for s in config.OVERRIDE_TRAINING_FILES.split(",") if s.strip()]
         override_val_files = [s.strip() for s in config.OVERRIDE_VALIDATION_FILES.split(",") if s.strip()]
+        if config.USE_WANDB:
+            import wandb
+            wandb.init(project=config.WANDB_PROJECT, config=config.to_dict())
+            # Sweep agents don't pass a distinct --output_dir per trial, so
+            # every trial would otherwise collide on the same default path
+            # and overwrite each other's checkpoints/results.
+            config.OUTPUT_DIR = Path("outputs") / config.WANDB_PROJECT / wandb.run.id
         training_loop = COAMLTrainingLoop(
             config,
             extra_validation_files=extra_val_files,
@@ -236,6 +248,9 @@ if __name__ == "__main__":
         training_result = training_loop.run()
         console_logger.info(f"All iteration losses: {training_result.all_iteration_losses}")
         console_logger.info(f"Run complete. Results @ {Path(config.OUTPUT_DIR)}")
+        if config.USE_WANDB:
+            import wandb
+            wandb.finish()
     else: # single file_handling
         # load data from file and update to canonical format for the entire system
         data = PayloadParser.load_input_data(Path(__file__).resolve().parent.parent / config.INPUT_FILE)

@@ -261,6 +261,9 @@ class COAMLTrainingLoop:
                 f"Epoch {epoch_num}: pooled val service rate = {epoch_val_service_rate:.4f} "
                 f"({epoch_serviced}/{epoch_total_requests} across {len(val_files)} files)"
             )
+            if self.config.USE_WANDB:
+                import wandb
+                wandb.log({"val_service_rate": epoch_val_service_rate, "epoch": epoch_num})
             if epoch_val_service_rate > best_val_service_rate:
                 best_val_service_rate = epoch_val_service_rate
                 best_epoch = epoch_num
@@ -272,6 +275,9 @@ class COAMLTrainingLoop:
             f"Best val service rate = {best_val_service_rate:.4f} at epoch {best_epoch} "
             f"-> {self.config.OUTPUT_DIR / 'coaml_model_weights_best_val.pt'}"
         )
+        if self.config.USE_WANDB:
+            import wandb
+            wandb.log({"best_val_service_rate": best_val_service_rate, "best_epoch": best_epoch})
         # save losses before it runs the further validation (derisking getting cut off from the results)
         save_json(losses_per_file, self.config.OUTPUT_DIR / "training_loss_per_file.json")
         
