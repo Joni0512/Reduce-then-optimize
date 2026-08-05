@@ -106,6 +106,11 @@ class Config:
     # side by side for comparison without touching the existing MLP path.
     MODEL_TYPE: str = "mlp"  # "mlp" | "gnn"
     GNN_NUM_MESSAGE_PASSING_LAYERS: int = 1
+    # 2026-08-05: additive alongside feat_builder.py (v1, unchanged) - lets
+    # coaml_pipeline.py/training_loop.py build features via feat_builder_new.py
+    # (v2: global future-demand grid + candidate request-location features)
+    # instead, for side-by-side comparison. See pipeline.build_feature_builder().
+    FEATURE_BUILDER_VERSION: str = "v1"  # "v1" | "v2"
     # 2026-08-02: aggregator ablation - "gcn" (GCNMeanLayer, Eq. 2), "mean"
     # (GraphSAGEMeanLayer, Algorithm 1), or "pool" (GraphSAGEPoolLayer, Eq. 3).
     # Ignored when MODEL_TYPE="mlp".
@@ -268,6 +273,7 @@ class Config:
             NUM_SAMPLES = getattr(args, "num_samples", 20),
             SIGMA = getattr(args, "sigma", 0.2),
             MODEL_TYPE = getattr(args, "model_type", "mlp") or "mlp",
+            FEATURE_BUILDER_VERSION = getattr(args, "feature_builder_version", "v1") or "v1",
             GNN_NUM_MESSAGE_PASSING_LAYERS = getattr(args, "gnn_num_message_passing_layers", 1),
             GNN_AGGREGATOR = getattr(args, "gnn_aggregator", "gcn") or "gcn",
             DROPOUT = getattr(args, "dropout", 0.0),

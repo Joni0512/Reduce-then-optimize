@@ -81,6 +81,11 @@ if __name__ == "__main__":
     # instead, so both can be trained/evaluated side by side for comparison.
     parser.add_argument('--model_type', type=str, choices=['mlp', 'gnn'], default='mlp', help='Trip-scoring model: "mlp" (ScoringMLP, default) or "gnn" (CandidateScoringGNN, conflict-graph message passing).')
     parser.add_argument('--gnn_num_message_passing_layers', type=int, default=1, help='Only used when --model_type gnn. Number of conflict-graph message-passing layers.')
+    # 2026-08-05: additive alongside the default feat_builder.py (v1) - lets a run use
+    # feat_builder_new.py (v2: global future-demand grid + candidate request-location
+    # features) instead, so both feature sets can be compared side by side without
+    # touching v1. See rtv_solver/pipeline/build_feature_builder().
+    parser.add_argument('--feature_builder_version', type=str, choices=['v1', 'v2'], default='v1', help='Feature set: "v1" (feat_builder.py, default, 84/82-dim) or "v2" (feat_builder_new.py, global future-demand grid + candidate request-location features, 87/85-dim).')
     # 2026-08-03: HP-tuning grid stage 2 - dropout was already a constructor
     # parameter on CandidateScoringGNN/GCNMeanLayer/GraphSAGEMeanLayer/
     # GraphSAGEPoolLayer but was never threaded through from main.py/config.py

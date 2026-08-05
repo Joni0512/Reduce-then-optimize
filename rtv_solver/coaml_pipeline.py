@@ -20,7 +20,7 @@ from rtv_solver.structure.config import Config
 from rtv_solver.structure.trip_cost import TripCost
 from rtv_solver.structure.assignment_result import AssignmentResult
 
-from rtv_solver.pipeline import CO, CO_ScoreMaximization, CO_TripCostMinimization, CO_RebalancingCoverage, FeatureBuilder
+from rtv_solver.pipeline import CO, CO_ScoreMaximization, CO_TripCostMinimization, CO_RebalancingCoverage, FeatureBuilder, build_feature_builder
 from rtv_solver.pipeline import FenchelYoungLoss, make_map_oracle, ScoringMLP
 from rtv_solver.pipeline.candidate_scoring_gnn import build_scoring_model, CandidateConflictGraphBuilder
 # keep these constants for compatibility with commented out code in coaml_pipeline.py
@@ -75,13 +75,17 @@ class COAMLPipeline():
         """
         self.config = config
         self.offline_payload = offline_payload
-        self.feature_builder = FeatureBuilder(offline_payload, self.config)
+        # 2026-08-05: config.FEATURE_BUILDER_VERSION selects "v1" (feat_builder.py,
+        # default, unchanged) or "v2" (feat_builder_new.py) via build_feature_builder.
+        # FEATURE_SIZE below is read off the actual instance's class so the model's
+        # input dim always matches whichever version was just built, not v1 always.
+        self.feature_builder = build_feature_builder(offline_payload, self.config)
         # 2026-07-30: additive - config.MODEL_TYPE selects "mlp" (ScoringMLP,
         # default, unchanged) or "gnn" (CandidateScoringGNN) when no explicit
         # `model=` is passed in. See build_scoring_model and self._score below.
         self.model = model if model is not None else build_scoring_model(
             config.MODEL_TYPE,
-            feature_dim=FeatureBuilder.FEATURE_SIZE,
+            feature_dim=type(self.feature_builder).FEATURE_SIZE,
             hidden_dim=config.HIDDEN_DIM,
             num_message_passing_layers=config.GNN_NUM_MESSAGE_PASSING_LAYERS,
             aggregator=config.GNN_AGGREGATOR,
@@ -204,7 +208,7 @@ class COAMLPipeline():
             "model_state_dict": self.model.state_dict(),
             "feature_dim": self.model.feature_dim,
             "hidden_dim": self.model.hidden_dim,
-            "feature_size": FeatureBuilder.FEATURE_SIZE,
+            "feature_size": type(self.feature_builder).FEATURE_SIZE,
         }
         torch.save(checkpoint, checkpoint_path)
         console_logger.info(f"Saved COAML model weights to {checkpoint_path}")

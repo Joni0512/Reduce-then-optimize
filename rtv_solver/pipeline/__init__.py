@@ -1,4 +1,10 @@
 from .feat_builder import FeatureBuilder, VehicleFeatures, StateFeatures, TripFeatures, TripCostFeatures
+# 2026-08-05: aliased import for the v2 feature-builder comparison - feat_builder_new.py
+# defines a class of the same name "FeatureBuilder", so it must be imported under an
+# alias here rather than reassigning the name above (which would silently make every
+# existing `from rtv_solver.pipeline import FeatureBuilder` caller get v2 instead of v1).
+from .feat_builder import FeatureBuilder as FeatureBuilderV1
+from .feat_builder_new import FeatureBuilder as FeatureBuilderV2
 from .co_base import CO
 from .co_tripCostMinimization import CO_TripCostMinimization
 from .co_scoreMaximization import CO_ScoreMaximization
@@ -13,8 +19,27 @@ from rtv_solver.pipeline.request_graph_feature_builder import (
 from .loss_FYscoring import FenchelYoungLoss
 from .map_oracle import make_map_oracle
 from rtv_solver.pipeline.imitation_handler import ImitationHandler, TYPE_BEST_ORDERED_MATCH, TYPE_BEST_UNORDERED_MATCH
+
+
+def build_feature_builder(complete_payload: dict, config) -> FeatureBuilder:
+    """
+    2026-08-05: single switch point for the v1/v2 feature-builder comparison
+    (config.FEATURE_BUILDER_VERSION, default "v1" = unchanged feat_builder.py
+    behavior). Callers that need the active FEATURE_SIZE for model construction
+    (coaml_pipeline.py, training_loop.py) should read it off the returned
+    instance's class (type(fb).FEATURE_SIZE), not off the FeatureBuilder name
+    directly, since that name always refers to v1.
+    """
+    if config.FEATURE_BUILDER_VERSION == "v2":
+        return FeatureBuilderV2(complete_payload, config)
+    return FeatureBuilderV1(complete_payload, config)
+
+
 __all__ = [
-    "FeatureBuilder"
+    "FeatureBuilder",
+    "FeatureBuilderV1",
+    "FeatureBuilderV2",
+    "build_feature_builder",
     "RequestGraphFeatureBuilder",
     "VehicleFeatures",
     "StateFeatures",
