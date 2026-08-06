@@ -1,0 +1,49 @@
+program: rtv_solver/main.py
+project: pool-l2-sweep
+method: bayes
+metric:
+  name: best_val_service_rate
+  goal: maximize
+parameters:
+  learning_rate:
+    distribution: log_uniform_values
+    min: 0.0003
+    max: 0.005
+  hidden_dim:
+    values: [64, 128, 256]
+  dropout:
+    value: 0.0
+command:
+  - ./venv/bin/python3
+  - ${program}
+  - --mode
+  - coaml
+  - --input_dir
+  - solutions/li_lim/manifests/
+  - --batch_interval
+  - "200"
+  - --step_size
+  - "100"
+  - --max_cardinality
+  - "2"
+  - --epochs
+  - "5"
+  - --imitation_scoring_rule
+  - legacy
+  - --use_request_pruner
+  - "False"
+  - --use_request_graph_pruner
+  - "False"
+  - --model_type
+  - gnn
+  - --gnn_num_message_passing_layers
+  - "2"
+  - --gnn_aggregator
+  - pool
+  - --seed
+  - "1"
+  - --use_wandb
+  - "True"
+  - --wandb_project
+  - pool-l2-sweep
+  - ${args}
