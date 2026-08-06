@@ -614,12 +614,22 @@ class COAMLPipeline():
             feature_matrix_with_reject = feature_matrix
             reject_vehicle_ids: list[int] = []
             if feature_names:
+                # 2026-08-06: v2's add_reject_action_entries() takes an extra `requests`
+                # kwarg so reject rows see the same global future-demand grid as real
+                # candidate rows (previously always an all-zero grid - see
+                # feat_builder_new.py:318). v1's add_reject_action_entries() has no such
+                # parameter, so it's only passed when v2 is the active feature builder,
+                # to keep the v1 call path byte-for-byte unchanged.
+                reject_kwargs = {}
+                if self.config.FEATURE_BUILDER_VERSION == "v2":
+                    reject_kwargs["requests"] = trip_handler.requests
                 # Appends one synthetic reject row per vehicle at the end of the matrix.
                 feature_matrix_with_reject, reject_vehicle_ids = self.feature_builder.add_reject_action_entries(
                     feature_matrix,
                     feature_names,
                     vehicle_handler.vehicles,
                     payload_object.current_time,
+                    **reject_kwargs,
                 )
             feature_tensor_with_reject = torch.tensor(
                 feature_matrix_with_reject, dtype=torch.float32

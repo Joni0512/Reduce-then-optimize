@@ -323,6 +323,10 @@ class FeatureBuilder:
             row_features: FeatureVector = {}
             row_features.update(state_features)
             row_features.update(self._vehicle_features(vehicles[vehicle_id], vehicles, current_time))
+            # 2026-08-06: every reject row for this batch gets the SAME global_future_demand
+            # (computed once above from the full requests pool, not per-vehicle) - so the model
+            # can see the real batch-wide demand pressure behind each vehicle's reject option,
+            # instead of always seeing an all-zero grid regardless of context.
             row_features.update(global_future_demand)
             row_features.update(no_candidate_location)
             row_features[self.REJECT_FLAG_FEATURE_NAME] = 1.0
