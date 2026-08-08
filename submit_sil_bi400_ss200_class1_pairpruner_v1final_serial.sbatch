@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --clusters=serial
-#SBATCH --partition=serial_long
+#SBATCH --partition=serial_std
 #SBATCH --job-name=sil_c1_pp_bi400_ss200
 #SBATCH --output=sil_c1_pp_bi400_ss200_%j.log
 #SBATCH --error=sil_c1_pp_bi400_ss200_%j.err
-#SBATCH --time=48:00:00
+#SBATCH --time=24:00:00
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 
