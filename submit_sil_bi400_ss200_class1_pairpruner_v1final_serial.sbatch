@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH --clusters=serial
 #SBATCH --partition=serial_std
+#SBATCH --qos=cm4_serial
 #SBATCH --job-name=sil_c1_pp_bi400_ss200
 #SBATCH --output=sil_c1_pp_bi400_ss200_%j.log
 #SBATCH --error=sil_c1_pp_bi400_ss200_%j.err
