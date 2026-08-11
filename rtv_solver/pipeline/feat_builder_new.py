@@ -95,6 +95,28 @@ class CandidateRequestFeatures:
 
 
 @dataclass
+class CompetitionFeatures:
+    """
+    2026-08-09: second wave of v2 additions (on top of the global-grid/cr_*/
+    reject-fix changes from 2026-07-30) - how competitive is this candidate
+    compared with the alternatives that could replace it? Right now every
+    candidate row is scored by the MLP in isolation; these give it a cheap
+    signal about its local competition without needing message passing (the
+    GNN already sees this implicitly via CandidateConflictGraphBuilder edges).
+    Toggle with FeatureBuilder.ENABLE_COMPETITION_FEATURES - same on/off
+    pattern as ENABLE_TRIP_COMPOSITION_FEATURES - so baseline (v1) / v2 /
+    v2+competition stay comparable via one flag instead of a third file.
+    """
+    cf_cost_minus_best_for_vehicle: float = 0.0  # 0.0 = cheapest option for this vehicle
+    cf_cost_ratio_best_for_request: float = 1.0  # 1.0 = matches the best cost available anywhere for this request
+    cf_norm_rank_for_vehicle: float = 0.0  # 0 = cheapest among this vehicle's alternatives, towards 1 = worst
+    cf_num_candidates_same_vehicle: int = 1  # includes self
+    cf_num_candidates_same_request: int = 1  # includes self; union across this candidate's own request(s)
+    cf_diff_to_mean_competing_cost: float = 0.0  # 0.0 if no other candidates compete for this vehicle
+    cf_conflict_graph_degree: int = 0  # # other candidates sharing this vehicle or any of this candidate's requests
+
+
+@dataclass
 class TripCostFeatures:
     """1D feature scores for each request-trip-vehicle combination for aggregated information; that also defines the blank defaults if nothing can be calculated"""
     # tc_cost: float = 0.0
@@ -123,14 +145,24 @@ class TripCostFeatures:
 
 class FeatureBuilder:
     ENABLE_TRIP_COMPOSITION_FEATURES = True # include explicit trip-composition signal
+    # 2026-08-09: second wave of v2 - see CompetitionFeatures. Default True; set
+    # False to reproduce the original (first-wave) v2 feature set for comparison.
+    ENABLE_COMPETITION_FEATURES = True
     # 2026-07-30: base = 6 (state) + 11 (vehicle) + 15 (tripcost) + 49 (global future
     # demand grid) + 3 (candidate request location) + 1 (reject flag) = 85.
     # (Previously documented as 82 = 6+11+"17"(actually 15)+49+1 - the "17" was a
     # stale comment in build_from_components, not a real extra 2 features.)
     _BASE_FEATURE_SIZE = 85
     _TRIP_COMPOSITION_FEATURE_SIZE = 2
+    # 2026-08-09: cf_cost_minus_best_for_vehicle, cf_cost_ratio_best_for_request,
+    # cf_norm_rank_for_vehicle, cf_num_candidates_same_vehicle,
+    # cf_num_candidates_same_request, cf_diff_to_mean_competing_cost,
+    # cf_conflict_graph_degree - see CompetitionFeatures.
+    _COMPETITION_FEATURE_SIZE = 7
     FEATURE_SIZE = _BASE_FEATURE_SIZE + (
         _TRIP_COMPOSITION_FEATURE_SIZE if ENABLE_TRIP_COMPOSITION_FEATURES else 0
+    ) + (
+        _COMPETITION_FEATURE_SIZE if ENABLE_COMPETITION_FEATURES else 0
     )  # TODO update this value if you change the features
     REJECT_FLAG_FEATURE_NAME = "action_reject_flag"
     """It builds one feature vector per `TripCost` in order to match the size of new scores to the number of feasible trips associated with costs, combining:
@@ -200,6 +232,16 @@ class FeatureBuilder:
         # full `requests` list instead of one candidate's own requests.
         global_future_demand = self._global_future_demand_features(requests, current_time)
 
+        # 2026-08-09: materialize once - _build_competition_lookup() needs to iterate
+        # trip_costs fully before the main per-row loop below also iterates it, and the
+        # caller-supplied `trip_costs` is only typed as Iterable (could be a generator).
+        trip_costs = list(trip_costs)
+        competition_lookup = (
+            self._build_competition_lookup(trip_costs)
+            if self.ENABLE_COMPETITION_FEATURES
+            else None
+        )
+
         for tc in trip_costs:
             trip = trips[tc.trip_no]
             vehicle = vehicles.get(tc.vehicle_id)
@@ -216,10 +258,13 @@ class FeatureBuilder:
             fv.update(self._trip_cost_features(tc, current_time))               # 15 items
             fv.update(global_future_demand)                                     # 49 items - global, same for every row this call
             fv.update(self._candidate_request_location_features(trip_requests, current_time)) # 3 items - this candidate's own requests
+            if self.ENABLE_COMPETITION_FEATURES:
+                by_vehicle, by_request = competition_lookup
+                fv.update(self._competition_features(tc, by_vehicle, by_request))  # 7 items
             # fv.update(self._request_aggregate_features(trip_requests))
             fv[self.REJECT_FLAG_FEATURE_NAME] = 0.0
 
-            # current total = 85 items (or 87 if trip composition features are enabled)
+            # current total = 85 items (or 87 with trip composition, +7 more with competition)
 
             features.append(fv)
 
@@ -317,6 +362,10 @@ class FeatureBuilder:
         state_features = self._state_features(current_time, vehicles)
         global_future_demand = self._global_future_demand_features(list(requests), current_time)
         no_candidate_location = self._candidate_request_location_features([], current_time)
+        # 2026-08-09: a reject action isn't a real trip candidate, so it has no
+        # competitors - dataclass defaults (0.0 diff, 1.0 ratio, rank 0, degree 0,
+        # counts of 1 = self only) are the neutral "no competition" values.
+        no_competition = asdict(CompetitionFeatures()) if self.ENABLE_COMPETITION_FEATURES else {}
         reject_rows: list[list[float]] = []
 
         for vehicle_id in reject_vehicle_ids:
@@ -329,6 +378,7 @@ class FeatureBuilder:
             # instead of always seeing an all-zero grid regardless of context.
             row_features.update(global_future_demand)
             row_features.update(no_candidate_location)
+            row_features.update(no_competition)
             row_features[self.REJECT_FLAG_FEATURE_NAME] = 1.0
 
             reject_rows.append(
@@ -709,6 +759,73 @@ class FeatureBuilder:
                 continue
             best_decay = max(best_decay, 0.5 ** (interval_index - 1))
         features.cr_urgency = best_decay
+
+        return asdict(features)
+
+    def _build_competition_lookup(
+        self, trip_costs: List[TripCost]
+    ) -> Tuple[Dict[int, List[TripCost]], Dict[int, List[TripCost]]]:
+        """
+        2026-08-09: groups trip_costs by vehicle_id and by request_id, once per
+        batch - same "compute once, share across rows" pattern as
+        _global_future_demand_features. Feeds _competition_features(). A
+        candidate with 2 requests (SharedTrip) appears in both request groups.
+        """
+        by_vehicle: Dict[int, List[TripCost]] = {}
+        by_request: Dict[int, List[TripCost]] = {}
+        for tc in trip_costs:
+            by_vehicle.setdefault(tc.vehicle_id, []).append(tc)
+            for rid in tc.get_ordered_request_ids():
+                by_request.setdefault(rid, []).append(tc)
+        return by_vehicle, by_request
+
+    def _competition_features(
+        self,
+        trip_cost: TripCost,
+        by_vehicle: Dict[int, List[TripCost]],
+        by_request: Dict[int, List[TripCost]],
+    ) -> FeatureVector:
+        """
+        2026-08-09: how this candidate's cost compares to the alternatives that
+        compete for the same vehicle and/or the same request(s) - see
+        CompetitionFeatures. `by_vehicle`/`by_request` come from
+        _build_competition_lookup(), computed once per batch and reused across
+        all rows (not recomputed per candidate).
+        """
+        features = CompetitionFeatures()
+
+        vehicle_alternatives = by_vehicle.get(trip_cost.vehicle_id, [trip_cost])
+        features.cf_num_candidates_same_vehicle = len(vehicle_alternatives)
+        best_vehicle_cost = min(tc.cost for tc in vehicle_alternatives)
+        features.cf_cost_minus_best_for_vehicle = trip_cost.cost - best_vehicle_cost
+
+        other_vehicle_costs = [tc.cost for tc in vehicle_alternatives if tc is not trip_cost]
+        if other_vehicle_costs:
+            mean_competing_cost = sum(other_vehicle_costs) / len(other_vehicle_costs)
+            features.cf_diff_to_mean_competing_cost = trip_cost.cost - mean_competing_cost
+            rank = 1 + sum(1 for c in other_vehicle_costs if c < trip_cost.cost)
+            features.cf_norm_rank_for_vehicle = rank / len(vehicle_alternatives)
+        # else: no other candidates for this vehicle - keep the dataclass defaults (0.0, 0.0)
+
+        request_ids = trip_cost.get_ordered_request_ids()
+        request_neighbors: set = set()
+        best_request_costs: list = []
+        for rid in request_ids:
+            alternatives = by_request.get(rid, [trip_cost])
+            request_neighbors.update(alternatives)
+            best_request_costs.append(min(tc.cost for tc in alternatives))
+        if best_request_costs:
+            mean_best_request_cost = sum(best_request_costs) / len(best_request_costs)
+            # 2026-08-09: floor the denominator instead of raising - added_cost can be
+            # very small/near-zero in edge cases, and this is a soft ML feature, not a
+            # hard constraint that should crash the pipeline over one candidate.
+            features.cf_cost_ratio_best_for_request = trip_cost.cost / max(mean_best_request_cost, 1e-6)
+        request_neighbors.discard(trip_cost)
+        features.cf_num_candidates_same_request = len(request_neighbors) + 1
+
+        conflict_neighbors = set(vehicle_alternatives) | request_neighbors
+        conflict_neighbors.discard(trip_cost)
+        features.cf_conflict_graph_degree = len(conflict_neighbors)
 
         return asdict(features)
 
