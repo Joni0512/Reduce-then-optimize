@@ -341,11 +341,11 @@ class VehicleHandler:
                 console_logger.debug("Sequence: %s", StopSequence.sequence_to_string(sequence)) 
 
                 # TODO clean up data handover
-                direct_trip_times, total_direct_travel_time, actual_travel_time, total_dwell_time, actual_route_travel_time, detour_time, idling_time = VehicleHandler._compute_trip_metrics(new_trips, sequence, next_immediate_node, time_at_next_immediate_node, tt_matrix, node_indices)
+                direct_trip_times, total_direct_travel_time, actual_travel_time, total_dwell_time, actual_route_travel_time, detour_time, idling_time, trip_span_time, trip_detour_time = VehicleHandler._compute_trip_metrics(new_trips, sequence, next_immediate_node, time_at_next_immediate_node, tt_matrix, node_indices)
 
                 return TripInsertionPlan(
                     depot_feasible      = depot_feasible,
-                    sequence_feasible   = sequence_feasible, 
+                    sequence_feasible   = sequence_feasible,
                     added_cost          = added_cost,
                     sequence            = sequence,
                     trips               = new_trips,
@@ -359,7 +359,22 @@ class VehicleHandler:
                     total_dwell_time            = total_dwell_time,
                     actual_route_travel_time    = actual_route_travel_time,
                     detour_time                 = detour_time,
-                    idling_time                 = idling_time)
+                    idling_time                 = idling_time,
+                    trip_span_time              = trip_span_time,
+                    trip_detour_time            = trip_detour_time)
+                    # 2026-08-15: per-candidate-trip time metrics computed above
+                    # (direct_trip_times, actual_travel_time, detour_time, etc.) are kept
+                    # on TripCost.plan for every candidate, but currently thrown away once
+                    # the ILP selects trips - only TripCost.cost (marginal insertion cost)
+                    # survives past assignment. Per-trip duration/composition is therefore
+                    # NOT reconstructable from any saved output (results.json,
+                    # assignment_data.jsonl, result_driver_runs.json all lack it - the
+                    # latter's ManifestEntry has no trip_id, and VehicleStop has no
+                    # scheduled_time). To log it: capture the selected TripCost.plan
+                    # fields (total_direct_travel_time, actual_route_travel_time, request
+                    # count) where the ILP solution gets turned into an assignment
+                    # (CO_TripCostMinimization.transform_solution_to_assignment) - no new
+                    # computation needed, only persisting what is already computed here.
             
             return TripInsertionPlan(
                     sequence_feasible= False,
@@ -388,7 +403,7 @@ class VehicleHandler:
             node_indices: Node index mapping
         
         Returns:
-            tuple: (direct_trip_times, total_direct_travel_time, actual_travel_time, total_dwell_time, actual_route_travel_time, detour_time, idling_time)
+            tuple: (direct_trip_times, total_direct_travel_time, actual_travel_time, total_dwell_time, actual_route_travel_time, detour_time, idling_time, trip_span_time, trip_detour_time)
         """
         # Calculate sum of direct trip travel times (origin -> destination)
         # Use trip.cost which already contains the direct travel time
@@ -405,8 +420,21 @@ class VehicleHandler:
         
         # Calculate actual route travel time by summing consecutive stops; split into travel time and dwell time
         # TODO for stats: if the first stop is only the vehicle getting to a stop while being empty, add that information separately or add it to VehicleStop, basically how much empty trip do we have?
+        # 2026-08-16: sequence covers the vehicle's WHOLE remaining route (old
+        # committed stops + the new_trips being inserted here, see
+        # plan_trip_insertions' trips_to_drop_off/trips_to_pick_up construction
+        # a few lines up), so actual_travel_time/actual_route_travel_time/
+        # detour_time below are NOT isolated to just this new trip - they can
+        # be much larger (or, after subtracting total_direct_travel_time,
+        # even negative) than what serving new_trips alone would take. Kept
+        # as-is for backward compatibility; trip_span_time/trip_detour_time
+        # further down are the isolated per-trip equivalent.
         actual_travel_time = 0.0
         total_dwell_time = 0.0
+        new_trip_ids = {trip.id for trip in new_trips}
+        cumulative_time = time_at_next_immediate_node
+        first_new_stop_arrival = None
+        last_new_stop_departure = None
         if sequence:
             prev_node = next_immediate_node
             for stop in sequence:
@@ -420,11 +448,35 @@ class VehicleHandler:
                 actual_travel_time += travel_time
                 total_dwell_time += stop.dwell  # Accumulate dwell time separately
                 prev_node = stop.node
-        
+
+                # 2026-08-16: track cumulative wall-clock time through the full
+                # sequence (including interleaved old stops) so we can isolate
+                # the span between this new trip's own first arrival and last
+                # departure, even if the optimal sequence interleaves it with
+                # pre-existing commitments.
+                cumulative_time += travel_time
+                if stop.trip_id in new_trip_ids:
+                    if first_new_stop_arrival is None:
+                        first_new_stop_arrival = cumulative_time
+                    cumulative_time += stop.dwell
+                    last_new_stop_departure = cumulative_time
+                else:
+                    cumulative_time += stop.dwell
+
         # Total route time = travel + dwell
         actual_route_travel_time = actual_travel_time + total_dwell_time
         # Detour = actual route time - sum of direct trip times
         detour_time = actual_travel_time - total_direct_travel_time
+
+        # 2026-08-16: trip_span_time = wall-clock time from arrival at this new
+        # trip's first stop to departure from its last stop, isolated from any
+        # interleaved pre-existing stops - unlike actual_route_travel_time/
+        # detour_time above, this is a clean per-trip metric.
+        trip_span_time = None
+        trip_detour_time = None
+        if first_new_stop_arrival is not None and last_new_stop_departure is not None:
+            trip_span_time = last_new_stop_departure - first_new_stop_arrival
+            trip_detour_time = trip_span_time - total_direct_travel_time
         
         # Calculate idling time (vehicle arrives before pickup is allowed)
         # NOTE not sure how useful this is currently, maybe do not use it as a feature for now
@@ -439,7 +491,7 @@ class VehicleHandler:
                     earliest_pickup_time - time_at_next_immediate_node)
                 idling_time = max(0.0, time_until_pickup_allowed - time_to_reach_first_pickup)
         
-        return (direct_trip_times, total_direct_travel_time, actual_travel_time, total_dwell_time, actual_route_travel_time, detour_time, idling_time)
+        return (direct_trip_times, total_direct_travel_time, actual_travel_time, total_dwell_time, actual_route_travel_time, detour_time, idling_time, trip_span_time, trip_detour_time)
 
     @staticmethod
     def cost_of_serving_sequence(next_immediate_node, vehicle, tt_matrix, node_indices):

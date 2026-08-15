@@ -7,7 +7,11 @@ import copy
 from pathlib import Path
 
 from rtv_solver import OnlineRTVSolver, OfflineRTVSolver, COAMLPipeline # HexalySolver
-from rtv_solver.training_loop import COAMLTrainingLoop
+from rtv_solver.training_loop import (
+    COAMLTrainingLoop,
+    CLASS2_EXTRA_TRAINING_FILES,
+    CLASS2_EXTRA_VALIDATION_FILES,
+)
 
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
@@ -127,6 +131,12 @@ if __name__ == "__main__":
     # falls back to the standard TRAINING_FILES/VALIDATION_FILES + extra_* as before.
     parser.add_argument('--override_training_files', type=str, default="", help='Comma-separated instance stems that REPLACE (not add to) the standard TRAINING_FILES for this run only (e.g. for a class-2-only variant: "lc201,lc202,lc203,lc205,lc206,lr201,...").')
     parser.add_argument('--override_validation_files', type=str, default="", help='Comma-separated instance stems that REPLACE (not add to) the standard VALIDATION_FILES for this run only (e.g. "lc207,lc208,lr210,lr211,lrc207,lrc208").')
+    # 2026-08-16: single-source-of-truth convenience flag for the standard
+    # "mixed-class" (class 1 + class 2) run pattern - see training_loop.py's
+    # CLASS2_EXTRA_TRAINING_FILES/CLASS2_EXTRA_VALIDATION_FILES. Ignored if
+    # --extra_training_files/--extra_validation_files are also passed
+    # explicitly (those win, see the merge logic below).
+    parser.add_argument('--use_class2_extra', type=str, default='False', choices=['True', 'False'], help='If True, automatically extend TRAINING_FILES/VALIDATION_FILES with training_loop.CLASS2_EXTRA_TRAINING_FILES/CLASS2_EXTRA_VALIDATION_FILES (the standard class-2 mixed-class instance set), instead of passing --extra_training_files/--extra_validation_files by hand. Default False = class-1-only (unchanged behavior).')
 
     # Request graph pruning parameters
     parser.add_argument(
@@ -234,6 +244,15 @@ if __name__ == "__main__":
     if config.MODE == 'coaml' and config.INPUT_DIR:
         extra_val_files = [s.strip() for s in config.EXTRA_VALIDATION_FILES.split(",") if s.strip()]
         extra_train_files = [s.strip() for s in config.EXTRA_TRAINING_FILES.split(",") if s.strip()]
+        # 2026-08-16: --use_class2_extra fills in the standard class-2 mixed-class
+        # instance set automatically - only when --extra_training_files/
+        # --extra_validation_files weren't passed explicitly (those win, so a run
+        # can still override with a custom list while --use_class2_extra True).
+        if config.USE_CLASS2_EXTRA:
+            if not extra_train_files:
+                extra_train_files = list(CLASS2_EXTRA_TRAINING_FILES)
+            if not extra_val_files:
+                extra_val_files = list(CLASS2_EXTRA_VALIDATION_FILES)
         override_train_files = [s.strip() for s in config.OVERRIDE_TRAINING_FILES.split(",") if s.strip()]
         override_val_files = [s.strip() for s in config.OVERRIDE_VALIDATION_FILES.split(",") if s.strip()]
         if config.USE_WANDB:

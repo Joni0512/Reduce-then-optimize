@@ -43,6 +43,20 @@ VALIDATION_FILES = [
 # TRAINING_FILES = ["lc101", "lc105"]
 # VALIDATION_FILES = ["lc108", "lc201"]
 
+# 2026-08-16: single source of truth for the class-2 instance stems used in
+# "mixed-class" runs (both Li&Lim class 1 + class 2), so run scripts don't
+# each retype/duplicate this list as a shell string - see main.py's
+# --use_class2_extra flag. lc204 excluded: 160-200min/epoch outlier (less
+# restrictive time windows -> combinatorial blowup in trip generation).
+CLASS2_EXTRA_TRAINING_FILES = [
+    "lc201", "lc202", "lc203", "lc205",
+    "lr201", "lr202", "lr203", "lr204", "lr205", "lr206", "lr207",
+    "lrc201", "lrc202", "lrc203", "lrc204", "lrc205",
+]
+CLASS2_EXTRA_VALIDATION_FILES = [
+    "lc207", "lc208", "lr210", "lr211", "lrc207", "lrc208",
+]
+
 SUPPORTED_INPUT_EXTENSIONS = {".json", ".pkl", ".txt"}
 
 

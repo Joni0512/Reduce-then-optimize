@@ -239,7 +239,7 @@ class RequestGraphFeatureBuilder:
             np.array(edge_matrix, dtype=np.float32),
             node_ids,
         )
-
+    # used for Li&Lim
     @staticmethod
     def _euclidean_distance(lat1, lon1, lat2, lon2):
         return math.sqrt(

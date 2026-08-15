@@ -97,6 +97,33 @@ class CO(ABC):
                         vehicle_assignment[vehicle_id] = (trips, trip_cost.sequence)
                         console_logger.debug(f"[{self.__class__.__name__}] Assignment: {trip_cost}")
                         console_logger.info(f"[{self.__class__.__name__}] Assignment: {trip_cost.simple_str()}")
+                        # 2026-08-15: log per-selected-trip time metrics (already computed
+                        # in VehicleHandler._compute_trip_metrics, carried on
+                        # trip_cost.plan) so average trip duration/size is reconstructable
+                        # from assignment_data.jsonl afterward - previously only
+                        # trip_cost.cost (marginal insertion cost) survived past this
+                        # point, so per-trip duration/composition was unrecoverable from
+                        # any saved output. plan can be None if this TripCost was built
+                        # without going through plan_trip_insertions (defensive check).
+                        if trip_cost.plan is not None:
+                            data_logger.info("TripMetrics", extra={
+                                "vehicle_id": vehicle_id,
+                                "trip_no": trip_no,
+                                "num_requests": len(trips),
+                                "booking_ids": trip_cost.get_ordered_request_ids(),
+                                "total_direct_travel_time": trip_cost.plan.total_direct_travel_time,
+                                # 2026-08-16: trip_span_time/trip_detour_time are isolated to
+                                # just this trip's own stops (clean); actual_route_travel_time/
+                                # detour_time below cover the vehicle's whole remaining route
+                                # (old + new stops combined) and are kept only for backward
+                                # compatibility - do not use them as a per-trip metric.
+                                "trip_span_time": trip_cost.plan.trip_span_time,
+                                "trip_detour_time": trip_cost.plan.trip_detour_time,
+                                "actual_route_travel_time": trip_cost.plan.actual_route_travel_time,
+                                "detour_time": trip_cost.plan.detour_time,
+                                "total_dwell_time": trip_cost.plan.total_dwell_time,
+                                "idling_time": trip_cost.plan.idling_time,
+                            })
 
                 # Optional reject-action sanity check for CO variants that expose x_reject.
                 if vehicle_id in reject_vehicle_ids and vehicle_id in x_reject:

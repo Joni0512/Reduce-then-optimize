@@ -27,3 +27,10 @@ class TripInsertionPlan:
     actual_route_travel_time: float = None
     detour_time: float = None
     idling_time: float = None
+    # 2026-08-16: clean, per-trip-isolated equivalents of actual_route_travel_time/
+    # detour_time above - those two cover the vehicle's whole remaining route
+    # (old + new stops), not just this trip; trip_span_time/trip_detour_time
+    # isolate just the newly inserted trip's own first-arrival-to-last-departure
+    # span (see VehicleHandler._compute_trip_metrics).
+    trip_span_time: float = None
+    trip_detour_time: float = None

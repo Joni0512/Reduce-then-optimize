@@ -8,38 +8,28 @@ from rtv_solver.pipeline.candidate_scoring_gnn import (
     GraphSAGEMeanLayer,
     GraphSAGEPoolLayer,
 )
+from rtv_solver.pipeline.match_graph_features import MatchGraphFeatureBuilder
 
 
 class CriticGNN(nn.Module):
     """
-    Critic network for SRL Phase 2. Estimates one Q(s,a) value for a whole
-    MatchGraph (see match_solution_graph.py) - one rolling-horizon
-    iteration's actual solution, not a per-node score like the actor GNN.
+    Critic network for SRL Phase 2 - one Q(s,a) value per MatchGraph
+    (see match_solution_graph.py), built up step by step.
 
-    Pipeline
-    --------
-    request features  -> request encoder \\
-                                           -> combined node embeddings
-    vehicle features   -> vehicle encoder /
-        -> message passing (reused actor layers, same edge_index for all nodes)
-        -> additive pooling (sum over all node embeddings -> one vector)
-        -> feed-forward head -> scalar Q(s,a)
-
-    Two separate encoders because request and vehicle features have
-    different meaning and length; after encoding, both live in the same
-    hidden_dim space so message passing can mix them.
-
-    2026-08-06: edge types (request-request vs. request-vehicle) are not
-    used yet - all edges are treated the same by the reused layers below,
-    same as the actor GNN. Revisit if a plain sum-pooled critic turns out
-    too weak.
+    Pipeline: two encoders -> message passing -> pooling -> Q-head.
+    Pools requests and vehicles separately (mean each, then concat) instead
+    of one pool over all nodes together, so the graph size (which varies a
+    lot between iterations) does not by itself change the pooled scale, and
+    request- vs. vehicle-side information stays distinguishable going into
+    the head. 2026-08-12: no attention, no target network, no twin critic
+    yet - keep V1 as simple as possible, add those later if needed.
     """
 
     def __init__(
         self,
-        request_feature_dim: int,
-        vehicle_feature_dim: int,
-        hidden_dim: int,
+        request_feature_dim: int = MatchGraphFeatureBuilder.REQUEST_FEATURE_SIZE,
+        vehicle_feature_dim: int = MatchGraphFeatureBuilder.VEHICLE_FEATURE_SIZE,
+        hidden_dim: int = 64,
         *,
         num_message_passing_layers: int = 2,
         aggregator: str = "gcn",
@@ -56,7 +46,9 @@ class CriticGNN(nn.Module):
         self.vehicle_feature_dim = vehicle_feature_dim
         self.hidden_dim = hidden_dim
 
-        # one encoder per node type, both map into the same hidden_dim
+        # request and vehicle features have different meaning and length, so
+        # each node type gets its own encoder - both map into the same
+        # hidden_dim, so the two types can be mixed together afterwards
         self.request_encoder = nn.Sequential(
             nn.Linear(request_feature_dim, hidden_dim),
             nn.ReLU(),
@@ -68,7 +60,8 @@ class CriticGNN(nn.Module):
             nn.LayerNorm(hidden_dim),
         )
 
-        # same message-passing layers the actor GNN uses, see candidate_scoring_gnn.py
+        # lets nodes pick up information from their graph neighbours - same
+        # layer classes the actor GNN already uses, see candidate_scoring_gnn.py
         layer_classes = {
             "gcn": GCNMeanLayer,
             "mean": GraphSAGEMeanLayer,
@@ -79,9 +72,10 @@ class CriticGNN(nn.Module):
             layer_cls(hidden_dim, dropout=dropout) for _ in range(num_message_passing_layers)
         )
 
-        # pooled graph vector -> one scalar Q-value
+        # pooled vector is 2*hidden_dim wide (request mean concatenated with
+        # vehicle mean), squeezed down to a single Q-value at the end
         self.q_head = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(2 * hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 1),
         )
@@ -98,23 +92,34 @@ class CriticGNN(nn.Module):
         edge_index:        [2, num_edges], node order must match MatchGraph
                             (request nodes first, then vehicle nodes)
 
-        Returns a single scalar tensor: Q(s,a) for this whole graph.
+        Returns a single scalar tensor: Q(s,a) for this whole graph. Output
+        is left unbounded on purpose (no sigmoid/clamp) even though the
+        Monte-Carlo return target is a service rate in [0,1] - a plain
+        linear head plus Huber loss should learn to land in that range
+        without the vanishing gradients sigmoid saturation would cause.
         """
         if request_features.ndim != 2 or vehicle_features.ndim != 2:
             raise ValueError("request_features and vehicle_features must be 2D.")
 
+        num_requests = request_features.shape[0]
+
+        # encode both node types into the same hidden_dim space and stack
+        # them - requests first, then vehicles, matching MatchGraph's node order
         request_embeddings = self.request_encoder(request_features)
         vehicle_embeddings = self.vehicle_encoder(vehicle_features)
-
-        # stack in the same order MatchSolutionGraphBuilder used for edge_index
         node_embeddings = torch.cat([request_embeddings, vehicle_embeddings], dim=0)
 
+        # message passing: each node repeatedly mixes in its neighbours' embeddings
         edge_index = edge_index.to(node_embeddings.device)
         for layer in self.message_passing_layers:
             node_embeddings = layer(node_embeddings, edge_index)
 
-        # additive (sum) pooling: turns "however many nodes" into one fixed-size vector
-        pooled = node_embeddings.sum(dim=0)
+        # pooling: mean over requests and mean over vehicles, kept separate so
+        # neither node count nor node type gets blended away before the head
+        request_pooled = node_embeddings[:num_requests].mean(dim=0)
+        vehicle_pooled = node_embeddings[num_requests:].mean(dim=0)
+        graph_embedding = torch.cat([request_pooled, vehicle_pooled], dim=0)
 
-        q_value = self.q_head(pooled).squeeze(-1)
+        # head: pooled graph vector -> one scalar Q-value
+        q_value = self.q_head(graph_embedding).squeeze(-1)
         return q_value

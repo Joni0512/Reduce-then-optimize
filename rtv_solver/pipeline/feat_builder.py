@@ -45,6 +45,7 @@ class StateFeatures:
     s_avg_remaining_am_cap: float = 1.0
     s_avg_remaining_wc_cap: float = 1.0
     s_total_vehicles: int = 0  # TODO adjust for active vehicles ()
+    # 05.08.26: very similiar feature, only difference is that is normalised by batch interval or step size, are both necessary
     s_avg_remaining_interval_boarded_time: float = 0.0
     s_avg_remaining_step_boarded_time: float = 0.0
 
@@ -59,6 +60,7 @@ class VehicleFeatures:
     v_norm_remaining_operating_period: float = 1.0
     v_norm_vehicle_count_in_proximity: float = 0.0 # other vehicles in the proximity
     v_avg_vehicle_distance: float = 0.0 # to all other vehicles
+    # next two features are very similiar, only normalization is different, are both necessary
     v_norm_step_remaining_boarded_time: float = 0.0 # normalized to time per step
     v_norm_interval_remaining_boarded_time: float = 0.0 # normalized to time per interval
     v_norm_remaining_am_cap: float = 1.0 # 1 means everything is free
@@ -495,6 +497,8 @@ class FeatureBuilder:
         # Detour metrics
         if plan.detour_time is not None:
             features.tc_detour_time = float(plan.detour_time)
+            # A more consistent normalization would use a time-based reference, 
+            # for example the batch interval, total operating time, or a maximum travel-time value derived from the travel-time matrix.
             features.tc_norm_detour_time = plan.detour_time / self.max_distance
 
         # IDLING TIME

@@ -43,12 +43,12 @@ class CandidateConflictGraphBuilder:
 
     Nodes
     -----
-    One node per normal vehicle-trip candidate, followed by one node per
-    vehicle-specific reject action.
+    One node per normal RTVcandidate, followed by one node per
+    vehicle-specific reject action (explain why both are needed).
 
     Edges
     -----
-    Two nodes are connected when the corresponding actions compete because:
+    Two nodes are connected when the corresponding RTV candidates compete because:
 
     1. they belong to the same vehicle, or
     2. they contain at least one common request.
@@ -120,6 +120,7 @@ class CandidateConflictGraphBuilder:
         # e.g. one request reachable by 50 vehicles = 50*49 directed edges from
         # that one request alone. Worth a top-k cap or sparsification pass
         # before testing on anything beyond the current small-instance scale.
+        # TODO: for NYC: use sample of edges (SAGE paper does this) or top-k by cost/conflict score
         nodes_by_request: dict[int, list[int]] = {}
         for node_idx, candidate_request_ids in enumerate(request_ids):
             for request_id in candidate_request_ids:
@@ -423,6 +424,28 @@ class GraphSAGEPoolLayer(nn.Module):
     After pooling, this reuses the exact same "concatenate with self, then one
     shared linear layer" combine step as GraphSAGEMeanLayer, so this ablation
     isolates only the mean-vs-pool aggregation choice, nothing else.
+
+    # COMMENT (2026-08-05): implementation matches the paper's Eq. 3, but in
+    # our experiments this aggregator scores worse than gcn/mean so far.
+    # Hypotheses only, not confirmed against data/logs yet:
+    # 1. Gradient sparsity: index_reduce_(..., "amax") below only backprops
+    #    through the argmax neighbour per node/dimension - many neighbours in
+    #    a clique get zero gradient each step. With only 5 SIL epochs
+    #    (Table 3), gcn/mean (which spread gradient to every neighbour) may
+    #    simply learn faster in that short a budget.
+    # 2. No neighbour sampling: the GraphSAGE paper pools over a FIXED sample
+    #    size (e.g. 25); here we pool over the ENTIRE clique from
+    #    CandidateConflictGraphBuilder, whose size varies a lot per candidate.
+    #    The paper's pool-beats-mean result was measured under fixed-size
+    #    sampling, so it may not transfer directly to full, variable-size
+    #    cliques.
+    # 3. More capacity, no extra regularisation: pool_linear adds its own
+    #    hidden x hidden weight matrix (gcn reuses one linear for self+mean),
+    #    while dropout defaults to 0.0 - more overfitting risk on a small SIL
+    #    dataset in few epochs.
+    # 4. ReLU is applied before the max (step 1 below); this matches the
+    #    paper's sigma-before-max, but it also zeroes out negative signals
+    #    before pooling, which may lose information in small graphs.
     """
 
     def __init__(self, hidden_dim: int, dropout: float = 0.0) -> None:
@@ -534,6 +557,15 @@ class CandidateScoringGNN(nn.Module):
     # FeatureBuilder (84-dim) - checking node order/count, that same-vehicle
     # and same-request candidates actually get connected, and a NaN-free
     # forward pass. No pipeline wiring yet.
+
+    # COMMENT (2026-08-05): what's well done about the 3-aggregator setup as a
+    # whole - all three layers (GCNMeanLayer/GraphSAGEMeanLayer/
+    # GraphSAGEPoolLayer) share identical neighbour-sum/count code, residual
+    # connection and LayerNorm, and only differ in the one combine step
+    # (mean-into-one-vector vs. concat vs. pool-then-concat). That means the
+    # "gcn"/"mean"/"pool" comparison is a clean ablation of just the
+    # aggregation method - nothing else changes between the three, so
+    # performance differences can actually be attributed to that one choice.
     """
 
     requires_graph = True

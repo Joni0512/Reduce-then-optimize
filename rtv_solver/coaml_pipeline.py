@@ -12,6 +12,7 @@ from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.handlers.vehicle_handler import VehicleHandler
 from rtv_solver.handlers.trip_handler import TripHandler
 from rtv_solver.handlers.payload_parser import PayloadParser
+from rtv_solver.handlers.stats_parser import StatsParser
 from rtv_solver.online_rtv_solver import OnlineRTVSolver
 
 from rtv_solver.schema.payload_keys import PayloadKeys
@@ -23,6 +24,12 @@ from rtv_solver.structure.assignment_result import AssignmentResult
 from rtv_solver.pipeline import CO, CO_ScoreMaximization, CO_TripCostMinimization, CO_RebalancingCoverage, FeatureBuilder, build_feature_builder
 from rtv_solver.pipeline import FenchelYoungLoss, make_map_oracle, ScoringMLP
 from rtv_solver.pipeline.candidate_scoring_gnn import build_scoring_model, CandidateConflictGraphBuilder
+# 2026-08-14: critic (SRL Phase 2) building blocks - all optional, only used
+# when a critic model is actually passed into COAMLPipeline.__init__.
+from rtv_solver.pipeline.match_solution_graph import MatchSolutionGraphBuilder
+from rtv_solver.pipeline.match_graph_features import MatchGraphFeatureBuilder
+from rtv_solver.pipeline.episode_buffer import EpisodeBuffer
+import torch.nn.functional as F
 # keep these constants for compatibility with commented out code in coaml_pipeline.py
 from rtv_solver.pipeline.imitation_handler import (
     ImitationHandler,
@@ -64,6 +71,8 @@ class COAMLPipeline():
             model: ScoringMLP | torch.nn.Module | None = None,
             epoch: int = 1,
             imitation_solution_path: Path | str | None = None,
+            critic: torch.nn.Module | None = None,
+            critic_optimizer: torch.optim.Optimizer | None = None,
         ):
         """
         Initialize the COAML pipeline solver.
@@ -72,6 +81,12 @@ class COAMLPipeline():
             - config: Config object
             - offline_payload: Offline payload object in order to calculate feature normalization values and get structure of feature matrix
             - imitation_solution_path: Path to the file containing the optimal solution (same file the pipeline runs on). If None, ImitationHandler falls back to config.IMITATION_SOLUTION_FILE.
+            - critic: optional CriticGNN (SRL Phase 2). Passed in from outside (like
+              `model`) so its weights persist and keep learning across episodes,
+              instead of being rebuilt from scratch every time a COAMLPipeline is
+              created. None (default) fully skips the critic code path.
+            - critic_optimizer: optimizer for `critic`'s parameters, required if
+              `critic` is given.
         """
         self.config = config
         self.offline_payload = offline_payload
@@ -96,11 +111,24 @@ class COAMLPipeline():
         self.imitation_handler = ImitationHandler(config, imitation_solution_path=imitation_solution_path)
         
         self.coaml_optimizer = CO_ScoreMaximization(config)
-        self.default_optimizer = CO_TripCostMinimization(config)    
-        
+        self.default_optimizer = CO_TripCostMinimization(config)
+
         self.last_loss: Optional[torch.Tensor] = None
         self.loss_history: list[Optional[float]] = []
         self.epoch = epoch
+
+        # 2026-08-14: critic (SRL Phase 2) - see __init__ docstring. Builders
+        # are stateless/cheap so building them unconditionally would be fine
+        # too, but skipping them when there's no critic keeps startup cost
+        # identical to the existing SIL-only path.
+        self.critic = critic
+        self.critic_optimizer = critic_optimizer
+        if self.critic is not None:
+            self.match_graph_builder = MatchSolutionGraphBuilder()
+            self.match_feature_builder = MatchGraphFeatureBuilder(
+                offline_payload, config, geographic=config.REQUEST_GRAPH_GEOGRAPHIC
+            )
+            self.episode_buffer = EpisodeBuffer()
 
         if sys.platform == "darwin": # required to run correctly on MacOS
             try:
@@ -185,6 +213,73 @@ class COAMLPipeline():
         final_driver_runs = OnlineRTVSolver.finalize_driverRuns(
             self.config, driver_runs, payload[PayloadKeys.DEPOT]
         )
+
+        # 2026-08-14: critic (SRL Phase 2) training step. Runs once per
+        # episode, after the rolling-horizon loop above has fully finished -
+        # G_t needs the whole episode's outcome, so it cannot be computed
+        # (or trained on) any earlier. See mc_return_builder.py and the
+        # EpisodeBuffer docstring for why this can't happen per-iteration
+        # like the existing SIL loss above does.
+        if self.critic is not None and len(self.episode_buffer) > 0:
+            full_payload_object = PayloadParser.get_payload_object(
+                payload,
+                dwell_pickup_default=self.config.DWELL_PICKUP,
+                dwell_alight_default=self.config.DWELL_ALIGHT,
+                online=False,
+            )
+            all_requests = RequestHandler(full_payload_object.requests, config=self.config).get_all_requests()
+
+            # single StatsParser call for the whole episode - this is the
+            # expensive, "true" service definition (pickup AND dropoff both
+            # completed), affordable here specifically because it only runs
+            # once per episode, not once per iteration.
+            stats_payload = {
+                PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
+                PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
+                PayloadKeys.DRIVERS: final_driver_runs,
+                PayloadKeys.TIME_MATRIX: payload.get(PayloadKeys.TIME_MATRIX, None),
+            }
+            _, episode_stats, _ = StatsParser(self.config, payload=stats_payload).evaluate(stats_payload)
+
+            step_return_pairs = self.episode_buffer.with_returns(all_requests, episode_stats.serviced_requests)
+            # 2026-08-14: diagnostic hook - lets a caller inspect the G_t values
+            # of the episode that just finished (e.g. a test script checking
+            # that they come out sane), since episode_buffer.clear() below
+            # would otherwise throw them away with nothing left to look at.
+            self.last_episode_returns: list[float] = [g_t for _, g_t in step_return_pairs]
+
+            # Option A (used here): one averaged loss for the whole episode.
+            # Chosen because G_t is a noisy single-sample Monte Carlo
+            # estimate (see chat, 2026-08-14) - averaging over the episode's
+            # steps before backpropagating reduces that noise, instead of
+            # letting each single noisy G_t push the weights on its own.
+            losses = []
+            for step, g_t in step_return_pairs:
+                q_pred = self.critic(step.request_features, step.vehicle_features, step.edge_index)
+                target = torch.tensor(g_t, dtype=torch.float32)
+                losses.append(F.huber_loss(q_pred, target))
+
+            total_loss = torch.stack(losses).mean()
+            self.critic_optimizer.zero_grad(set_to_none=True)
+            total_loss.backward()
+            self.critic_optimizer.step()
+
+            # Option B (not used, left as reference): one optimizer step per
+            # buffered iteration instead of one averaged step per episode.
+            # Matches how the existing SIL actor loss above already trains
+            # (immediate step per iteration), but each step then gets a
+            # noisier, single-sample gradient instead of an averaged one.
+            #
+            # for step, g_t in step_return_pairs:
+            #     q_pred = self.critic(step.request_features, step.vehicle_features, step.edge_index)
+            #     target = torch.tensor(g_t, dtype=torch.float32)
+            #     loss = F.huber_loss(q_pred, target)
+            #     self.critic_optimizer.zero_grad(set_to_none=True)
+            #     loss.backward()
+            #     self.critic_optimizer.step()
+
+            self.episode_buffer.clear()
+
         # self.save_model_weights()
         return final_driver_runs
 
@@ -863,6 +958,22 @@ class COAMLPipeline():
             result = AssignmentResult.get_empty_result(
                 unassigned_trip_count=len(request_batch),
             )
+
+        # 2026-08-14: critic (SRL Phase 2) - buffer this iteration's match
+        # graph + features, once `result` is final either way. Just
+        # collecting here, not training yet - see the end of solve_pdptw()
+        # for why training has to wait until the whole episode is done.
+        if self.critic is not None:
+            match_graph = self.match_graph_builder.build(trip_handler.requests, vehicle_handler.vehicles, result)
+            request_features, vehicle_features = self.match_feature_builder.build(
+                trip_handler.requests,
+                vehicle_handler.vehicles,
+                active_requests,
+                match_graph,
+                payload_object.current_time,
+                self.feature_builder,
+            )
+            self.episode_buffer.add(request_features, vehicle_features, match_graph.edge_index, payload_object.current_time)
 
         if not loss_tracked:
             self.last_loss = None

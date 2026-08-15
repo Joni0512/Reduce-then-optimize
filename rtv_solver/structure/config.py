@@ -143,6 +143,12 @@ class Config:
     # express (no way to "add" the class-1 files' absence).
     OVERRIDE_TRAINING_FILES: str = ""
     OVERRIDE_VALIDATION_FILES: str = ""
+    # 2026-08-16: opt-in convenience flag - when True, uses
+    # training_loop.CLASS2_EXTRA_TRAINING_FILES/CLASS2_EXTRA_VALIDATION_FILES
+    # as EXTRA_TRAINING_FILES/EXTRA_VALIDATION_FILES automatically, instead of
+    # every mixed-class run script retyping the same instance-stem string.
+    # Default False so existing class-1-only runs are unaffected.
+    USE_CLASS2_EXTRA: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -241,6 +247,7 @@ class Config:
             EXTRA_TRAINING_FILES=getattr(args, "extra_training_files", "") or "",
             OVERRIDE_TRAINING_FILES=getattr(args, "override_training_files", "") or "",
             OVERRIDE_VALIDATION_FILES=getattr(args, "override_validation_files", "") or "",
+            USE_CLASS2_EXTRA=cls.str_to_bool(getattr(args, "use_class2_extra", "False") or "False"),
             MAX_THREAD_CNT = args.max_thread_cnt,
             RTV_TIMEOUT = args.rtv_timeout,
             ILP_TIMEOUT = args.ilp_timeout, 
