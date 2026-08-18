@@ -92,6 +92,7 @@ class TripHandler:
                 model_path=self.config.REQUEST_PRUNER_MODEL_PATH,
                 threshold=self.config.REQUEST_PRUNER_THRESHOLD,
                 urgent_slack_seconds=self.config.STEP_SIZE,  # see request_pruner.py for why STEP_SIZE, not BATCH_INTERVAL
+                min_retention_fraction=self.config.REQUEST_PRUNER_MIN_RETENTION_FRACTION,
             )
 
             # 2026-07-16: active_requests must be force-kept too, not just

@@ -27,6 +27,7 @@ from rtv_solver.visuals.route_manifest_mapper import RouteManifestMapper
 
 from rtv_solver.pipeline import TYPE_BEST_ORDERED_MATCH
 from rtv_solver.pipeline.request_graph_pruner import RequestGraphPruner
+from rtv_solver.pipeline.request_graph_feature_builder import RequestGraphFeatureBuilder
 
 if __name__ == "__main__":
     """
@@ -170,6 +171,16 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--request_graph_use_dropoff_overlap",
+        type=str,
+        default="False",
+        help="Include dropoff_window_overlap_seconds/ratio as edge features (12 total "
+             "instead of 10). Must match how the loaded checkpoint was trained "
+             "(see train_models_v2.py's --use_dropoff_overlap_features) - default "
+             "False matches every existing v1_final/v2_final checkpoint."
+    )
+
+    parser.add_argument(
         "--request_graph_num_layers",
         type=int,
         default=2,
@@ -205,6 +216,15 @@ if __name__ == "__main__":
         default=0.3,
         help="Score threshold used to keep individual requests (candidates only - urgent requests are always force-kept, see RequestPruner)."
     )
+    # 2026-08-18: was a hardcoded RequestPruner constructor default (0.3, see
+    # request_pruner.py) with no CLI override, added after the lr211/lrc208
+    # near-total-overpruning investigation. Exposed here to sweep it.
+    parser.add_argument(
+        "--request_pruner_min_retention_fraction",
+        type=float,
+        default=0.3,
+        help="Minimum fraction of CANDIDATE requests (force-kept active/urgent requests are separate and unaffected) always kept regardless of model score - top-up safety floor, see RequestPruner.min_retention_fraction."
+    )
     # alternative input files
     # parser.add_argument('--input_file', type=str,           default="test_nc/ttm/test_10r_1v_repeat6_simple.pkl", help='Request input file') 
     # parser.add_argument('--input_file', type=str,           default="inputs/wilson_nc_initial.pkl", help='Request input file') 
@@ -228,6 +248,8 @@ if __name__ == "__main__":
     config = Config.from_args(arguments)
     config.enforce_constraints()
     set_seed(config.SEED, config.DEBUG)
+
+    RequestGraphFeatureBuilder.set_include_dropoff_overlap(config.REQUEST_GRAPH_USE_DROPOFF_OVERLAP)
 
     setup_loggers(config.OUTPUT_DIR)
     console_logger = logging.getLogger(BASIC_LOGGER)

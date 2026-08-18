@@ -67,6 +67,11 @@ class Config:
     # keep the existing Li&Lim v2 default checkpoint's behavior unchanged.
     REQUEST_GRAPH_GEOGRAPHIC: bool = False
     REQUEST_GRAPH_NUM_LAYERS: int = 2
+    # 2026-08-17: must match how the loaded checkpoint was trained (see
+    # RequestGraphFeatureBuilder.set_include_dropoff_overlap / train_models_v2.py's
+    # --use_dropoff_overlap_features) - False (default) = 10 edge features,
+    # matching every existing v1_final/v2_final checkpoint.
+    REQUEST_GRAPH_USE_DROPOFF_OVERLAP: bool = False
     # 2026-07-14: request-only pruner (RequestPruner) - separate from the
     # request-request pair pruner above, runs before it in TripHandler.run()
     # and reduces the request count itself, not just which pairs may share a
@@ -77,6 +82,9 @@ class Config:
     USE_REQUEST_PRUNER: bool = False
     REQUEST_PRUNER_MODEL_PATH: str = "outputs/request_pruner_mlp/request_pruner_mlp_h32_l1_d0p0_pw1p0/request_pruner_mlp_h32_l1_d0p0_pw1p0_best_val_f3.pt"
     REQUEST_PRUNER_THRESHOLD: float = 0.3
+    # 2026-08-18: was a hardcoded RequestPruner constructor default with no
+    # CLI override - see main.py's --request_pruner_min_retention_fraction.
+    REQUEST_PRUNER_MIN_RETENTION_FRACTION: float = 0.3
     LARGEST_TSP: int = 8
     SHARE_COST_FACTOR: float = 10
     REBALANCING: bool = False
@@ -229,6 +237,9 @@ class Config:
             REQUEST_GRAPH_NUM_LAYERS=getattr(
                 args, "request_graph_num_layers", 2
             ),
+            REQUEST_GRAPH_USE_DROPOFF_OVERLAP=cls.str_to_bool(
+                getattr(args, "request_graph_use_dropoff_overlap", "False")
+            ),
             # 2026-07-14: request-only pruner flags, mirrors the request-graph
             # (pair) pruner flags above - see USE_REQUEST_PRUNER comment in
             # the dataclass fields for context.
@@ -242,6 +253,9 @@ class Config:
             ),
             REQUEST_PRUNER_THRESHOLD=getattr(
                 args, "request_pruner_threshold", 0.3
+            ),
+            REQUEST_PRUNER_MIN_RETENTION_FRACTION=getattr(
+                args, "request_pruner_min_retention_fraction", 0.3
             ),
             EXTRA_VALIDATION_FILES=getattr(args, "extra_validation_files", "") or "",
             EXTRA_TRAINING_FILES=getattr(args, "extra_training_files", "") or "",
