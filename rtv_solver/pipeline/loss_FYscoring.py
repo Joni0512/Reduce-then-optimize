@@ -1,6 +1,11 @@
+import logging
 import torch
 import torch.nn as nn
 from typing import Callable
+
+from rtv_solver.util.logger import BASIC_LOGGER
+
+console_logger = logging.getLogger(BASIC_LOGGER)
 
 
 class FenchelYoungLoss(nn.Module):
@@ -81,7 +86,18 @@ class FenchelYoungLoss(nn.Module):
             solution = torch.dot(theta_k, y_k.to(theta.dtype))
             solutions.append(solution)    
         stack = torch.mean(torch.stack(solutions, dim=0), dim=0)
-        target = torch.dot(theta, y_star.to(theta.dtype)) # unregularized target 
+        target = torch.dot(theta, y_star.to(theta.dtype)) # unregularized target
+
+        # 2026-08-25: temporary diagnostic - investigating why SRL mode's FY
+        # loss came out negative in practice (Fenchel-Young theory guarantees
+        # stack >= target in expectation, see chat) - print the two terms
+        # separately instead of just their difference, to see whether it's
+        # small-sample noise or a real ordering/consistency bug between the
+        # two oracle calls. Remove once resolved.
+        console_logger.info(
+            f"FY diagnostic: stack={stack.item():.4f}  target={target.item():.4f}  "
+            f"diff={(stack - target).item():.4f}  per-sample={[s.item() for s in solutions]}"
+        )
 
         return stack - target
         

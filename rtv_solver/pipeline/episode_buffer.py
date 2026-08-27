@@ -62,14 +62,27 @@ class EpisodeBuffer:
         self,
         requests: Sequence[Request],
         serviced_request_ids: Sequence[int],
+        reward_mode: str = "cumulative",
     ) -> list[tuple[EpisodeStep, float]]:
         """
         Call once, right after the rolling-horizon loop for this episode
-        has finished. Pairs every buffered step with its Monte Carlo
-        return G_t (mc_return_builder.py), ready for training.
+        has finished. Pairs every buffered step with its training target
+        (mc_return_builder.py), ready for training.
+
+        2026-08-18: reward_mode picks which MonteCarloReturnBuilder method
+        supplies that target - "cumulative" (default) = G_t, the Monte Carlo
+        return (build()); "local" = r_t, -1 only in the window a request's
+        deadline permanently passes unserved (build_local()) - see
+        mc_return_builder.py's docstring for the tradeoff between the two.
         """
         iteration_times = [step.current_time for step in self.steps]
-        returns = MonteCarloReturnBuilder(requests).build(iteration_times, serviced_request_ids)
+        builder = MonteCarloReturnBuilder(requests)
+        if reward_mode == "cumulative":
+            returns = builder.build(iteration_times, serviced_request_ids)
+        elif reward_mode == "local":
+            returns = builder.build_local(iteration_times, serviced_request_ids)
+        else:
+            raise ValueError(f"Unknown reward_mode '{reward_mode}', expected 'cumulative' or 'local'.")
         return list(zip(self.steps, returns))
 
     def clear(self) -> None:

@@ -225,6 +225,12 @@ if __name__ == "__main__":
         default=0.3,
         help="Minimum fraction of CANDIDATE requests (force-kept active/urgent requests are separate and unaffected) always kept regardless of model score - top-up safety floor, see RequestPruner.min_retention_fraction."
     )
+    parser.add_argument(
+        "--request_pruner_geographic",
+        type=str,
+        default="False",
+        help="Use haversine (real-world meters) instead of naive Euclidean distance for request-pruner features. Must match how the loaded checkpoint was trained - True for a NYC-trained request pruner, False (default) for Li&Lim."
+    )
     # alternative input files
     # parser.add_argument('--input_file', type=str,           default="test_nc/ttm/test_10r_1v_repeat6_simple.pkl", help='Request input file') 
     # parser.add_argument('--input_file', type=str,           default="inputs/wilson_nc_initial.pkl", help='Request input file') 

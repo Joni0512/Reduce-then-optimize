@@ -28,6 +28,15 @@ from rtv_solver.pipeline.candidate_scoring_gnn import build_scoring_model, Candi
 # when a critic model is actually passed into COAMLPipeline.__init__.
 from rtv_solver.pipeline.match_solution_graph import MatchSolutionGraphBuilder
 from rtv_solver.pipeline.match_graph_features import MatchGraphFeatureBuilder
+# 2026-08-21: SRL actor-critic integration (Algorithm 1 steps 1-6, see chat/
+# figures_export/srl_actor_critic_integration_steps.tex) - used by the new
+# _compute_srl_actor_loss() below, kept as its own module so the perturb/
+# score/softmax building blocks stay independently testable/reusable.
+from rtv_solver.pipeline.srl_target_action import (
+    sample_candidate_assignments,
+    score_candidates,
+    softmax_target_action,
+)
 from rtv_solver.pipeline.episode_buffer import EpisodeBuffer
 import torch.nn.functional as F
 # keep these constants for compatibility with commented out code in coaml_pipeline.py
@@ -73,6 +82,7 @@ class COAMLPipeline():
             imitation_solution_path: Path | str | None = None,
             critic: torch.nn.Module | None = None,
             critic_optimizer: torch.optim.Optimizer | None = None,
+            target_critic: torch.nn.Module | None = None,
         ):
         """
         Initialize the COAML pipeline solver.
@@ -87,6 +97,16 @@ class COAMLPipeline():
               created. None (default) fully skips the critic code path.
             - critic_optimizer: optimizer for `critic`'s parameters, required if
               `critic` is given.
+            - target_critic: optional (2026-08-26, SRL Option B - see chat).
+              A separate, periodically-copied-but-otherwise-frozen critic used
+              ONLY to score candidates for the actor's softmax target action
+              (srl_target_action.py's score_candidates(), inside
+              _compute_srl_actor_loss). Stabilizes the actor's target against
+              the live critic's own in-flight learning, without touching how
+              the critic itself is trained (still Huber loss vs. the full
+              Monte Carlo G_t/r_t, unchanged). If None (default), the live
+              `critic` is used for both roles, exactly as before this was
+              added - fully backward compatible.
         """
         self.config = config
         self.offline_payload = offline_payload
@@ -123,6 +143,9 @@ class COAMLPipeline():
         # identical to the existing SIL-only path.
         self.critic = critic
         self.critic_optimizer = critic_optimizer
+        # 2026-08-26: falls back to the live critic when no target_critic is
+        # given - see __init__ docstring above.
+        self.target_critic = target_critic if target_critic is not None else critic
         if self.critic is not None:
             self.match_graph_builder = MatchSolutionGraphBuilder()
             self.match_feature_builder = MatchGraphFeatureBuilder(
@@ -143,6 +166,8 @@ class COAMLPipeline():
         payload: dict,
         mode: str = "train",
         optimizer: Optional[torch.optim.Optimizer] = None,
+        train_critic: bool = True,
+        reward_mode: str = "cumulative",
     ):
         """
         # TODO there is probably a better way of coding to run the same loop for offline and COAML instead of this code duplication that we currently have with all its problems (no thesis prio)
@@ -150,9 +175,29 @@ class COAMLPipeline():
         Handles payloads across iterations of the rolling horizon
         
         With config.return_depot, this method will not add the final trips to the depot. The user has to call finalize_driverRuns(...) to add the final stops.
+
+        2026-08-18: train_critic only matters when self.critic is not None
+        (SRL Phase 2). When True (default), the critic's forward pass AND its
+        gradient step both run at episode end, same as before. When False,
+        only the forward pass + loss computation run (still populates
+        last_episode_returns/last_episode_predictions for inspection) but
+        zero_grad/backward/step are skipped - for validation episodes, so the
+        critic can be scored on unseen instances without training on them.
+
+        reward_mode is forwarded to EpisodeBuffer.with_returns() - see there
+        and mc_return_builder.py for "cumulative" (G_t, default) vs. "local"
+        (r_t, -1 only in the window a request permanently goes unserved).
         """
         # determine time interval of entire requests set
         self.loss_history = []
+        # 2026-08-24: diagnostic log for the SRL target action (mode="srl"
+        # only) - reset per episode, one entry appended per iteration inside
+        # _compute_srl_actor_loss(). Investigates the service-rate collapse
+        # seen on lr111/lr112/lrc107 (see chat): is the softmax target action
+        # itself drifting toward "reject everything" over the course of
+        # training, the same degenerate pattern the untrained-actor cold
+        # start hit, just reached differently this time?
+        self.srl_target_action_log: list[dict] = []
         start_time, end_time = PayloadParser.get_requests_time_interval(payload)
         # start before the initial start_time to catch all requests in the first interval
         current_time = max(0, start_time - self.config.BATCH_INTERVAL)
@@ -197,9 +242,23 @@ class COAMLPipeline():
                 new_driver_runs = driver_runs
             else:    
                 new_driver_runs = self.solve_iteration(new_payload, iteration, mode = mode)
-                if mode == "train" and optimizer is not None and self.last_loss is not None:
+                # 2026-08-21: mode=="srl" added alongside "train" - both compute
+                # self.last_loss per-iteration and need the same actor gradient
+                # step here (see _compute_srl_actor_loss's docstring). Without
+                # this, mode="srl" silently computed a loss that was never
+                # actually used to update the actor (found while testing).
+                if mode in ("train", "srl") and optimizer is not None and self.last_loss is not None:
                     optimizer.zero_grad(set_to_none=True)
                     self.last_loss.backward()
+                    # 2026-08-25: gradient clipping added per the reference SRL
+                    # implementation (Julia/Flux DVSP code, see chat) - they
+                    # clip both actor and critic gradients every step
+                    # (Optimiser(ClipValue(1e-3), Adam(...))). We use norm
+                    # clipping (max_norm=1.0) instead of their exact
+                    # value-clip threshold - their network scale (Dense(14=>1))
+                    # differs from ours, so 1e-3 isn't directly transferable;
+                    # 1.0 is a common general-purpose default, not re-tuned yet.
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     optimizer.step()
                           
             # increment time (might not be the size of the batch) and iteration
@@ -241,7 +300,9 @@ class COAMLPipeline():
             }
             _, episode_stats, _ = StatsParser(self.config, payload=stats_payload).evaluate(stats_payload)
 
-            step_return_pairs = self.episode_buffer.with_returns(all_requests, episode_stats.serviced_requests)
+            step_return_pairs = self.episode_buffer.with_returns(
+                all_requests, episode_stats.serviced_requests, reward_mode=reward_mode
+            )
             # 2026-08-14: diagnostic hook - lets a caller inspect the G_t values
             # of the episode that just finished (e.g. a test script checking
             # that they come out sane), since episode_buffer.clear() below
@@ -254,15 +315,37 @@ class COAMLPipeline():
             # steps before backpropagating reduces that noise, instead of
             # letting each single noisy G_t push the weights on its own.
             losses = []
+            # 2026-08-15: diagnostic hook, mirrors last_episode_returns above -
+            # q_pred only ever lived inside this loop before, thrown away
+            # right after the loss used it, so "prediction vs reality" was
+            # not actually inspectable from outside.
+            self.last_episode_predictions: list[float] = []
             for step, g_t in step_return_pairs:
                 q_pred = self.critic(step.request_features, step.vehicle_features, step.edge_index)
+                self.last_episode_predictions.append(q_pred.detach().item())
                 target = torch.tensor(g_t, dtype=torch.float32)
                 losses.append(F.huber_loss(q_pred, target))
 
+            # 2026-08-18: diagnostic hook, mirrors last_episode_returns/
+            # last_episode_predictions - the averaged Huber loss for this
+            # episode, needed by callers (e.g. train_critic.py) to report a
+            # validation loss without re-deriving it from the raw lists.
             total_loss = torch.stack(losses).mean()
-            self.critic_optimizer.zero_grad(set_to_none=True)
-            total_loss.backward()
-            self.critic_optimizer.step()
+            self.last_episode_loss: float = total_loss.item()
+
+            # 2026-08-18: train_critic=False (validation episodes) stops here -
+            # q_pred/loss above are still computed so last_episode_predictions
+            # and last_episode_loss are inspectable, but no gradient step
+            # happens, so validation instances never influence the critic's
+            # weights.
+            if train_critic:
+                self.critic_optimizer.zero_grad(set_to_none=True)
+                total_loss.backward()
+                # 2026-08-25: gradient clipping, same reasoning as the actor's
+                # clip_grad_norm_ above (see chat) - reference SRL
+                # implementation clips both actor and critic gradients.
+                torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
+                self.critic_optimizer.step()
 
             # Option B (not used, left as reference): one optimizer step per
             # buffered iteration instead of one averaged step per episode.
@@ -734,6 +817,46 @@ class COAMLPipeline():
                 feature_scores_with_reject = self._score(
                     feature_tensor_with_reject, trip_costs, reject_vehicle_ids
                 )
+
+                # 2026-08-20: SRL actor-critic integration diagnostic hooks
+                # (step 1-2, see srl_target_action.py) - theta (the raw
+                # scores), the trip_costs they were computed over, and a
+                # freshly built MAP oracle for THIS iteration, saved so an
+                # external script can call sample_candidate_assignments()/
+                # score_candidates() on a real iteration without needing to
+                # duplicate solve_iteration()'s internals. Not used by
+                # solve_iteration() itself - purely for external inspection,
+                # same pattern as last_episode_returns/last_episode_predictions.
+                if self.critic is not None:
+                    self.last_iteration_theta = feature_scores_with_reject
+                    self.last_iteration_trip_costs = trip_costs
+                    self.last_iteration_active_requests = active_requests
+                    self.last_iteration_vehicles = vehicle_handler.vehicles
+                    self.last_iteration_requests = trip_handler.requests
+                    self.last_iteration_current_time = payload_object.current_time
+                    # 2026-08-21: bug fix - must NOT reuse self.coaml_optimizer here.
+                    # make_map_oracle() only calls .reset() once at construction time,
+                    # then holds a reference; self.coaml_optimizer gets .reset() again
+                    # by every later iteration in this same episode (line ~736 above),
+                    # so by the time an external caller uses last_iteration_oracle
+                    # (typically after the whole episode/solve_pdptw has finished), its
+                    # internal trip_costs no longer match this iteration's - caused an
+                    # AssertionError in CO_ScoreMaximization.solve_ilp ("trip_count ==
+                    # feature_scores.shape[0]") when tested on class-2 (diagnose_q_spread.py).
+                    # A dedicated, fresh instance avoids the shared mutable state.
+                    self.last_iteration_oracle = make_map_oracle(
+                        CO_ScoreMaximization(self.config),
+                        single_trip_map,
+                        trip_list,
+                        trip_costs,
+                        vehicle_to_trips_cost_map,
+                        trip_to_vehicle_cost_map,
+                        trip_handler.requests,
+                        active_requests,
+                        self.config,
+                        reject_vehicle_ids=reject_vehicle_ids,
+                    )
+
                 num_reject_actions = len(reject_vehicle_ids)
                 if num_reject_actions > 0:
                     # Respect the same ordering as in add_reject_action_entries():
@@ -922,6 +1045,12 @@ class COAMLPipeline():
                 elif mode == "offline":
                     # allows us to run the offline pipeline decision while training but never used
                     result = default_result
+                elif mode == "srl":
+                    # 2026-08-21: SRL actor-critic mode (see below) - the vehicle's
+                    # actual moves this iteration are still driven by the actor's own
+                    # (unperturbed) scores, same as "eval" - only the loss computed
+                    # further down differs (softmax target action instead of imitation).
+                    result = score_result
                 else:
                     raise ValueError(f"Invalid mode: {mode}")
             else:
@@ -932,22 +1061,46 @@ class COAMLPipeline():
 
             # compute Fenchel-Young loss from known optimal solution
             if len(feature_tensor_with_reject) > 0:
-                # 2026-07-16: pass trip_handler.requests separately from request_batch -
-                # see _compute_fy_loss_from_optimal_solution's docstring for why it needs
-                # both (imitation-score ground truth vs. the MAP oracle's ILP calls have
-                # different, incompatible requirements for which list to use).
-                self._compute_fy_loss_from_optimal_solution(
-                    feature_matrix_with_reject,
-                    single_trip_map,
-                    trip_list,
-                    trip_costs,
-                    vehicle_to_trips_cost_map,
-                    trip_to_vehicle_cost_map,
-                    request_batch,
-                    trip_handler.requests,
-                    active_requests,
-                    reject_vehicle_ids,
-                )
+                # 2026-08-21: mode=="srl" is a NEW alternative to the existing
+                # imitation-target FY loss below - the imitation branch (else)
+                # is left completely untouched, this only adds a second way to
+                # compute self.last_loss, selected by `mode`. Whichever y_star
+                # is used, it's fed into the SAME self.fy_loss(theta, y_star,
+                # oracle) call underneath - see chat: FenchelYoungLoss itself
+                # never needed to change, only what gets passed as y_star.
+                if mode == "srl":
+                    if self.critic is None:
+                        raise ValueError("mode='srl' requires a critic (COAMLPipeline(..., critic=...)) - there is no Q to build a softmax target action from otherwise.")
+                    self._compute_srl_actor_loss(
+                        theta=feature_scores_with_reject,
+                        trip_costs=trip_costs,
+                        vehicles=vehicle_handler.vehicles,
+                        active_requests=active_requests,
+                        requests=trip_handler.requests,
+                        current_time=payload_object.current_time,
+                        single_trip_map=single_trip_map,
+                        trip_list=trip_list,
+                        vehicle_to_trips_cost_map=vehicle_to_trips_cost_map,
+                        trip_to_vehicle_cost_map=trip_to_vehicle_cost_map,
+                        reject_vehicle_ids=reject_vehicle_ids,
+                    )
+                else:
+                    # 2026-07-16: pass trip_handler.requests separately from request_batch -
+                    # see _compute_fy_loss_from_optimal_solution's docstring for why it needs
+                    # both (imitation-score ground truth vs. the MAP oracle's ILP calls have
+                    # different, incompatible requirements for which list to use).
+                    self._compute_fy_loss_from_optimal_solution(
+                        feature_matrix_with_reject,
+                        single_trip_map,
+                        trip_list,
+                        trip_costs,
+                        vehicle_to_trips_cost_map,
+                        trip_to_vehicle_cost_map,
+                        request_batch,
+                        trip_handler.requests,
+                        active_requests,
+                        reject_vehicle_ids,
+                    )
                 loss_tracked = True
 
             if self.config.REBALANCING:
@@ -1154,6 +1307,131 @@ class COAMLPipeline():
 
         self.last_loss = self.fy_loss(scores, y_star, oracle)
         console_logger.info(f"COAML FY loss computed: {self.last_loss.item():.4f}")
+
+    def _compute_srl_actor_loss(
+        self,
+        theta: torch.Tensor,
+        trip_costs: list[TripCost],
+        vehicles: dict,
+        active_requests: dict,
+        requests: list,
+        current_time: float,
+        single_trip_map: dict,
+        trip_list: list,
+        vehicle_to_trips_cost_map: dict,
+        trip_to_vehicle_cost_map: dict,
+        reject_vehicle_ids: list[int] | None = None,
+    ) -> None:
+        """
+        2026-08-21: SRL actor-critic loss (Algorithm 1 steps 1-6, see chat/
+        figures_export/srl_actor_critic_integration_steps.tex) - ALTERNATIVE
+        to _compute_fy_loss_from_optimal_solution above (imitation target).
+        That method is untouched; this is a separate, independent path,
+        selected via mode=="srl" in solve_iteration(). Both ultimately call
+        the SAME self.fy_loss(theta, y_star, oracle) - only where y_star
+        comes from differs (imitation ground truth vs. this method's
+        critic-informed softmax target action).
+
+        Requires self.critic (checked by the caller in solve_iteration()).
+
+        Steps, in order:
+        1-2. sample_candidate_assignments(): perturb theta m times
+             (config.NUM_SAMPLES draws, config.SIGMA std), solve the MAP
+             oracle for each perturbation -> m candidate assignments y^(i).
+             Uses a FRESH, dedicated CO_ScoreMaximization instance as the
+             oracle's solver (NOT self.coaml_optimizer) - see the 2026-08-21
+             bugfix note on last_iteration_oracle above (~line 788): reusing
+             the pipeline-wide shared optimizer meant a later iteration's
+             .reset() silently invalidated an earlier iteration's oracle.
+        3-4. score_candidates(): build a MatchGraph per candidate
+             (MatchSolutionGraphBuilder.build_from_candidate()) and score
+             each with self.critic -> m Q-values Q(s_j, y^(i)).
+        5.   softmax_target_action(): softmax the Q-values (temperature
+             config.SRL_TAU) into a target action a_hat_j = target_action -
+             detached, since this is used as a fixed y_star for the actor's
+             loss, not something the critic should receive gradients through.
+        6.   self.fy_loss(theta, y_star=target_action, oracle=SECOND fresh
+             oracle instance). "Second" per Algorithm 1's "using a second
+             perturbation" - see chat: statistically, the noise draws that
+             built target_action (step 1-2 above) must be independent of the
+             noise FenchelYoungLoss.forward() draws internally for its own
+             y-hat estimate, otherwise the gradient estimate would be biased
+             by reusing the same random draws twice. A dedicated fresh
+             CO_ScoreMaximization instance also sidesteps the same shared-
+             optimizer staleness risk as step 1-2's oracle.
+
+        Side effects:
+            Sets self.last_loss (same convention as
+            _compute_fy_loss_from_optimal_solution/_compute_fy_loss_from_default_solution).
+        """
+        # Step 1-2: fresh oracle #1, only used to build the m candidates.
+        candidate_oracle = make_map_oracle(
+            CO_ScoreMaximization(self.config),
+            single_trip_map,
+            trip_list,
+            trip_costs,
+            vehicle_to_trips_cost_map,
+            trip_to_vehicle_cost_map,
+            requests,
+            active_requests,
+            self.config,
+            reject_vehicle_ids=reject_vehicle_ids,
+        )
+        candidates = sample_candidate_assignments(
+            theta, candidate_oracle, num_samples=self.config.NUM_SAMPLES, sigma=self.config.SIGMA,
+        )
+
+        # Step 3-4: critic scores each candidate's match graph. Uses
+        # self.target_critic (Option B, 2026-08-26 - see chat and __init__
+        # docstring), NOT self.critic - defaults to self.critic when no
+        # separate target_critic was set, so nothing changes unless a caller
+        # explicitly passes target_critic=... to COAMLPipeline().
+        q_values = score_candidates(
+            candidates, requests, vehicles, trip_costs, active_requests, current_time,
+            self.feature_builder, self.match_graph_builder, self.match_feature_builder, self.target_critic,
+        )
+
+        # Step 5: softmax over Q-values -> target action. Detached - this is
+        # a fixed target for the actor's loss, gradients must not flow back
+        # into the critic through it.
+        _weights, target_action = softmax_target_action(candidates, q_values, tau=self.config.SRL_TAU)
+        target_action = target_action.detach()
+
+        # 2026-08-24: diagnostic - split target_action's total weighted mass
+        # into the trip-accept part vs. the reject-action part (see chat,
+        # investigating the lr111/lr112/lrc107 service-rate collapse). A
+        # trend of accept_mass -> 0 / reject_mass -> num_vehicles over
+        # episodes would mean the target action itself is drifting toward
+        # "reject everything", not just noise in how well the actor matches
+        # a stable-but-bad target.
+        num_reject = len(reject_vehicle_ids) if reject_vehicle_ids else 0
+        num_trips = len(trip_costs)
+        accept_mass = target_action[:num_trips].sum().item()
+        reject_mass = target_action[num_trips:num_trips + num_reject].sum().item() if num_reject > 0 else 0.0
+        self.srl_target_action_log.append({
+            "accept_mass": accept_mass,
+            "reject_mass": reject_mass,
+            "num_trips": num_trips,
+            "num_reject": num_reject,
+        })
+
+        # Step 6: fresh oracle #2 ("second perturbation", see docstring above),
+        # independent of candidate_oracle - same structural inputs, different
+        # object, so FenchelYoungLoss draws its own fresh noise internally.
+        actor_update_oracle = make_map_oracle(
+            CO_ScoreMaximization(self.config),
+            single_trip_map,
+            trip_list,
+            trip_costs,
+            vehicle_to_trips_cost_map,
+            trip_to_vehicle_cost_map,
+            requests,
+            active_requests,
+            self.config,
+            reject_vehicle_ids=reject_vehicle_ids,
+        )
+        self.last_loss = self.fy_loss(theta, target_action, actor_update_oracle)
+        console_logger.info(f"SRL actor FY loss computed: {self.last_loss.item():.4f}")
 
     def _log_assignment_status(self, result: AssignmentResult, unserved_requests: set[int], current_time: float):
         assignment_status = {PayloadKeys.STATS_ASSIGNED: result.request_assignment, 

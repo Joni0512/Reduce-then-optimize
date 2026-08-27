@@ -93,6 +93,7 @@ class TripHandler:
                 threshold=self.config.REQUEST_PRUNER_THRESHOLD,
                 urgent_slack_seconds=self.config.STEP_SIZE,  # see request_pruner.py for why STEP_SIZE, not BATCH_INTERVAL
                 min_retention_fraction=self.config.REQUEST_PRUNER_MIN_RETENTION_FRACTION,
+                geographic=self.config.REQUEST_PRUNER_GEOGRAPHIC,
             )
 
             # 2026-07-16: active_requests must be force-kept too, not just

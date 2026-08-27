@@ -112,9 +112,17 @@ class RequestPruner:
         urgent_slack_seconds: float = 100.0,
         min_retention_fraction: float = 0.3,
         device: str = "cpu",
+        geographic: bool = False,
     ):
         self.model_path = Path(model_path)
         self.threshold = threshold
+        # 2026-08-21: same fix as RequestGraphPruner (request_graph_pruner.py,
+        # 2026-08-02) - add_node_features() defaults to plain Euclidean
+        # distance, correct for Li&Lim's abstract flat-grid coordinates but
+        # wrong for NYC's real WGS84 lat/lon (distorts distances direction-
+        # dependently). geographic=True switches feature computation to
+        # haversine. Must match how the loaded checkpoint was trained.
+        self.geographic = geographic
         # 2026-07-15: hard safety floor, added after the lr211/lrc208
         # investigation showed that neither more training data nor
         # window-config-specific retraining fixed a specific failure mode:
@@ -264,7 +272,7 @@ class RequestPruner:
         # Candidates are simply the only rows actually fed into the model
         # afterwards - force-kept requests are never scored at all.
         G = _build_node_only_graph(requests)
-        G = RequestGraphFeatureBuilder.add_node_features(G)
+        G = RequestGraphFeatureBuilder.add_node_features(G, geographic=self.geographic)
         node_matrix, _edge_index, _edge_matrix, node_ids = RequestGraphFeatureBuilder.to_numpy(G)
         node_id_to_base_features = {
             node_id: node_matrix[i] for i, node_id in enumerate(node_ids)

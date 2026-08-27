@@ -77,7 +77,20 @@ class CO(ABC):
         reject_vehicle_ids = reject_vehicle_ids or []
         x_reject = x_reject or {}
 
-        if model.Status == GRB.OPTIMAL or model.Status == GRB.SUBOPTIMAL:
+        # 2026-08-20: GRB.TIME_LIMIT (ILP_TIMEOUT hit, e.g. on the larger
+        # 10min/40min and 30min/60min horizon configs) can still carry a
+        # feasible incumbent (model.SolCount > 0) - the model isn't actually
+        # infeasible, Gurobi just didn't finish proving optimality in time.
+        # Previously any non-OPTIMAL/SUBOPTIMAL status fell through to
+        # _handle_infeasibility()'s computeIIS() call, which Gurobi refuses
+        # to run on a feasible model ("Cannot compute IIS on a feasible
+        # model") - crashed 4/20 runs in the overnight robustness sweep.
+        # Treat TIME_LIMIT-with-a-solution the same as SUBOPTIMAL: use the
+        # best incumbent found so far instead of discarding it.
+        has_feasible_time_limit_solution = (
+            model.Status == GRB.TIME_LIMIT and model.SolCount > 0
+        )
+        if model.Status == GRB.OPTIMAL or model.Status == GRB.SUBOPTIMAL or has_feasible_time_limit_solution:
             console_logger.info(f"[{self.__class__.__name__}] ILP solved in {model.Runtime:.3f} s.")
 
             for vehicle_id in self.vehicle_to_trips_cost_map:
@@ -294,18 +307,40 @@ class CO(ABC):
         )
 
     def _handle_infeasibility(self, model):
+        # 2026-08-20: computeIIS() only works on a model Gurobi has proven
+        # GRB.INFEASIBLE (or INF_OR_UNBD) - calling it on any other status
+        # (e.g. TIME_LIMIT with zero feasible solutions found, status
+        # "unknown" rather than "infeasible") raises "Cannot compute IIS on
+        # a feasible model" and crashes the run. Only attempt it when the
+        # model is actually in one of the states Gurobi supports IIS for.
+        if model.Status not in (GRB.INFEASIBLE, GRB.INF_OR_UNBD):
+            raise Exception(
+                f"Gurobi solver ended with non-optimal, non-infeasible status: "
+                f"{model.Status} (SolCount={model.SolCount}) - not attempting computeIIS()."
+            )
         # Compute IIS (conflicting constraints)
         model.Params.OutputFlag = 1
         model.computeIIS()
-        model.write(self.config.OUTPUT_DIR / "infeasible.ilp")   # human-readable
-        model.write(self.config.OUTPUT_DIR / "infeasible.lp")    # full model
-        model.write(self.config.OUTPUT_DIR / "infeasible.mps")   # optional
+        # 2026-08-25 bugfix: gurobipy's Model.write() requires a str path, a
+        # bare Path object crashes inside its Cython string-encoding helper
+        # (AttributeError: 'PosixPath' object has no attribute 'encode') -
+        # surfaced when an SRL run (lc206) hit a genuinely infeasible ILP for
+        # the first time and this diagnostic-write code path finally ran.
+        model.write(str(self.config.OUTPUT_DIR / "infeasible.ilp"))   # human-readable
+        model.write(str(self.config.OUTPUT_DIR / "infeasible.lp"))    # full model
+        model.write(str(self.config.OUTPUT_DIR / "infeasible.mps"))   # optional
 
         # Print which constraints are in IIS
         console_logger.error("\n--- IIS constraints ---")
         for constraint in model.getConstrs():
             if constraint.IISConstr:
-                console_logger.error("IIS:", constraint.ConstrName)
+                # 2026-08-26 bugfix: logging.error("IIS:", x) treats x as a
+                # %-format arg for "IIS:" (no placeholder) - crashed with
+                # "not all arguments converted during string formatting",
+                # surfaced by the target_critic run hitting infeasibility on
+                # lc206 (same underlying code path as the 2026-08-25 Path fix
+                # above, this is its sibling bug in the same rarely-hit block).
+                console_logger.error(f"IIS: {constraint.ConstrName}")
         raise Exception(f"Gurobi solver ended with code: {model.Status}") # Code 3 INFEASIBLE
 
     @staticmethod

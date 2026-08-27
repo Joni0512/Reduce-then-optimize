@@ -794,6 +794,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Adam weight_decay. 0 = disabled (default).")
     parser.add_argument("--grad_clip_norm", type=float, default=0.0,
                          help="Max gradient norm for clip_grad_norm_. 0 = disabled (default).")
+    parser.add_argument("--use_dropoff_overlap_features", action="store_true",
+                         help="Include dropoff_window_overlap_seconds/ratio as edge features "
+                              "(12 total instead of 10). Default off, matching all existing "
+                              "v1_final/v2_final checkpoints. Any checkpoint trained with this "
+                              "flag on is only loadable by runs with it also on.")
     return parser.parse_args()
 
 
@@ -804,6 +809,10 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%H:%M:%S",
     )
+
+    RequestGraphFeatureBuilder.set_include_dropoff_overlap(args.use_dropoff_overlap_features)
+    logging.info("Edge features (%d): %s", len(RequestGraphFeatureBuilder.EDGE_FEATURES),
+                 RequestGraphFeatureBuilder.EDGE_FEATURES)
 
     if args.output_dir is not None:
         output_dir = Path(args.output_dir)

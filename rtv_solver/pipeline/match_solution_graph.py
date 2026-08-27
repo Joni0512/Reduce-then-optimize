@@ -7,6 +7,7 @@ import torch
 
 from rtv_solver.structure.assignment_result import AssignmentResult
 from rtv_solver.structure.request import Request
+from rtv_solver.structure.trip_cost import TripCost
 from rtv_solver.structure.vehicle import Vehicle
 from rtv_solver.structure.vehicle_stop import VehicleStop
 
@@ -94,6 +95,68 @@ class MatchSolutionGraphBuilder:
                 self._add_undirected(edge_pairs, request_index[left], request_index[right])
 
         is_assigned = tuple(rid in result.request_assignment for rid in request_ids)
+
+        graph = MatchGraph(
+            edge_index=self._edge_pairs_to_tensor(edge_pairs, device),
+            request_ids=request_ids,
+            vehicle_ids=vehicle_ids,
+            is_assigned=is_assigned,
+        )
+        self._validate(graph)
+        return graph
+
+    def build_from_candidate(
+        self,
+        requests: Sequence[Request],
+        vehicles: dict[int, Vehicle],
+        trip_costs: Sequence[TripCost],
+        y: torch.Tensor,
+        *,
+        device: torch.device | str | None = None,
+    ) -> MatchGraph:
+        """
+        2026-08-20: SRL actor-critic integration (Algorithm 1 step 3, see
+        chat/figures_export/srl_actor_critic_integration_steps.tex) -
+        variant of build() for a PERTURBED CANDIDATE solution instead of the
+        actually-picked one. Candidates come out of the MAP oracle
+        (srl_target_action.py's sample_candidate_assignments()) as a plain
+        binary vector y in {0,1}^n over trip_costs indices - there is no
+        AssignmentResult for these (that class only exists for the solver's
+        one final choice), so this builds the same edge structure directly
+        from (trip_costs, y) instead.
+
+        y may be longer than trip_costs (reject-action slots appended, see
+        map_oracle.py's oracle() docstring) - only the first
+        len(trip_costs) entries are used, reject slots don't correspond to
+        a trip and are ignored here.
+        """
+        request_ids = tuple(int(r.id) for r in requests)
+        vehicle_ids = tuple(sorted(vehicles.keys()))
+
+        request_index = {rid: i for i, rid in enumerate(request_ids)}
+        vehicle_index = {vid: len(request_ids) + i for i, vid in enumerate(vehicle_ids)}
+
+        selected_trip_indices = (y[: len(trip_costs)] > 0.5).nonzero(as_tuple=True)[0].tolist()
+
+        edge_pairs: set[tuple[int, int]] = set()
+        assigned_request_ids: set[int] = set()
+
+        for i in selected_trip_indices:
+            trip_cost = trip_costs[i]
+            vehicle_id = trip_cost.vehicle_id
+            if vehicle_id not in vehicle_index:
+                continue  # not one of our graph's vehicles, should not happen
+
+            ordered_ids = self._ordered_request_ids_from_sequence(list(trip_cost.sequence))
+            known_ids = [rid for rid in ordered_ids if rid in request_index]
+            assigned_request_ids.update(known_ids)
+
+            for rid in known_ids:
+                self._add_undirected(edge_pairs, request_index[rid], vehicle_index[vehicle_id])
+            for left, right in zip(known_ids, known_ids[1:]):
+                self._add_undirected(edge_pairs, request_index[left], request_index[right])
+
+        is_assigned = tuple(rid in assigned_request_ids for rid in request_ids)
 
         graph = MatchGraph(
             edge_index=self._edge_pairs_to_tensor(edge_pairs, device),

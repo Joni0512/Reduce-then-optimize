@@ -22,24 +22,44 @@ class RequestGraphFeatureBuilder:
         #"local_am_capacity_per_request_10min",
     ]
 
-    EDGE_FEATURES = [
+    # 2026-08-17: split into a base set (10 features, matches every existing
+    # v1_final/v2_final checkpoint's edge_encoder input dim [64,10]) plus an
+    # optional extra pair (dropoff_window_overlap_seconds/ratio) toggled via
+    # set_include_dropoff_overlap(). Default is OFF so importing this module
+    # never silently breaks old checkpoints -- call the toggle explicitly
+    # (e.g. via --use_dropoff_overlap_features in train_models_v2.py/main.py)
+    # to train/evaluate the 12-feature variant.
+    _BASE_EDGE_FEATURES = [
         "pickup_distance",
         "dropoff_distance",
         "pickup_time_difference",
         "pickup_window_overlap_seconds",
         "pickup_window_overlap_ratio",
-        # 2026-07-21: dropoff_window_overlap_seconds/ratio added (see
-        # add_edge_features below, computation kept) but temporarily removed
-        # from this list again -- v1_final/v2_final were trained with 10 edge
-        # features, so adding these 2 breaks state_dict loading for the
-        # existing checkpoints (edge_encoder expects [64,10], not [64,12]).
-        # Re-enable once v1_final/v2_final are retrained with 12 features.
         "direction_similarity",
         "cross_pickup1_dropoff2_distance",
         "cross_pickup2_dropoff1_distance",
         "trip_distance_difference",
         "latest_pickup_time_difference",
     ]
+    _DROPOFF_OVERLAP_FEATURES = [
+        "dropoff_window_overlap_seconds",
+        "dropoff_window_overlap_ratio",
+    ]
+    INCLUDE_DROPOFF_OVERLAP = False
+    EDGE_FEATURES = list(_BASE_EDGE_FEATURES)
+
+    @classmethod
+    def set_include_dropoff_overlap(cls, include: bool) -> None:
+        """Toggle the 2 dropoff-window-overlap edge features on/off.
+
+        Off (default): 10 edge features, matches every existing v1_final/
+        v2_final checkpoint. On: 12 features -- only compatible with
+        checkpoints trained with this flag also set to True.
+        """
+        cls.INCLUDE_DROPOFF_OVERLAP = include
+        cls.EDGE_FEATURES = list(cls._BASE_EDGE_FEATURES) + (
+            list(cls._DROPOFF_OVERLAP_FEATURES) if include else []
+        )
 
     @staticmethod
     def add_features(G, geographic: bool = False):

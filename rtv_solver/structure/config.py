@@ -85,6 +85,12 @@ class Config:
     # 2026-08-18: was a hardcoded RequestPruner constructor default with no
     # CLI override - see main.py's --request_pruner_min_retention_fraction.
     REQUEST_PRUNER_MIN_RETENTION_FRACTION: float = 0.3
+    # 2026-08-21: mirrors REQUEST_GRAPH_GEOGRAPHIC above - RequestPruner's
+    # feature computation (request_pruner.py) defaults to plain Euclidean
+    # distance, correct for Li&Lim's flat-grid coordinates but wrong for
+    # NYC's real WGS84 lat/lon. Must match how the loaded checkpoint was
+    # trained (True for a NYC-trained request pruner, False for Li&Lim).
+    REQUEST_PRUNER_GEOGRAPHIC: bool = False
     LARGEST_TSP: int = 8
     SHARE_COST_FACTOR: float = 10
     REBALANCING: bool = False
@@ -108,6 +114,15 @@ class Config:
     HIDDEN_DIM: int = 64
     NUM_SAMPLES: int = 20
     SIGMA: float = 0.2
+    # 2026-08-21: softmax temperature for the SRL actor-critic target action
+    # (softmax_target_action() in srl_target_action.py, Algorithm 1 step 5).
+    # 0.02 chosen empirically (diagnose_q_spread.py / test_softmax_tau.py,
+    # see chat) - measured Q-value std across perturbed candidates was
+    # ~0.001-0.036 depending on the instance/iteration, and 0.02 gave
+    # sensible (neither fully uniform nor fully degenerate) softmax weights
+    # across both class-1 and class-2 test instances. Not claimed optimal,
+    # just the best-supported starting value so far.
+    SRL_TAU: float = 0.02
     # 2026-07-30: additive alongside ScoringMLP (the "mlp" default) - lets
     # training_loop.py/coaml_pipeline.py construct a CandidateScoringGNN
     # instead when no explicit `model=` is passed in, so both can be run
@@ -257,6 +272,9 @@ class Config:
             REQUEST_PRUNER_MIN_RETENTION_FRACTION=getattr(
                 args, "request_pruner_min_retention_fraction", 0.3
             ),
+            REQUEST_PRUNER_GEOGRAPHIC=cls.str_to_bool(
+                getattr(args, "request_pruner_geographic", "False")
+            ),
             EXTRA_VALIDATION_FILES=getattr(args, "extra_validation_files", "") or "",
             EXTRA_TRAINING_FILES=getattr(args, "extra_training_files", "") or "",
             OVERRIDE_TRAINING_FILES=getattr(args, "override_training_files", "") or "",
@@ -293,6 +311,9 @@ class Config:
             HIDDEN_DIM = getattr(args, "hidden_dim", 64),
             NUM_SAMPLES = getattr(args, "num_samples", 20),
             SIGMA = getattr(args, "sigma", 0.2),
+            # 2026-08-21: same pattern as NUM_SAMPLES/SIGMA above - optional CLI
+            # override, defaults to the empirically-chosen 0.02 (see field comment).
+            SRL_TAU = getattr(args, "srl_tau", 0.02),
             MODEL_TYPE = getattr(args, "model_type", "mlp") or "mlp",
             FEATURE_BUILDER_VERSION = getattr(args, "feature_builder_version", "v1") or "v1",
             GNN_NUM_MESSAGE_PASSING_LAYERS = getattr(args, "gnn_num_message_passing_layers", 1),

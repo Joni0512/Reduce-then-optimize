@@ -160,7 +160,12 @@ def _load_instance_data(instance_name: str, config: Config) -> tuple[dict[int, o
     return request_lookup, num_vehicles
 
 
-def build_instance_arrays(instance_name: str, config: Config, rh_baseline_dir: Path = RH_BASELINE_DIR) -> dict | None:
+def build_instance_arrays(
+    instance_name: str,
+    config: Config,
+    rh_baseline_dir: Path = RH_BASELINE_DIR,
+    geographic: bool = False,
+) -> dict | None:
     """
     Replays one instance's rolling-horizon log window by window and returns
     the raw (unnormalized) arrays ready to be written to an .npz file.
@@ -205,7 +210,11 @@ def build_instance_arrays(instance_name: str, config: Config, rh_baseline_dir: P
             timestamp = entry["extra"]["timestamp"]
 
             G = _build_node_only_graph(active_requests)
-            G = RequestGraphFeatureBuilder.add_node_features(G)
+            # 2026-08-21: geographic threaded through (default False keeps
+            # Li&Lim behavior byte-identical) - see RequestPruner.__init__
+            # for why NYC needs geographic=True (haversine vs. Li&Lim's
+            # flat-grid Euclidean coordinates).
+            G = RequestGraphFeatureBuilder.add_node_features(G, geographic=geographic)
             node_matrix, _edge_index, _edge_matrix, node_ids = RequestGraphFeatureBuilder.to_numpy(G)
 
             # Sanity check: every node we built a feature row for must be

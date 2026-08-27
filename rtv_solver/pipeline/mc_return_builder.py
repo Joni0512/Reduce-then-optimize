@@ -57,6 +57,27 @@ class MonteCarloReturnBuilder:
     but doesn't preserve the "how many were missed" magnitude - trades scale
     stability for information content. Switch back if the unbounded penalty
     scale turns out to hurt training in practice.
+
+    2026-08-18: build_local() is a second, genuinely different target (not
+    just another cumulative variant) - user's proposal, promoted from a
+    diagnostic-only value to an actual training target on request. Per-step
+    local reward: -1 exactly in the window where a request's deadline passes
+    without it ever being served, 0 otherwise (not a cumulative return - only
+    counts requests that become permanently unservable IN that window, does
+    not carry forward requests still missing from earlier windows).
+
+        r_t = G_t - G_{t+1}   (with G_n := 0 for the step after the last one)
+
+    where G_t is the same cumulative penalty count build() computes - r_t is
+    literally the newly-added part of G_t at each step, so implemented here
+    by calling build() and taking consecutive differences, not by
+    re-deriving it from scratch.
+
+    User's own caveat when proposing this (2026-08-18): "die Definition ist
+    denke ich zu streng, außer sie funktioniert gut" - explicitly flagged as
+    possibly too myopic (a request due in window 3 that only gets served in
+    window 7 contributes nothing to r_t, since it was never permanently
+    missed) - being tried empirically, not adopted as clearly correct.
     """
 
     def __init__(self, requests: Sequence[Request]) -> None:
@@ -98,3 +119,19 @@ class MonteCarloReturnBuilder:
             # returns.append(len(served) / len(relevant))
 
         return returns
+
+    def build_local(
+        self,
+        iteration_times: Sequence[float],
+        serviced_request_ids: Sequence[int],
+    ) -> list[float]:
+        """
+        2026-08-18: alternative training target (see class docstring) - -1
+        only in the window where a request's deadline permanently passes
+        unserved, 0 otherwise. Same iteration_times/serviced_request_ids
+        contract as build().
+        """
+        cumulative = self.build(iteration_times, serviced_request_ids)
+        # G_n := 0 (nothing left to miss after the episode's last iteration)
+        shifted = cumulative[1:] + [0.0]
+        return [g_t - g_next for g_t, g_next in zip(cumulative, shifted)]
