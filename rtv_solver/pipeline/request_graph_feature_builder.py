@@ -109,35 +109,43 @@ class RequestGraphFeatureBuilder:
             )
 
             data["wheelchair"] = float(req.wc_capacity)
-            local_request_count = 0
 
-            for other_id, other_data in G.nodes(data=True):
-                if other_id == node_id:
-                    continue
+            # 2026-08-27: local_request_count_10min excluded for
+            # geographic=True (NYC) - the spatial check below is plain
+            # Euclidean with a fixed 10.0 threshold tuned for Li&Lim's flat
+            # grid units, which is meaningless for NYC's real WGS84 degrees
+            # (10.0 degrees is essentially the whole planet, so every
+            # request would count as "local"). No agreed-on meter-based
+            # threshold exists yet for NYC - set to a constant 0.0 instead
+            # of a misleading value until one is defined. TODO: pick a
+            # meter cutoff (e.g. via _haversine_distance_m) and compute this
+            # properly for geographic=True too.
+            if geographic:
+                data["local_request_count_10min"] = 0.0
+            else:
+                local_request_count = 0
 
-                other_req = other_data["request"]
+                for other_id, other_data in G.nodes(data=True):
+                    if other_id == node_id:
+                        continue
 
-                # NOTE 2026-08-02: still plain Euclidean with a fixed 10.0
-                # threshold regardless of `geographic` - that threshold is
-                # tuned for Li&Lim's grid units and is not yet meaningful for
-                # NYC's real coordinates (would need a meter-based cutoff).
-                # Known open issue, intentionally not touched here - no
-                # agreed-on meter value yet.
-                spatial_dist = RequestGraphFeatureBuilder._euclidean_distance(
-                    req.origin.lat,
-                    req.origin.lon,
-                    other_req.origin.lat,
-                    other_req.origin.lon,
-                )
+                    other_req = other_data["request"]
 
-                time_diff = abs(
-                    req.earliest_pickup_time - other_req.earliest_pickup_time
-                )
+                    spatial_dist = RequestGraphFeatureBuilder._euclidean_distance(
+                        req.origin.lat,
+                        req.origin.lon,
+                        other_req.origin.lat,
+                        other_req.origin.lon,
+                    )
 
-                if spatial_dist <= 10.0 and time_diff <= 600:
-                    local_request_count += 1
+                    time_diff = abs(
+                        req.earliest_pickup_time - other_req.earliest_pickup_time
+                    )
 
-            data["local_request_count_10min"] = float(local_request_count)
+                    if spatial_dist <= 10.0 and time_diff <= 600:
+                        local_request_count += 1
+
+                data["local_request_count_10min"] = float(local_request_count)
         return G
     @staticmethod
     def add_edge_features(G, geographic: bool = False):

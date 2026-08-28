@@ -140,14 +140,20 @@ def _build_node_only_graph(requests) -> nx.Graph:
     return G
 
 
-def _load_instance_data(instance_name: str, config: Config) -> tuple[dict[int, object], int]:
+def _load_instance_data(
+    instance_name: str, config: Config, manifest_dir: Path = MANIFEST_DIR
+) -> tuple[dict[int, object], int]:
     """
     Returns (request_lookup, num_vehicles) for one instance - full Request
     objects keyed by id (static per request, reused across all of that
     instance's windows) plus the instance's total fleet size (static count
     of driver_runs entries, used for the "requests_per_vehicle" feature).
+
+    2026-08-27: manifest_dir made a parameter (default unchanged, still
+    Li&Lim's MANIFEST_DIR) so NYC callers can point this at
+    solutions/nyc/manifests instead - see build_instance_arrays().
     """
-    payload_path = MANIFEST_DIR / f"{instance_name}.json"
+    payload_path = manifest_dir / f"{instance_name}.json"
     payload = PayloadParser.load_input_data(payload_path)
 
     # Required before RequestHandler can build Request objects: it resolves
@@ -165,6 +171,8 @@ def build_instance_arrays(
     config: Config,
     rh_baseline_dir: Path = RH_BASELINE_DIR,
     geographic: bool = False,
+    manifest_dir: Path = MANIFEST_DIR,
+    log_path: Path | None = None,
 ) -> dict | None:
     """
     Replays one instance's rolling-horizon log window by window and returns
@@ -181,13 +189,20 @@ def build_instance_arrays(
     window config instead of merging configs into one dataset (see design
     discussion 2026-07-15: models are always evaluated against one known
     window config at a time, so a merged/generalist dataset wasn't needed).
+
+    2026-08-27: manifest_dir/log_path made parameters (defaults unchanged)
+    so NYC callers can point this at solutions/nyc/manifests and at the
+    actual run directory (outputs/.../run_offline_.../<manifest>_<timestamp>/
+    assignment_data.jsonl) instead of Li&Lim's fixed
+    {rh_baseline_dir}/{instance}/rh_no_learning/ layout - see
+    build_nyc_request_pruner_dataset.py.
     """
-    log_path = rh_baseline_dir / instance_name / "rh_no_learning" / "assignment_data.jsonl"
+    log_path = log_path or (rh_baseline_dir / instance_name / "rh_no_learning" / "assignment_data.jsonl")
     if not log_path.exists():
         print(f"  [skip] no rolling-horizon log for {instance_name}: {log_path}")
         return None
 
-    request_lookup, num_vehicles = _load_instance_data(instance_name, config)
+    request_lookup, num_vehicles = _load_instance_data(instance_name, config, manifest_dir=manifest_dir)
 
     all_node_ids: list[int] = []
     all_window_index: list[int] = []
@@ -196,7 +211,15 @@ def build_instance_arrays(
     all_feature_rows: list[list[float]] = []
 
     with open(log_path) as f:
-        for window_index, line in enumerate(f):
+        # 2026-08-27: filter to "Status" entries only (one per rolling-
+        # horizon window) - assignment_data.jsonl now also contains
+        # "TripMetrics" entries (one per assigned trip, added earlier this
+        # session in co_base.py) interleaved with "Status" entries. Old
+        # Li&Lim logs predate that addition and contain only "Status" lines,
+        # so this filter is a no-op for them.
+        status_lines = [line for line in f if json.loads(line).get("message") == "Status"]
+
+        for window_index, line in enumerate(status_lines):
             entry = json.loads(line)
             status = entry["extra"]["status"]
             assigned_ids = {int(rid) for rid in status["assigned_requests"].keys()}

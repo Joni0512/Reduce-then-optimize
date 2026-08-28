@@ -91,12 +91,24 @@ def train(
     # (self.model) is fresh per COAMLPipeline() call too, but its weights are
     # carried across episodes manually below via `model=pipeline.model`.
     if shared_critic is not None:
-        # 2026-08-25: reuse an already-pretrained (and typically frozen)
-        # critic passed in from outside, instead of building+pretraining a
-        # fresh one per instance - needed for the 12-instance frozen-critic
-        # sweep (see chat): pretraining 12x from scratch would be wasteful,
-        # one shared critic is pretrained once by the caller and reused here.
-        critic = shared_critic
+        # 2026-08-25: reuse an already-pretrained critic passed in from
+        # outside, instead of building+pretraining a fresh one per instance -
+        # needed for the 12-instance frozen-critic sweep (see chat):
+        # pretraining 12x from scratch would be wasteful, one shared critic
+        # is pretrained once by the caller and reused here.
+        #
+        # 2026-08-28: deepcopy added - this function used to take
+        # `shared_critic` BY REFERENCE, which was harmless for freeze_critic=
+        # True (the critic never gets a gradient step, so it can't drift
+        # either way) but would silently corrupt the "pretrained but still
+        # co-adapting" variant (freeze_critic=False + shared_critic): without
+        # the copy, each test instance's 20 SRL episodes would keep mutating
+        # the SAME object, so instance 2 would start from instance 1's
+        # already-adapted weights instead of the original pretrained
+        # snapshot - instances would silently stop being independent/
+        # comparable. Deepcopying makes every call start from the exact same
+        # pretrained state regardless of what earlier calls did to it.
+        critic = copy.deepcopy(shared_critic)
         critic_optimizer = torch.optim.Adam(critic.parameters(), lr=critic_lr)
     else:
         critic = CriticGNN()
