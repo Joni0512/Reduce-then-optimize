@@ -92,6 +92,14 @@ class CandidateRequestFeatures:
     cr_norm_lat: float = 0.5  # mean pickup latitude of this candidate's own requests; 0.5 = no requests / center of map (never a valid real position, same convention as v_norm_lat_next_position)
     cr_norm_lon: float = 0.5
     cr_urgency: float = 0.0  # max decay score (see _global_future_demand_features) across this candidate's own requests; 1.0 = due now, 0.0 = no requests or beyond look-ahead horizon
+    # 2026-08-09: continuous counterpart to cr_urgency - cr_urgency is binned/decayed
+    # against earliest_pickup_time (window OPEN), this is the raw, unbinned distance
+    # to latest_pickup_time (the HARD deadline), same formula match_graph_features.py
+    # already uses for the SRL critic (pickup_slack there). Min across the candidate's
+    # own requests = the most urgent one drives the risk (mirrors cr_urgency's "max
+    # decay = most urgent" convention). Default 4.0 matches the look-ahead horizon
+    # cutoff cr_urgency already uses (interval_index > 4), i.e. "no pressing deadline".
+    cr_pickup_slack: float = 4.0
 
 
 @dataclass
@@ -148,6 +156,12 @@ class FeatureBuilder:
     # 2026-08-09: second wave of v2 - see CompetitionFeatures. Default True; set
     # False to reproduce the original (first-wave) v2 feature set for comparison.
     ENABLE_COMPETITION_FEATURES = True
+    # 2026-08-09: cr_pickup_slack (continuous distance to the hard pickup deadline,
+    # see CandidateRequestFeatures) - toggle so the pre-pickup_slack v2 feature set
+    # stays reproducible (False) for comparison against the already-running
+    # fbv2_seed*/fbv2comp_seed* cluster jobs, which used feat_builder_new.py before
+    # this field existed.
+    ENABLE_PICKUP_SLACK_FEATURE = True
     # 2026-07-30: base = 6 (state) + 11 (vehicle) + 15 (tripcost) + 49 (global future
     # demand grid) + 3 (candidate request location) + 1 (reject flag) = 85.
     # (Previously documented as 82 = 6+11+"17"(actually 15)+49+1 - the "17" was a
@@ -159,10 +173,13 @@ class FeatureBuilder:
     # cf_num_candidates_same_request, cf_diff_to_mean_competing_cost,
     # cf_conflict_graph_degree - see CompetitionFeatures.
     _COMPETITION_FEATURE_SIZE = 7
+    _PICKUP_SLACK_FEATURE_SIZE = 1
     FEATURE_SIZE = _BASE_FEATURE_SIZE + (
         _TRIP_COMPOSITION_FEATURE_SIZE if ENABLE_TRIP_COMPOSITION_FEATURES else 0
     ) + (
         _COMPETITION_FEATURE_SIZE if ENABLE_COMPETITION_FEATURES else 0
+    ) + (
+        _PICKUP_SLACK_FEATURE_SIZE if ENABLE_PICKUP_SLACK_FEATURE else 0
     )  # TODO update this value if you change the features
     REJECT_FLAG_FEATURE_NAME = "action_reject_flag"
     """It builds one feature vector per `TripCost` in order to match the size of new scores to the number of feasible trips associated with costs, combining:
@@ -257,14 +274,18 @@ class FeatureBuilder:
             fv.update(self._vehicle_features(vehicle, vehicles, current_time))  # 11 items
             fv.update(self._trip_cost_features(tc, current_time))               # 15 items
             fv.update(global_future_demand)                                     # 49 items - global, same for every row this call
-            fv.update(self._candidate_request_location_features(trip_requests, current_time)) # 3 items - this candidate's own requests
+            cr_features = self._candidate_request_location_features(trip_requests, current_time)
+            if not self.ENABLE_PICKUP_SLACK_FEATURE:
+                cr_features.pop("cr_pickup_slack", None)
+            fv.update(cr_features)  # 3 items (4 with pickup slack) - this candidate's own requests
             if self.ENABLE_COMPETITION_FEATURES:
                 by_vehicle, by_request = competition_lookup
                 fv.update(self._competition_features(tc, by_vehicle, by_request))  # 7 items
             # fv.update(self._request_aggregate_features(trip_requests))
             fv[self.REJECT_FLAG_FEATURE_NAME] = 0.0
 
-            # current total = 85 items (or 87 with trip composition, +7 more with competition)
+            # current total = 85 items (or 87 with trip composition, +7 more with
+            # competition, +1 more with pickup slack -> 95 with all three enabled)
 
             features.append(fv)
 
@@ -749,16 +770,20 @@ class FeatureBuilder:
         features.cr_norm_lon = (mean_lon - self.min_lon) / lon_range if lon_range > 0 else 0.0
 
         best_decay = 0.0
+        min_slack = 4.0
         for request in requests:
             offset = request.earliest_pickup_time - current_time
             if offset <= 0:
                 interval_index = 1
             else:
                 interval_index = int(offset // self.config.BATCH_INTERVAL) + 1
-            if interval_index > 4:  # beyond the look-ahead horizon, same cutoff as the global grid
-                continue
-            best_decay = max(best_decay, 0.5 ** (interval_index - 1))
+            if interval_index <= 4:  # beyond the look-ahead horizon, same cutoff as the global grid
+                best_decay = max(best_decay, 0.5 ** (interval_index - 1))
+
+            slack = (request.latest_pickup_time - current_time) / self.config.BATCH_INTERVAL
+            min_slack = min(min_slack, slack)
         features.cr_urgency = best_decay
+        features.cr_pickup_slack = min_slack
 
         return asdict(features)
 
