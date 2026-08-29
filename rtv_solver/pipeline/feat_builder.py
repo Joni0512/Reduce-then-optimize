@@ -108,10 +108,19 @@ class TripCostFeatures:
 
 class FeatureBuilder:
     ENABLE_TRIP_COMPOSITION_FEATURES = True # include explicit trip-composition signal
+    # 2026-08-29: cr_pickup_slack ported over from feat_builder_new.py (v2) - v1
+    # equivalent of the continuous distance to a candidate's own requests' hard
+    # pickup deadline (latest_pickup_time), see _pickup_slack_feature. Toggle
+    # mirrors v2's ENABLE_PICKUP_SLACK_FEATURE so the pre-this-change v1 feature
+    # set (84/82-dim) stays reproducible for comparison.
+    ENABLE_PICKUP_SLACK_FEATURE = True
     _BASE_FEATURE_SIZE = 82
     _TRIP_COMPOSITION_FEATURE_SIZE = 2
+    _PICKUP_SLACK_FEATURE_SIZE = 1
     FEATURE_SIZE = _BASE_FEATURE_SIZE + (
         _TRIP_COMPOSITION_FEATURE_SIZE if ENABLE_TRIP_COMPOSITION_FEATURES else 0
+    ) + (
+        _PICKUP_SLACK_FEATURE_SIZE if ENABLE_PICKUP_SLACK_FEATURE else 0
     )  # TODO update this value if you change the features
     REJECT_FLAG_FEATURE_NAME = "action_reject_flag"
     """It builds one feature vector per `TripCost` in order to match the size of new scores to the number of feasible trips associated with costs, combining:
@@ -188,10 +197,13 @@ class FeatureBuilder:
             fv.update(self._vehicle_features(vehicle, vehicles, current_time))  # 11 items
             fv.update(self._trip_cost_features(tc, current_time))               # 17 items
             fv.update(self._future_requests_features(trip_requests, current_time)) # 49 items
+            if self.ENABLE_PICKUP_SLACK_FEATURE:
+                fv.update(self._pickup_slack_feature(trip_requests, current_time))  # 1 item
             # fv.update(self._request_aggregate_features(trip_requests))
             fv[self.REJECT_FLAG_FEATURE_NAME] = 0.0
 
-            # current total = 82 items (or 84 if trip composition features are enabled)
+            # current total = 82 items (84 with trip composition, +1 more with
+            # pickup slack -> 85 with both enabled)
 
             features.append(fv)
 
@@ -609,8 +621,30 @@ class FeatureBuilder:
             for row in range(GRID_SIZE)
             for col in range(GRID_SIZE)
         }
-    
-    @staticmethod       
+
+    def _pickup_slack_feature(self, requests: List[Request], current_time: float) -> FeatureVector:
+        """
+        2026-08-29: ported from feat_builder_new.py's CandidateRequestFeatures.
+        cr_pickup_slack - continuous distance to the hard pickup deadline
+        (latest_pickup_time), in units of BATCH_INTERVAL. Min across this
+        candidate's own requests (1-2, same `requests` scope as
+        _future_requests_features): the most urgent one drives the risk.
+        Default 4.0 matches the look-ahead horizon _future_requests_features
+        already uses (interval_index > NUM_INTERVALS=4 cutoff), i.e. "no
+        pressing deadline". Note: the reject-row placeholder in
+        _add_reject_action_entries does NOT call this (falls back to 0.0 via
+        that method's feature_names projection) - same pre-existing limitation
+        the all-zero future-request grid already has for reject rows there.
+        """
+        if not requests:
+            return {"cr_pickup_slack": 4.0}
+        min_slack = min(
+            (request.latest_pickup_time - current_time) / self.config.BATCH_INTERVAL
+            for request in requests
+        )
+        return {"cr_pickup_slack": min_slack}
+
+    @staticmethod
     def _calc_geo_distance_meter(loc1: tuple[float, float], loc2: tuple[float, float]):
         """
         each location must be defined as a tuple with (lat, lon)
