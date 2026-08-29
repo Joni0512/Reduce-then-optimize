@@ -28,6 +28,7 @@ from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
 from rtv_solver.handlers.request_handler import RequestHandler
 from rtv_solver.pipeline.critic_gnn import CriticGNN
+from rtv_solver.pipeline.replay_buffer import ReplayBuffer
 from rtv_solver.pipeline.train_critic import TRAIN_INSTANCES as DEFAULT_CRITIC_PRETRAIN_INSTANCES
 from rtv_solver.schema.payload_keys import PayloadKeys
 from rtv_solver.structure.config import Config
@@ -55,6 +56,10 @@ def train(
     shared_critic: torch.nn.Module | None = None,
     label_suffix: str = "",
     target_critic_update_interval: int | None = None,
+    use_replay_buffer: bool = False,
+    replay_capacity: int = 40,
+    replay_batch_size: int = 12,
+    replay_update_group_size: int = 3,
 ) -> None:
     # 2026-08-23: actor_checkpoint added after the first "untrained actor"
     # test degenerated to service_rate=0.0 for all 20 episodes (see chat) -
@@ -173,6 +178,16 @@ def train(
             raise ValueError("target_critic_update_interval has no effect when freeze_critic=True - the live critic never changes, so a periodic copy of it is always identical.")
         target_critic = copy.deepcopy(critic)
 
+    # 2026-08-28: replay buffer (see chat) - built ONCE outside the episode
+    # loop, same "persists across episodes" pattern as critic/critic_optimizer
+    # above, so it actually accumulates cross-episode history within this
+    # instance's run instead of being rebuilt empty every episode.
+    replay_buffer = None
+    if use_replay_buffer:
+        if freeze_critic:
+            raise ValueError("use_replay_buffer has no effect when freeze_critic=True - the critic never trains, so there is nothing for the buffer to feed.")
+        replay_buffer = ReplayBuffer(capacity=replay_capacity)
+
     for episode in range(episodes):
         if target_critic is not None and episode % target_critic_update_interval == 0:
             # 2026-08-26: hard copy, same pattern as the reference SRL
@@ -188,6 +203,8 @@ def train(
             config, cleared_payload, imitation_solution_path=input_path,
             model=model, critic=critic, critic_optimizer=critic_optimizer,
             target_critic=target_critic,
+            replay_buffer=replay_buffer, replay_batch_size=replay_batch_size,
+            replay_update_group_size=replay_update_group_size,
         )
         if actor_checkpoint and episode == 0:
             # 2026-08-23: only load on episode 0 - after that, `model` (the
@@ -331,6 +348,10 @@ if __name__ == "__main__":
     parser.add_argument("--freeze_critic", action="store_true", help="Pretrain the critic once (on actor_checkpoint), then keep it fixed during the SRL episodes - isolates whether instability comes from actor/critic co-adaptation.")
     parser.add_argument("--critic_pretrain_epochs", type=int, default=10)
     parser.add_argument("--target_critic_update_interval", type=int, default=None, help="SRL Option B (see chat): episodes between target_critic hard-copies. None = no target_critic (actor uses the live, co-adapting critic directly, old default behavior). Only meaningful when NOT --freeze_critic.")
+    parser.add_argument("--use_replay_buffer", action="store_true", help="Train the critic from a cross-episode Monte Carlo replay buffer instead of one averaged step per episode (see chat). Only meaningful when NOT --freeze_critic.")
+    parser.add_argument("--replay_capacity", type=int, default=40)
+    parser.add_argument("--replay_batch_size", type=int, default=12)
+    parser.add_argument("--replay_update_group_size", type=int, default=3)
     args = parser.parse_args()
 
     train(
@@ -348,4 +369,8 @@ if __name__ == "__main__":
         freeze_critic=args.freeze_critic,
         critic_pretrain_epochs=args.critic_pretrain_epochs,
         target_critic_update_interval=args.target_critic_update_interval,
+        use_replay_buffer=args.use_replay_buffer,
+        replay_capacity=args.replay_capacity,
+        replay_batch_size=args.replay_batch_size,
+        replay_update_group_size=args.replay_update_group_size,
     )

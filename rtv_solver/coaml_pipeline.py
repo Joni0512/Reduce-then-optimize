@@ -38,6 +38,7 @@ from rtv_solver.pipeline.srl_target_action import (
     softmax_target_action,
 )
 from rtv_solver.pipeline.episode_buffer import EpisodeBuffer
+from rtv_solver.pipeline.replay_buffer import ReplayBuffer
 import torch.nn.functional as F
 # keep these constants for compatibility with commented out code in coaml_pipeline.py
 from rtv_solver.pipeline.imitation_handler import (
@@ -83,6 +84,9 @@ class COAMLPipeline():
             critic: torch.nn.Module | None = None,
             critic_optimizer: torch.optim.Optimizer | None = None,
             target_critic: torch.nn.Module | None = None,
+            replay_buffer: "ReplayBuffer | None" = None,
+            replay_batch_size: int = 12,
+            replay_update_group_size: int = 3,
         ):
         """
         Initialize the COAML pipeline solver.
@@ -107,6 +111,21 @@ class COAMLPipeline():
               Monte Carlo G_t/r_t, unchanged). If None (default), the live
               `critic` is used for both roles, exactly as before this was
               added - fully backward compatible.
+            - replay_buffer: optional (2026-08-28, see chat). If given, the
+              critic is trained from mini-batches sampled from this
+              cross-episode buffer instead of one averaged step over only
+              the just-finished episode's own steps - see the episode-end
+              training block below. None (default) keeps the original
+              single-episode-averaged behavior unchanged.
+            - replay_batch_size: entries per replay-buffer mini-batch (only
+              used when replay_buffer is given).
+            - replay_update_group_size: this episode's new steps are grouped
+              into batches of this size to decide HOW MANY replay-buffer
+              mini-batch updates to run at episode end (only used when
+              replay_buffer is given) - e.g. 9 new steps with group_size=3
+              triggers 3 updates. Targets (r_t/G_t) are only known once the
+              episode finishes, so updates cannot happen mid-episode even
+              though this mimics "one update per N iterations".
         """
         self.config = config
         self.offline_payload = offline_payload
@@ -146,6 +165,9 @@ class COAMLPipeline():
         # 2026-08-26: falls back to the live critic when no target_critic is
         # given - see __init__ docstring above.
         self.target_critic = target_critic if target_critic is not None else critic
+        self.replay_buffer = replay_buffer
+        self.replay_batch_size = replay_batch_size
+        self.replay_update_group_size = replay_update_group_size
         if self.critic is not None:
             self.match_graph_builder = MatchSolutionGraphBuilder()
             self.match_feature_builder = MatchGraphFeatureBuilder(
@@ -309,57 +331,97 @@ class COAMLPipeline():
             # would otherwise throw them away with nothing left to look at.
             self.last_episode_returns: list[float] = [g_t for _, g_t in step_return_pairs]
 
-            # Option A (used here): one averaged loss for the whole episode.
-            # Chosen because G_t is a noisy single-sample Monte Carlo
-            # estimate (see chat, 2026-08-14) - averaging over the episode's
-            # steps before backpropagating reduces that noise, instead of
-            # letting each single noisy G_t push the weights on its own.
-            losses = []
-            # 2026-08-15: diagnostic hook, mirrors last_episode_returns above -
-            # q_pred only ever lived inside this loop before, thrown away
-            # right after the loss used it, so "prediction vs reality" was
-            # not actually inspectable from outside.
-            self.last_episode_predictions: list[float] = []
-            for step, g_t in step_return_pairs:
-                q_pred = self.critic(step.request_features, step.vehicle_features, step.edge_index)
-                self.last_episode_predictions.append(q_pred.detach().item())
-                target = torch.tensor(g_t, dtype=torch.float32)
-                losses.append(F.huber_loss(q_pred, target))
+            if self.replay_buffer is not None:
+                # 2026-08-28: replay-buffer critic training (see chat) -
+                # this episode's (step, target) pairs go into the buffer
+                # first, then several mini-batch updates are sampled from
+                # the WHOLE buffer (mixing in earlier episodes of this same
+                # instance run), instead of one averaged step over only this
+                # episode's own steps. Targets are still plain Monte Carlo
+                # r_t/G_t (fixed once computed), no bootstrap involved - see
+                # replay_buffer.py's docstring.
+                self.last_episode_predictions = []
+                for step, g_t in step_return_pairs:
+                    with torch.no_grad():
+                        q_pred = self.critic(step.request_features, step.vehicle_features, step.edge_index)
+                    self.last_episode_predictions.append(q_pred.item())
+                    self.replay_buffer.add(step, g_t)
 
-            # 2026-08-18: diagnostic hook, mirrors last_episode_returns/
-            # last_episode_predictions - the averaged Huber loss for this
-            # episode, needed by callers (e.g. train_critic.py) to report a
-            # validation loss without re-deriving it from the raw lists.
-            total_loss = torch.stack(losses).mean()
-            self.last_episode_loss: float = total_loss.item()
+                num_new_steps = len(step_return_pairs)
+                num_updates = max(1, -(-num_new_steps // self.replay_update_group_size))  # ceil div
 
-            # 2026-08-18: train_critic=False (validation episodes) stops here -
-            # q_pred/loss above are still computed so last_episode_predictions
-            # and last_episode_loss are inspectable, but no gradient step
-            # happens, so validation instances never influence the critic's
-            # weights.
-            if train_critic:
-                self.critic_optimizer.zero_grad(set_to_none=True)
-                total_loss.backward()
-                # 2026-08-25: gradient clipping, same reasoning as the actor's
-                # clip_grad_norm_ above (see chat) - reference SRL
-                # implementation clips both actor and critic gradients.
-                torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
-                self.critic_optimizer.step()
+                batch_losses = []
+                for _ in range(num_updates):
+                    batch = self.replay_buffer.sample(self.replay_batch_size)
+                    batch_q_preds = [
+                        self.critic(entry.step.request_features, entry.step.vehicle_features, entry.step.edge_index)
+                        for entry in batch
+                    ]
+                    batch_targets = [torch.tensor(entry.target, dtype=torch.float32) for entry in batch]
+                    batch_loss = torch.stack([
+                        F.huber_loss(q_pred, target) for q_pred, target in zip(batch_q_preds, batch_targets)
+                    ]).mean()
+                    batch_losses.append(batch_loss.item())
 
-            # Option B (not used, left as reference): one optimizer step per
-            # buffered iteration instead of one averaged step per episode.
-            # Matches how the existing SIL actor loss above already trains
-            # (immediate step per iteration), but each step then gets a
-            # noisier, single-sample gradient instead of an averaged one.
-            #
-            # for step, g_t in step_return_pairs:
-            #     q_pred = self.critic(step.request_features, step.vehicle_features, step.edge_index)
-            #     target = torch.tensor(g_t, dtype=torch.float32)
-            #     loss = F.huber_loss(q_pred, target)
-            #     self.critic_optimizer.zero_grad(set_to_none=True)
-            #     loss.backward()
-            #     self.critic_optimizer.step()
+                    if train_critic:
+                        self.critic_optimizer.zero_grad(set_to_none=True)
+                        batch_loss.backward()
+                        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
+                        self.critic_optimizer.step()
+
+                self.last_episode_loss: float = sum(batch_losses) / len(batch_losses)
+            else:
+                # Option A (used here): one averaged loss for the whole episode.
+                # Chosen because G_t is a noisy single-sample Monte Carlo
+                # estimate (see chat, 2026-08-14) - averaging over the episode's
+                # steps before backpropagating reduces that noise, instead of
+                # letting each single noisy G_t push the weights on its own.
+                losses = []
+                # 2026-08-15: diagnostic hook, mirrors last_episode_returns above -
+                # q_pred only ever lived inside this loop before, thrown away
+                # right after the loss used it, so "prediction vs reality" was
+                # not actually inspectable from outside.
+                self.last_episode_predictions: list[float] = []
+                for step, g_t in step_return_pairs:
+                    q_pred = self.critic(step.request_features, step.vehicle_features, step.edge_index)
+                    self.last_episode_predictions.append(q_pred.detach().item())
+                    target = torch.tensor(g_t, dtype=torch.float32)
+                    losses.append(F.huber_loss(q_pred, target))
+
+                # 2026-08-18: diagnostic hook, mirrors last_episode_returns/
+                # last_episode_predictions - the averaged Huber loss for this
+                # episode, needed by callers (e.g. train_critic.py) to report a
+                # validation loss without re-deriving it from the raw lists.
+                total_loss = torch.stack(losses).mean()
+                self.last_episode_loss: float = total_loss.item()
+
+                # 2026-08-18: train_critic=False (validation episodes) stops here -
+                # q_pred/loss above are still computed so last_episode_predictions
+                # and last_episode_loss are inspectable, but no gradient step
+                # happens, so validation instances never influence the critic's
+                # weights.
+                if train_critic:
+                    self.critic_optimizer.zero_grad(set_to_none=True)
+                    total_loss.backward()
+                    # 2026-08-25: gradient clipping, same reasoning as the actor's
+                    # clip_grad_norm_ above (see chat) - reference SRL
+                    # implementation clips both actor and critic gradients.
+                    torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
+                    self.critic_optimizer.step()
+
+                # Option B (not used, left as reference): one optimizer step per
+                # buffered iteration instead of one averaged step per episode.
+                # Matches how the existing SIL actor loss above already trains
+                # (immediate step per iteration), but each step then gets a
+                # noisier, single-sample gradient instead of an averaged one.
+                #
+                # for step, g_t in step_return_pairs:
+                #     q_pred = self.critic(step.request_features, step.vehicle_features, step.edge_index)
+                #     target = torch.tensor(g_t, dtype=torch.float32)
+                #     loss = F.huber_loss(q_pred, target)
+                #     self.critic_optimizer.zero_grad(set_to_none=True)
+                #     loss.backward()
+                #     self.critic_optimizer.step()
 
             self.episode_buffer.clear()
 

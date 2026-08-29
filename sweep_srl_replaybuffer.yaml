@@ -1,0 +1,20 @@
+program: rtv_solver/pipeline/sweep_srl_replaybuffer_trial.py
+project: srl-replaybuffer-sweep
+method: bayes
+metric:
+  name: mean_final_service_rate
+  goal: maximize
+parameters:
+  replay_capacity:
+    values: [20, 30, 40, 60, 80]
+  critic_lr:
+    distribution: log_uniform_values
+    min: 0.00001
+    max: 0.01
+  sigma:
+    distribution: uniform
+    min: 0.5
+    max: 1.5
+command:
+  - ./venv/bin/python3
+  - ${program}
