@@ -4,7 +4,7 @@ import argparse
 import os
 
 from dataclasses import dataclass, asdict, field
-from typing import List
+from typing import List, Optional
 from pathlib import Path
 
 from rtv_solver.util.helper import save_json, load_json
@@ -134,6 +134,13 @@ class Config:
     # (v2: global future-demand grid + candidate request-location features)
     # instead, for side-by-side comparison. See pipeline.build_feature_builder().
     FEATURE_BUILDER_VERSION: str = "v1"  # "v1" | "v2"
+    # 2026-08-29: CLI override for FeatureBuilder.ENABLE_PICKUP_SLACK_FEATURE
+    # (both feat_builder.py and feat_builder_new.py define the same-named class
+    # constant, default True) - lets the same code run both with/without
+    # pickup_slack in one process-wide setting, for ablations at new
+    # batch_interval/step_size combos without editing source + re-pushing.
+    # None = don't touch the class default. See pipeline.build_feature_builder().
+    ENABLE_PICKUP_SLACK_FEATURE: Optional[bool] = None
     # 2026-08-02: aggregator ablation - "gcn" (GCNMeanLayer, Eq. 2), "mean"
     # (GraphSAGEMeanLayer, Algorithm 1), or "pool" (GraphSAGEPoolLayer, Eq. 3).
     # Ignored when MODEL_TYPE="mlp".
@@ -316,6 +323,11 @@ class Config:
             SRL_TAU = getattr(args, "srl_tau", 0.02),
             MODEL_TYPE = getattr(args, "model_type", "mlp") or "mlp",
             FEATURE_BUILDER_VERSION = getattr(args, "feature_builder_version", "v1") or "v1",
+            ENABLE_PICKUP_SLACK_FEATURE = (
+                cls.str_to_bool(getattr(args, "enable_pickup_slack_feature"))
+                if getattr(args, "enable_pickup_slack_feature", None) is not None
+                else None
+            ),
             GNN_NUM_MESSAGE_PASSING_LAYERS = getattr(args, "gnn_num_message_passing_layers", 1),
             GNN_AGGREGATOR = getattr(args, "gnn_aggregator", "gcn") or "gcn",
             DROPOUT = getattr(args, "dropout", 0.0),

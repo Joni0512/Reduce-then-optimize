@@ -91,6 +91,12 @@ if __name__ == "__main__":
     # features) instead, so both feature sets can be compared side by side without
     # touching v1. See rtv_solver/pipeline/build_feature_builder().
     parser.add_argument('--feature_builder_version', type=str, choices=['v1', 'v2'], default='v1', help='Feature set: "v1" (feat_builder.py, default, 84/82-dim) or "v2" (feat_builder_new.py, global future-demand grid + candidate request-location features, 87/85-dim).')
+    # 2026-08-29: CLI override for FeatureBuilder.ENABLE_PICKUP_SLACK_FEATURE
+    # (source-level class constant on both feat_builder.py/feat_builder_new.py,
+    # default True) - lets the same code test with/without cr_pickup_slack at
+    # a new batch_interval/step_size without editing source and re-pushing.
+    # Unset (None) leaves the class default untouched.
+    parser.add_argument('--enable_pickup_slack_feature', type=str, choices=['True', 'False'], default=None, help='Override ENABLE_PICKUP_SLACK_FEATURE on the selected feature_builder_version class. Default: unset, use the class hardcoded default (currently True).')
     # 2026-08-03: HP-tuning grid stage 2 - dropout was already a constructor
     # parameter on CandidateScoringGNN/GCNMeanLayer/GraphSAGEMeanLayer/
     # GraphSAGEPoolLayer but was never threaded through from main.py/config.py

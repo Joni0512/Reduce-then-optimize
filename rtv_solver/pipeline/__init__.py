@@ -30,9 +30,21 @@ def build_feature_builder(complete_payload: dict, config) -> FeatureBuilder:
     instance's class (type(fb).FEATURE_SIZE), not off the FeatureBuilder name
     directly, since that name always refers to v1.
     """
-    if config.FEATURE_BUILDER_VERSION == "v2":
-        return FeatureBuilderV2(complete_payload, config)
-    return FeatureBuilderV1(complete_payload, config)
+    builder_cls = FeatureBuilderV2 if config.FEATURE_BUILDER_VERSION == "v2" else FeatureBuilderV1
+    override = getattr(config, "ENABLE_PICKUP_SLACK_FEATURE", None)
+    if override is not None and override != builder_cls.ENABLE_PICKUP_SLACK_FEATURE:
+        # 2026-08-29: FEATURE_SIZE is a plain int computed once at class-body
+        # execution time from ENABLE_PICKUP_SLACK_FEATURE's hardcoded default -
+        # flipping the flag alone would leave model construction
+        # (type(fb).FEATURE_SIZE, see coaml_pipeline.py/training_loop.py) out of
+        # sync with the actual per-row feature dict. Mutate both together,
+        # process-wide (same single-config-per-run assumption ENABLE_COMPETITION_FEATURES
+        # already relies on).
+        builder_cls.ENABLE_PICKUP_SLACK_FEATURE = override
+        builder_cls.FEATURE_SIZE = builder_cls.FEATURE_SIZE + (
+            builder_cls._PICKUP_SLACK_FEATURE_SIZE if override else -builder_cls._PICKUP_SLACK_FEATURE_SIZE
+        )
+    return builder_cls(complete_payload, config)
 
 
 __all__ = [
