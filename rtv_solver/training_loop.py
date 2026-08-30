@@ -10,7 +10,7 @@ from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
 from rtv_solver.pipeline.model_simpleScoring import ScoringMLP
 from rtv_solver.pipeline.candidate_scoring_gnn import build_scoring_model
-from rtv_solver.pipeline import FeatureBuilderV1, FeatureBuilderV2
+from rtv_solver.pipeline import select_feature_builder_class
 from rtv_solver.schema.payload_keys import PayloadKeys
 from rtv_solver.structure.config import Config
 from rtv_solver.util.helper import save_json
@@ -143,9 +143,7 @@ class COAMLTrainingLoop:
         # 2026-08-05: feature_dim follows config.FEATURE_BUILDER_VERSION (matches
         # the FeatureBuilder that COAMLPipeline itself builds via
         # build_feature_builder) so a "v2" run doesn't build a model sized for v1.
-        active_feature_builder = (
-            FeatureBuilderV2 if config.FEATURE_BUILDER_VERSION == "v2" else FeatureBuilderV1
-        )
+        active_feature_builder = select_feature_builder_class(config)
         self.model = model or build_scoring_model(
             config.MODEL_TYPE,
             feature_dim=active_feature_builder.FEATURE_SIZE,
