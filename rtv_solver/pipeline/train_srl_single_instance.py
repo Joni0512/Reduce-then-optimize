@@ -15,6 +15,24 @@ sigma=1.0 (NOT config.py's default 0.2) and num_samples=10 (NOT the default
 (diagnose_q_spread.py/test_softmax_tau.py, see chat), not COAMLPipeline's
 general-purpose defaults.
 """
+# 2026-08-31: commit 69b521f (29.08., after ACTOR_CHECKPOINT below was
+# trained) flipped feat_builder.py's ENABLE_PICKUP_SLACK_FEATURE default to
+# True, raising v1's FEATURE_SIZE from 84 to 85 - breaks loading
+# ACTOR_CHECKPOINT (trained at 84) for every script that imports this module,
+# not just the ones that remembered to patch it themselves (bit
+# pretrain_and_save_shared_critic.py, sweep_srl_replaybuffer_trial.py,
+# replicate_v1_top10_seeds.py, and test_targetcritic_plus_replaybuffer_lrc207.py
+# separately - see chat). Patched centrally here instead, at import time,
+# so any script importing train_srl_single_instance gets it automatically.
+# Temporary, local-only override until the user decides whether to retrain
+# the SRL actor checkpoint with the new feature enabled.
+from rtv_solver.pipeline import feat_builder as _feat_builder_module
+_feat_builder_module.FeatureBuilder.ENABLE_PICKUP_SLACK_FEATURE = False
+_feat_builder_module.FeatureBuilder.FEATURE_SIZE = (
+    _feat_builder_module.FeatureBuilder._BASE_FEATURE_SIZE
+    + (_feat_builder_module.FeatureBuilder._TRIP_COMPOSITION_FEATURE_SIZE if _feat_builder_module.FeatureBuilder.ENABLE_TRIP_COMPOSITION_FEATURES else 0)
+)
+
 import argparse
 import copy
 import csv
