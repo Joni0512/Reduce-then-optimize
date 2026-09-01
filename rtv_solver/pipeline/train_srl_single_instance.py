@@ -74,6 +74,7 @@ def train(
     shared_critic: torch.nn.Module | None = None,
     label_suffix: str = "",
     target_critic_update_interval: int | None = None,
+    target_critic_polyak_tau: float | None = None,
     use_replay_buffer: bool = False,
     replay_capacity: int = 40,
     replay_batch_size: int = 12,
@@ -190,10 +191,27 @@ def train(
     # Only meaningful when the critic is NOT frozen - if freeze_critic=True,
     # the live critic never moves anyway, so target_critic would always be
     # identical to it regardless of the copy interval.
+    # 2026-08-31: Polyak (soft) update - alternative to the hard periodic
+    # copy above, see chat. Instead of staying frozen for
+    # target_critic_update_interval episodes then jumping all at once, the
+    # target_critic is nudged a little toward the live critic EVERY episode:
+    #   target_param <- tau * live_param + (1 - tau) * target_param
+    # tau=0.5 (user's first, deliberately simple test) means each episode's
+    # target_critic is an equal-weight blend of "last episode's target_critic"
+    # and "this episode's live critic" - smoother than the hard-copy jump,
+    # but still much more responsive than typical DDPG/TD3 tau (~0.005), by
+    # design for this first, easy test.
+    if target_critic_update_interval is not None and target_critic_polyak_tau is not None:
+        raise ValueError("target_critic_update_interval and target_critic_polyak_tau are two different target_critic update mechanisms (hard periodic copy vs. soft blend every episode) - pick one, not both.")
+
     target_critic = None
     if target_critic_update_interval is not None:
         if freeze_critic:
             raise ValueError("target_critic_update_interval has no effect when freeze_critic=True - the live critic never changes, so a periodic copy of it is always identical.")
+        target_critic = copy.deepcopy(critic)
+    elif target_critic_polyak_tau is not None:
+        if freeze_critic:
+            raise ValueError("target_critic_polyak_tau has no effect when freeze_critic=True - the live critic never changes, so blending toward it changes nothing.")
         target_critic = copy.deepcopy(critic)
 
     # 2026-08-28: replay buffer (see chat) - built ONCE outside the episode
@@ -207,7 +225,7 @@ def train(
         replay_buffer = ReplayBuffer(capacity=replay_capacity)
 
     for episode in range(episodes):
-        if target_critic is not None and episode % target_critic_update_interval == 0:
+        if target_critic is not None and target_critic_update_interval is not None and episode % target_critic_update_interval == 0:
             # 2026-08-26: hard copy, same pattern as the reference SRL
             # implementation's `target_critic = deepcopy(π.critic_model)` -
             # done at the START of the interval (episode 0, then every
@@ -216,6 +234,13 @@ def train(
             # then getting a fresh (now-improved) target_critic snapshot.
             target_critic.load_state_dict(critic.state_dict())
             print(f"episode {episode}: target_critic copied from live critic")
+        elif target_critic is not None and target_critic_polyak_tau is not None:
+            # 2026-08-31: soft blend every episode, see the setup comment
+            # above for the formula/reasoning.
+            with torch.no_grad():
+                for target_param, live_param in zip(target_critic.parameters(), critic.parameters()):
+                    target_param.data.copy_(target_critic_polyak_tau * live_param.data + (1 - target_critic_polyak_tau) * target_param.data)
+            print(f"episode {episode}: target_critic polyak-blended (tau={target_critic_polyak_tau}) toward live critic")
 
         pipeline = COAMLPipeline(
             config, cleared_payload, imitation_solution_path=input_path,
@@ -366,6 +391,7 @@ if __name__ == "__main__":
     parser.add_argument("--freeze_critic", action="store_true", help="Pretrain the critic once (on actor_checkpoint), then keep it fixed during the SRL episodes - isolates whether instability comes from actor/critic co-adaptation.")
     parser.add_argument("--critic_pretrain_epochs", type=int, default=10)
     parser.add_argument("--target_critic_update_interval", type=int, default=None, help="SRL Option B (see chat): episodes between target_critic hard-copies. None = no target_critic (actor uses the live, co-adapting critic directly, old default behavior). Only meaningful when NOT --freeze_critic.")
+    parser.add_argument("--target_critic_polyak_tau", type=float, default=None, help="Alternative to --target_critic_update_interval (see chat): soft-blend target_critic toward the live critic every episode by this weight, instead of hard-copying periodically. Mutually exclusive with --target_critic_update_interval.")
     parser.add_argument("--use_replay_buffer", action="store_true", help="Train the critic from a cross-episode Monte Carlo replay buffer instead of one averaged step per episode (see chat). Only meaningful when NOT --freeze_critic.")
     parser.add_argument("--replay_capacity", type=int, default=40)
     parser.add_argument("--replay_batch_size", type=int, default=12)
@@ -387,6 +413,7 @@ if __name__ == "__main__":
         freeze_critic=args.freeze_critic,
         critic_pretrain_epochs=args.critic_pretrain_epochs,
         target_critic_update_interval=args.target_critic_update_interval,
+        target_critic_polyak_tau=args.target_critic_polyak_tau,
         use_replay_buffer=args.use_replay_buffer,
         replay_capacity=args.replay_capacity,
         replay_batch_size=args.replay_batch_size,
