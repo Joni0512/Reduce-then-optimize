@@ -19,4 +19,8 @@
 
 cd "$SLURM_SUBMIT_DIR" || exit 1
 export GRB_LICENSE_FILE="$HOME/.gurobi/gurobi.lic"
-./venv/bin/python3 -m rtv_solver.pipeline.replicate_v2_top5_seeds
+# 2026-09-02: filtered through grep instead of letting raw solver stdout/
+# stderr flood the SBATCH --output/--error files - a previous run's .err
+# file grew to 17.5GB and exceeded the cluster disk quota, killing every
+# other concurrently running job too (shared quota) - see chat.
+./venv/bin/python3 -m rtv_solver.pipeline.replicate_v2_top5_seeds 2>&1 | grep -E "^===|^!!!|epoch done|seed=.*config=|DONE" > filtered_replicate_v2_top5_seeds.log

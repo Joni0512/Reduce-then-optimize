@@ -21,4 +21,8 @@
 
 cd "$SLURM_SUBMIT_DIR" || exit 1
 export GRB_LICENSE_FILE="$HOME/.gurobi/gurobi.lic"
-./venv/bin/python3 -m rtv_solver.pipeline.sweep_targetcritic_polyak_tau_12instances
+# 2026-09-02: filtered through grep instead of letting raw solver stdout/
+# stderr flood the SBATCH --output/--error files - a previous run's .err
+# file grew to 17.5GB and exceeded the cluster disk quota, killing every
+# other concurrently running job too (shared quota) - see chat.
+./venv/bin/python3 -m rtv_solver.pipeline.sweep_targetcritic_polyak_tau_12instances 2>&1 | grep -E "^===|^!!!|tau=.*instance=|DONE" > filtered_targetcritic_polyak_tau_sweep.log

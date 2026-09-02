@@ -22,4 +22,9 @@
 
 cd "$SLURM_SUBMIT_DIR" || exit 1
 export GRB_LICENSE_FILE="$HOME/.gurobi/gurobi.lic"
-./venv/bin/wandb agent jonathan-homafar-technical-university-of-munich/srl-replaybuffer-sweep/05cd04mw
+# 2026-09-02: filtered through grep instead of letting raw solver stdout/
+# stderr flood the SBATCH --output/--error files - wandb agent streams each
+# trial subprocess's full output through, same runaway-log risk as the other
+# cluster jobs (one .err file grew to 17.5GB and exceeded the shared disk
+# quota, killing every other concurrently running job too - see chat).
+./venv/bin/wandb agent jonathan-homafar-technical-university-of-munich/srl-replaybuffer-sweep/05cd04mw 2>&1 | grep -E "^wandb:|Agent (starting|received)|final_service_rate|mean_final_service_rate" > filtered_srl_replaybuffer_sweep_v3.log
