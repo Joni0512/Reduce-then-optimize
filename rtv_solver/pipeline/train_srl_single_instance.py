@@ -310,7 +310,25 @@ def train(
             mean_accept_mass = None
             mean_reject_mass = None
 
-        print(f"episode {episode}: service_rate={service_rate:.3f} ({num_serviced}/{num_requests})  mean_fy_loss={mean_fy_loss}  critic_loss={critic_loss_val}  buffered_iters={len(returns)}  accept_mass={mean_accept_mass}  reject_mass={mean_reject_mass}")
+        # 2026-09-03: target_critic vs live critic divergence diagnostic (see
+        # chat) - investigating why target_critic (hard-copy or Polyak)
+        # consistently underperforms plain replay-buffer. Compares the SAME
+        # episode steps' predictions from both networks - low correlation or
+        # large mean absolute difference means target_critic is scoring
+        # candidates very differently from the live critic, which would
+        # explain the actor learning a worse target action than with the
+        # live critic alone (replay-buffer-only variant).
+        critic_preds = pipeline.last_episode_predictions if hasattr(pipeline, "last_episode_predictions") else []
+        tc_preds = pipeline.last_episode_target_critic_predictions if hasattr(pipeline, "last_episode_target_critic_predictions") else []
+        if critic_preds and tc_preds and len(critic_preds) == len(tc_preds) and len(critic_preds) > 1:
+            import numpy as _np
+            critic_tc_corr = float(_np.corrcoef(critic_preds, tc_preds)[0, 1])
+            critic_tc_mean_abs_diff = float(_np.mean(_np.abs(_np.array(critic_preds) - _np.array(tc_preds))))
+        else:
+            critic_tc_corr = None
+            critic_tc_mean_abs_diff = None
+
+        print(f"episode {episode}: service_rate={service_rate:.3f} ({num_serviced}/{num_requests})  mean_fy_loss={mean_fy_loss}  critic_loss={critic_loss_val}  buffered_iters={len(returns)}  accept_mass={mean_accept_mass}  reject_mass={mean_reject_mass}  critic_tc_corr={critic_tc_corr}  critic_tc_mean_abs_diff={critic_tc_mean_abs_diff}")
         rows.append({
             "episode": episode,
             "service_rate": service_rate,
@@ -318,6 +336,8 @@ def train(
             "mean_accept_mass": mean_accept_mass,
             "mean_reject_mass": mean_reject_mass,
             "critic_loss": critic_loss_val,
+            "critic_tc_corr": critic_tc_corr,
+            "critic_tc_mean_abs_diff": critic_tc_mean_abs_diff,
         })
 
     print(f"Best episode: {best_episode} with service_rate={best_service_rate:.3f}")
@@ -327,7 +347,7 @@ def train(
 
     csv_path = output_dir / "srl_training_curves.csv"
     with open(csv_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["episode", "service_rate", "mean_fy_loss", "critic_loss", "mean_accept_mass", "mean_reject_mass"])
+        writer = csv.DictWriter(f, fieldnames=["episode", "service_rate", "mean_fy_loss", "critic_loss", "mean_accept_mass", "mean_reject_mass", "critic_tc_corr", "critic_tc_mean_abs_diff"])
         writer.writeheader()
         writer.writerows(rows)
     print(f"Saved {csv_path}")

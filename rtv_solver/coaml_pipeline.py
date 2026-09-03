@@ -341,9 +341,22 @@ class COAMLPipeline():
                 # r_t/G_t (fixed once computed), no bootstrap involved - see
                 # replay_buffer.py's docstring.
                 self.last_episode_predictions = []
+                # 2026-09-03: diagnostic (see chat) - investigating why
+                # target_critic (hard-copy or Polyak) consistently
+                # underperforms plain replay-buffer. Logs the SAME steps'
+                # predictions from target_critic alongside the live critic's,
+                # so a caller can correlate/compare how far target_critic
+                # drifts from the live critic over the course of training -
+                # only meaningful when target_critic is a distinct object
+                # (not just falling back to critic).
+                self.last_episode_target_critic_predictions = []
+                log_target_critic = self.target_critic is not self.critic
                 for step, g_t in step_return_pairs:
                     with torch.no_grad():
                         q_pred = self.critic(step.request_features, step.vehicle_features, step.edge_index)
+                        if log_target_critic:
+                            tc_pred = self.target_critic(step.request_features, step.vehicle_features, step.edge_index)
+                            self.last_episode_target_critic_predictions.append(tc_pred.item())
                     self.last_episode_predictions.append(q_pred.item())
                     self.replay_buffer.add(step, g_t)
 
