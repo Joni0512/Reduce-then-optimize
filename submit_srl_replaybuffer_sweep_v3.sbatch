@@ -27,4 +27,7 @@ export GRB_LICENSE_FILE="$HOME/.gurobi/gurobi.lic"
 # trial subprocess's full output through, same runaway-log risk as the other
 # cluster jobs (one .err file grew to 17.5GB and exceeded the shared disk
 # quota, killing every other concurrently running job too - see chat).
-./venv/bin/wandb agent jonathan-homafar-technical-university-of-munich/srl-replaybuffer-sweep/05cd04mw 2>&1 | grep -E "^wandb:|Agent (starting|received)|final_service_rate|mean_final_service_rate" > filtered_srl_replaybuffer_sweep_v3.log
+# 2026-09-03: grep --line-buffered - see chat (wandb's own CLI output is
+# already line-buffered by default, only the python -u fix applies to our
+# own scripts' direct stdout).
+./venv/bin/wandb agent jonathan-homafar-technical-university-of-munich/srl-replaybuffer-sweep/05cd04mw 2>&1 | grep --line-buffered -E "^wandb:|Agent (starting|received)|final_service_rate|mean_final_service_rate" > filtered_srl_replaybuffer_sweep_v3.log

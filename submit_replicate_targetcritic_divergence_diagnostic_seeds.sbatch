@@ -21,4 +21,10 @@
 
 cd "$SLURM_SUBMIT_DIR" || exit 1
 export GRB_LICENSE_FILE="$HOME/.gurobi/gurobi.lic"
-./venv/bin/python3 -m rtv_solver.pipeline.replicate_targetcritic_divergence_diagnostic_seeds 2>&1 | grep -E "^===|^!!!|epoch done" > filtered_replicate_targetcritic_divergence_diagnostic_seeds.log
+# 2026-09-03: -u (unbuffered) + grep --line-buffered - see chat. Python
+# fully buffers stdout when piped (not a tty), so print() output can sit
+# unflushed for hours; if the job is then killed (e.g. SLURM time limit),
+# everything buffered is lost - explains two earlier jobs finishing with
+# completely empty filtered logs despite running ~24h. Also fixed the
+# "epoch done" pattern (never matched the actual "epoch N done" text).
+./venv/bin/python3 -u -m rtv_solver.pipeline.replicate_targetcritic_divergence_diagnostic_seeds 2>&1 | grep --line-buffered -E "^===|^!!!|epoch [0-9]+ done" > filtered_replicate_targetcritic_divergence_diagnostic_seeds.log

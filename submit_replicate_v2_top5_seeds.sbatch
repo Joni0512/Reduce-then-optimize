@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=srl_v2top5_replicate_seeds
 #SBATCH --clusters=serial
-#SBATCH --partition=serial_std
-#SBATCH --qos=cm4_serial
-#SBATCH --time=24:00:00
+#SBATCH --partition=serial_long
+#SBATCH --qos=cm4_serial_long
+#SBATCH --time=48:00:00
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 #SBATCH --output=srl_v2top5_replicate_seeds_%j.log
@@ -23,4 +23,8 @@ export GRB_LICENSE_FILE="$HOME/.gurobi/gurobi.lic"
 # stderr flood the SBATCH --output/--error files - a previous run's .err
 # file grew to 17.5GB and exceeded the cluster disk quota, killing every
 # other concurrently running job too (shared quota) - see chat.
-./venv/bin/python3 -m rtv_solver.pipeline.replicate_v2_top5_seeds 2>&1 | grep -E "^===|^!!!|epoch done|seed=.*config=|DONE" > filtered_replicate_v2_top5_seeds.log
+# 2026-09-03: -u (unbuffered) + grep --line-buffered, fixed "epoch done"
+# pattern (never matched actual "epoch N done" text) - see chat. Also this
+# job hit the 24h time limit on serial_std without finishing (240 runs: 4
+# seeds x 5 configs x 12 instances) - switched to serial_long below.
+./venv/bin/python3 -u -m rtv_solver.pipeline.replicate_v2_top5_seeds 2>&1 | grep --line-buffered -E "^===|^!!!|epoch [0-9]+ done|seed=.*config=|DONE" > filtered_replicate_v2_top5_seeds.log

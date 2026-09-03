@@ -25,4 +25,5 @@ export GRB_LICENSE_FILE="$HOME/.gurobi/gurobi.lic"
 # stderr flood the SBATCH --output/--error files - a previous run's .err
 # file grew to 17.5GB and exceeded the cluster disk quota, killing every
 # other concurrently running job too (shared quota) - see chat.
-./venv/bin/python3 -m rtv_solver.pipeline.sweep_targetcritic_polyak_tau_12instances 2>&1 | grep -E "^===|^!!!|tau=.*instance=|DONE" > filtered_targetcritic_polyak_tau_sweep.log
+# 2026-09-03: -u (unbuffered) + grep --line-buffered - see chat.
+./venv/bin/python3 -u -m rtv_solver.pipeline.sweep_targetcritic_polyak_tau_12instances 2>&1 | grep --line-buffered -E "^===|^!!!|tau=.*instance=|DONE" > filtered_targetcritic_polyak_tau_sweep.log
