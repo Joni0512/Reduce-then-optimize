@@ -22,6 +22,22 @@
 
 cd "$SLURM_SUBMIT_DIR" || exit 1
 export GRB_LICENSE_FILE="$HOME/.gurobi/gurobi.lic"
+
+# 2026-09-04: two fixes for repeated "the service process is busy and did
+# not respond in time" wandb-core startup failures on this cluster - see
+# chat. (1) WANDB__SERVICE_WAIT baked into the script itself (a manual
+# `export` before `sbatch` did NOT actually fix it - same error recurred),
+# raised further to 600s. (2) WANDB_DIR redirected to a node-local /tmp path
+# instead of the default (shared, Lustre/DSS-backed $HOME/wandb) - the
+# internal wandb-core service does many small file/socket operations at
+# startup, which may be too slow on a busy shared filesystem to respond
+# within any reasonable timeout. If this still fails, the next thing to try
+# is WANDB_MODE=offline (trials still run and log locally, synced to the
+# dashboard later via `wandb sync`, but loses live monitoring).
+export WANDB__SERVICE_WAIT=600
+export WANDB_DIR="/tmp/wandb_${SLURM_JOB_ID}"
+mkdir -p "$WANDB_DIR"
+
 # 2026-09-02: filtered through grep instead of letting raw solver stdout/
 # stderr flood the SBATCH --output/--error files - wandb agent streams each
 # trial subprocess's full output through, same runaway-log risk as the other
