@@ -80,6 +80,8 @@ def score_candidates(
     match_graph_builder: MatchSolutionGraphBuilder,
     match_feature_builder: MatchGraphFeatureBuilder,
     critic: torch.nn.Module,
+    *,
+    use_route_clique: bool = False,
 ) -> List[torch.Tensor]:
     """
     Algorithm 1 step 4 (see module docstring) - build a MatchGraph per
@@ -91,13 +93,18 @@ def score_candidates(
     (coaml_pipeline.py ~line 127-128), so feature normalization stays
     consistent between the buffered "real" graphs and these candidate ones.
 
+    use_route_clique: 2026-09-05 - forwarded to build_from_candidate(), see
+    its docstring / docs/SRL_Design.md's GAT plan section. Default False.
+
     Returns one scalar Q-value tensor per candidate, same order as
     `candidates`. Q(s, y^(i)) - see step 4 in
     figures_export/srl_actor_critic_integration_steps.tex.
     """
     q_values: List[torch.Tensor] = []
     for y in candidates:
-        candidate_graph = match_graph_builder.build_from_candidate(requests, vehicles, trip_costs, y)
+        candidate_graph = match_graph_builder.build_from_candidate(
+            requests, vehicles, trip_costs, y, use_route_clique=use_route_clique,
+        )
         request_features, vehicle_features = match_feature_builder.build(
             requests, vehicles, active_requests, candidate_graph, current_time, actor_feature_builder,
         )

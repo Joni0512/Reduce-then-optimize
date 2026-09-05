@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import combinations
 from typing import Sequence
 
 import torch
@@ -69,7 +70,19 @@ class MatchSolutionGraphBuilder:
         result: AssignmentResult,
         *,
         device: torch.device | str | None = None,
+        use_route_clique: bool = False,
     ) -> MatchGraph:
+        """
+        use_route_clique: 2026-09-05 - GAT-only edge variant (see chat and
+        docs/SRL_Design.md's GAT plan section). False (default) keeps the
+        original chain (only directly consecutive requests on a route are
+        connected) - unchanged for gcn/mean/pool, so their results stay
+        comparable to every run this session. True connects ALL requests on
+        the same route pairwise (a clique), analogous to
+        CandidateConflictGraphBuilder._connect_clique's "same vehicle"
+        handling - richer neighbourhood for GAT's attention to work with,
+        not used by the other three aggregators.
+        """
         request_ids = tuple(int(r.id) for r in requests)
         vehicle_ids = tuple(sorted(vehicles.keys()))
 
@@ -90,9 +103,12 @@ class MatchSolutionGraphBuilder:
             for rid in known_ids:
                 self._add_undirected(edge_pairs, request_index[rid], vehicle_index[vehicle_id])
 
-            # consecutive requests on the same route get connected to each other too
-            for left, right in zip(known_ids, known_ids[1:]):
-                self._add_undirected(edge_pairs, request_index[left], request_index[right])
+            if use_route_clique:
+                self._connect_clique([request_index[rid] for rid in known_ids], edge_pairs)
+            else:
+                # consecutive requests on the same route get connected to each other too
+                for left, right in zip(known_ids, known_ids[1:]):
+                    self._add_undirected(edge_pairs, request_index[left], request_index[right])
 
         is_assigned = tuple(rid in result.request_assignment for rid in request_ids)
 
@@ -113,8 +129,12 @@ class MatchSolutionGraphBuilder:
         y: torch.Tensor,
         *,
         device: torch.device | str | None = None,
+        use_route_clique: bool = False,
     ) -> MatchGraph:
         """
+        use_route_clique: see build()'s docstring - same GAT-only clique
+        variant, applied identically here for perturbed candidates.
+
         2026-08-20: SRL actor-critic integration (Algorithm 1 step 3, see
         chat/figures_export/srl_actor_critic_integration_steps.tex) -
         variant of build() for a PERTURBED CANDIDATE solution instead of the
@@ -153,8 +173,11 @@ class MatchSolutionGraphBuilder:
 
             for rid in known_ids:
                 self._add_undirected(edge_pairs, request_index[rid], vehicle_index[vehicle_id])
-            for left, right in zip(known_ids, known_ids[1:]):
-                self._add_undirected(edge_pairs, request_index[left], request_index[right])
+            if use_route_clique:
+                self._connect_clique([request_index[rid] for rid in known_ids], edge_pairs)
+            else:
+                for left, right in zip(known_ids, known_ids[1:]):
+                    self._add_undirected(edge_pairs, request_index[left], request_index[right])
 
         is_assigned = tuple(rid in assigned_request_ids for rid in request_ids)
 
@@ -189,6 +212,15 @@ class MatchSolutionGraphBuilder:
         # two directed edges per connection, same convention as CandidateConflictGraphBuilder
         edge_pairs.add((a, b))
         edge_pairs.add((b, a))
+
+    @staticmethod
+    def _connect_clique(node_indices: list[int], edge_pairs: set[tuple[int, int]]) -> None:
+        # 2026-09-05: GAT-only route-clique variant - same pattern as
+        # CandidateConflictGraphBuilder._connect_clique (candidate_scoring_gnn.py)
+        unique_indices = sorted(set(node_indices))
+        for left, right in combinations(unique_indices, 2):
+            edge_pairs.add((left, right))
+            edge_pairs.add((right, left))
 
     @staticmethod
     def _edge_pairs_to_tensor(

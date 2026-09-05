@@ -87,6 +87,7 @@ class COAMLPipeline():
             replay_buffer: "ReplayBuffer | None" = None,
             replay_batch_size: int = 12,
             replay_update_group_size: int = 3,
+            critic_use_route_clique: bool = False,
         ):
         """
         Initialize the COAML pipeline solver.
@@ -126,6 +127,13 @@ class COAMLPipeline():
               triggers 3 updates. Targets (r_t/G_t) are only known once the
               episode finishes, so updates cannot happen mid-episode even
               though this mimics "one update per N iterations".
+            - critic_use_route_clique: 2026-09-05, GAT-only (see chat and
+              docs/SRL_Design.md's GAT plan section). Forwarded to
+              MatchSolutionGraphBuilder.build()/build_from_candidate() -
+              False (default) keeps the existing chain-only Request-Request
+              edges unchanged for gcn/mean/pool; True connects all requests
+              on the same route pairwise (a clique) instead, giving GAT's
+              attention a richer neighbourhood to work with.
         """
         self.config = config
         self.offline_payload = offline_payload
@@ -168,6 +176,7 @@ class COAMLPipeline():
         self.replay_buffer = replay_buffer
         self.replay_batch_size = replay_batch_size
         self.replay_update_group_size = replay_update_group_size
+        self.critic_use_route_clique = critic_use_route_clique
         if self.critic is not None:
             self.match_graph_builder = MatchSolutionGraphBuilder()
             self.match_feature_builder = MatchGraphFeatureBuilder(
@@ -1192,7 +1201,10 @@ class COAMLPipeline():
         # collecting here, not training yet - see the end of solve_pdptw()
         # for why training has to wait until the whole episode is done.
         if self.critic is not None:
-            match_graph = self.match_graph_builder.build(trip_handler.requests, vehicle_handler.vehicles, result)
+            match_graph = self.match_graph_builder.build(
+                trip_handler.requests, vehicle_handler.vehicles, result,
+                use_route_clique=self.critic_use_route_clique,
+            )
             request_features, vehicle_features = self.match_feature_builder.build(
                 trip_handler.requests,
                 vehicle_handler.vehicles,
@@ -1464,6 +1476,7 @@ class COAMLPipeline():
         q_values = score_candidates(
             candidates, requests, vehicles, trip_costs, active_requests, current_time,
             self.feature_builder, self.match_graph_builder, self.match_feature_builder, self.target_critic,
+            use_route_clique=self.critic_use_route_clique,
         )
 
         # Step 5: softmax over Q-values -> target action. Detached - this is

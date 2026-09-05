@@ -79,6 +79,7 @@ def train(
     replay_capacity: int = 40,
     replay_batch_size: int = 12,
     replay_update_group_size: int = 3,
+    critic_use_route_clique: bool = False,
 ) -> None:
     # 2026-08-23: actor_checkpoint added after the first "untrained actor"
     # test degenerated to service_rate=0.0 for all 20 episodes (see chat) -
@@ -164,6 +165,7 @@ def train(
                     pretrain_pipeline = COAMLPipeline(
                         pretrain_config, pretrain_cleared_payload, imitation_solution_path=pretrain_input_path,
                         critic=critic, critic_optimizer=critic_optimizer,
+                        critic_use_route_clique=critic_use_route_clique,
                     )
                     pretrain_pipeline.load_model_weights(actor_checkpoint)
                     pretrain_pipeline.solve_pdptw(pretrain_cleared_payload, mode="eval", train_critic=True, reward_mode="local")
@@ -248,6 +250,7 @@ def train(
             target_critic=target_critic,
             replay_buffer=replay_buffer, replay_batch_size=replay_batch_size,
             replay_update_group_size=replay_update_group_size,
+            critic_use_route_clique=critic_use_route_clique,
         )
         if actor_checkpoint and episode == 0:
             # 2026-08-23: only load on episode 0 - after that, `model` (the
@@ -416,6 +419,7 @@ if __name__ == "__main__":
     parser.add_argument("--replay_capacity", type=int, default=40)
     parser.add_argument("--replay_batch_size", type=int, default=12)
     parser.add_argument("--replay_update_group_size", type=int, default=3)
+    parser.add_argument("--critic_use_route_clique", action="store_true", help="GAT-only (see chat/docs/SRL_Design.md): connect all requests on the same route pairwise instead of only consecutive ones. No effect for gcn/mean/pool.")
     args = parser.parse_args()
 
     train(
@@ -438,4 +442,5 @@ if __name__ == "__main__":
         replay_capacity=args.replay_capacity,
         replay_batch_size=args.replay_batch_size,
         replay_update_group_size=args.replay_update_group_size,
+        critic_use_route_clique=args.critic_use_route_clique,
     )
