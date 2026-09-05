@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=srl_gat_nocq
 #SBATCH --clusters=serial
-#SBATCH --partition=serial_long
-#SBATCH --qos=cm4_serial_long
-#SBATCH --time=48:00:00
+#SBATCH --partition=serial_std
+#SBATCH --qos=cm4_serial
+#SBATCH --time=24:00:00
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=16G
 #SBATCH --output=srl_gat_nocq_%j.log
@@ -22,11 +22,14 @@
 # Prerequisite: outputs/outputs/sil_training_bi200_ss100_mixed_balanced_legacy_mlp_seed1/
 # (the SIL actor checkpoint) must already exist on the cluster.
 #
-# 2026-09-06: --mem lowered from 32G to 16G (see chat) - 3 other jobs
-# already running on serial_long (96GB total) hit QOSMaxMemoryPerUser and
-# kept these 2 new jobs stuck PENDING; this workload (small Li&Lim-scale
-# graphs, same order of magnitude as the other critic-training jobs) does
-# not actually need 32G.
+# 2026-09-06: --mem lowered from 32G to 16G, AND switched from
+# serial_long/cm4_serial_long to serial_std/cm4_serial (see chat) - 3 other
+# jobs already running on serial_long (96GB total) hit QOSMaxMemoryPerUser
+# and kept these 2 new jobs stuck PENDING; serial_std runs under a separate
+# QOS with its own memory quota (unaffected by the serial_long jobs) and had
+# 8 idle nodes at the time. Trade-off: 24h time limit instead of 48h - 5
+# seeds x 12 instances took ~15-20h in comparable prior runs, should usually
+# fit but is closer to the wall-clock cap than serial_long was.
 
 cd "$SLURM_SUBMIT_DIR" || exit 1
 export GRB_LICENSE_FILE="$HOME/.gurobi/gurobi.lic"
