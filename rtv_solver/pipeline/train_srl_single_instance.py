@@ -80,6 +80,7 @@ def train(
     replay_batch_size: int = 12,
     replay_update_group_size: int = 3,
     critic_use_route_clique: bool = False,
+    max_cardinality: int = 2,
 ) -> None:
     # 2026-08-23: actor_checkpoint added after the first "untrained actor"
     # test degenerated to service_rate=0.0 for all 20 episodes (see chat) -
@@ -102,7 +103,7 @@ def train(
     # config.py's defaults) - see module docstring for why.
     config = Config(
         OUTPUT_DIR=output_dir, MODE="coaml", BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed,
-        NUM_SAMPLES=num_samples, SIGMA=sigma, SRL_TAU=tau,
+        NUM_SAMPLES=num_samples, SIGMA=sigma, SRL_TAU=tau, MAX_CARDINALITY=max_cardinality,
     )
     setup_loggers(config.OUTPUT_DIR)
     set_seed(config.SEED, config.DEBUG)
@@ -157,6 +158,7 @@ def train(
                     pretrain_output_dir.mkdir(parents=True, exist_ok=True)
                     pretrain_config = Config(
                         OUTPUT_DIR=pretrain_output_dir, MODE="coaml", BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed,
+                        MAX_CARDINALITY=max_cardinality,
                     )
                     setup_loggers(pretrain_config.OUTPUT_DIR)
                     set_seed(pretrain_config.SEED, pretrain_config.DEBUG)
@@ -420,6 +422,7 @@ if __name__ == "__main__":
     parser.add_argument("--replay_batch_size", type=int, default=12)
     parser.add_argument("--replay_update_group_size", type=int, default=3)
     parser.add_argument("--critic_use_route_clique", action="store_true", help="GAT-only (see chat/docs/SRL_Design.md): connect all requests on the same route pairwise instead of only consecutive ones. No effect for gcn/mean/pool.")
+    parser.add_argument("--max_cardinality", type=int, default=2)
     args = parser.parse_args()
 
     train(
@@ -443,4 +446,5 @@ if __name__ == "__main__":
         replay_batch_size=args.replay_batch_size,
         replay_update_group_size=args.replay_update_group_size,
         critic_use_route_clique=args.critic_use_route_clique,
+        max_cardinality=args.max_cardinality,
     )
