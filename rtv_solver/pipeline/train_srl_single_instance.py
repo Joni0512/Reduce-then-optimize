@@ -81,6 +81,9 @@ def train(
     replay_update_group_size: int = 3,
     critic_use_route_clique: bool = False,
     max_cardinality: int = 2,
+    model_type: str = "mlp",
+    gnn_aggregator: str = "gcn",
+    gnn_num_message_passing_layers: int = 1,
 ) -> None:
     # 2026-08-23: actor_checkpoint added after the first "untrained actor"
     # test degenerated to service_rate=0.0 for all 20 episodes (see chat) -
@@ -104,6 +107,7 @@ def train(
     config = Config(
         OUTPUT_DIR=output_dir, MODE="coaml", BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed,
         NUM_SAMPLES=num_samples, SIGMA=sigma, SRL_TAU=tau, MAX_CARDINALITY=max_cardinality,
+        MODEL_TYPE=model_type, GNN_AGGREGATOR=gnn_aggregator, GNN_NUM_MESSAGE_PASSING_LAYERS=gnn_num_message_passing_layers,
     )
     setup_loggers(config.OUTPUT_DIR)
     set_seed(config.SEED, config.DEBUG)
