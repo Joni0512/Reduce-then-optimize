@@ -25,4 +25,9 @@
 
 cd "$SLURM_SUBMIT_DIR" || exit 1
 export GRB_LICENSE_FILE="$HOME/.gurobi/gurobi.lic"
-./venv/bin/python3 -u -m rtv_solver.pipeline.test_srl_gat_gnnactor_12instances 2>&1 | grep --line-buffered -E "^===|^!!!|epoch [0-9]+ done" > filtered_test_srl_gat_gnnactor_12instances.log
+# 2026-09-08: widened grep pattern to also catch Traceback/Error lines (see
+# chat) - the job died silently twice with empty .log/.err, meaning the real
+# crash was a Python traceback that didn't match the original narrower
+# pattern (^===|^!!!|epoch N done) and got filtered out entirely before it
+# could be seen.
+./venv/bin/python3 -u -m rtv_solver.pipeline.test_srl_gat_gnnactor_12instances 2>&1 | grep --line-buffered -E "^===|^!!!|epoch [0-9]+ done|Error|Traceback" > filtered_test_srl_gat_gnnactor_12instances.log
