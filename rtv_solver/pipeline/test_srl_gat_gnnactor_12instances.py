@@ -9,14 +9,20 @@ mixed split (best val service rate 70.83%, vs. the MLP actor's 68.75% -
 see chat), instead of ACTOR_CHECKPOINT (the MLP one). 1 seed (42), all 12
 balanced test instances - first correctness/comparison check before
 committing to a full multi-seed run.
-"""
-from rtv_solver.pipeline import feat_builder as _feat_builder_module
-_feat_builder_module.FeatureBuilder.ENABLE_PICKUP_SLACK_FEATURE = False
-_feat_builder_module.FeatureBuilder.FEATURE_SIZE = (
-    _feat_builder_module.FeatureBuilder._BASE_FEATURE_SIZE
-    + (_feat_builder_module.FeatureBuilder._TRIP_COMPOSITION_FEATURE_SIZE if _feat_builder_module.FeatureBuilder.ENABLE_TRIP_COMPOSITION_FEATURES else 0)
-)
 
+2026-09-08: deliberately does NOT apply the FeatureBuilder.
+ENABLE_PICKUP_SLACK_FEATURE=False monkey-patch that every other SRL/GAT
+script in this pipeline uses (84 features) - the GNN actor checkpoint was
+trained via plain `rtv_solver/main.py`, which uses FeatureBuilder's own
+class default (ENABLE_PICKUP_SLACK_FEATURE=True, 85 features, see
+feat_builder.py:110-123). Loading the checkpoint with the 84-feature patch
+applied caused a state_dict shape mismatch (encoder.0.weight: [64,85] vs
+[64,84]). Kept the pickup-slack feature ON (not retrained without it)
+since the user's call was to keep this feature - note this on the results
+slide: this GNN-actor run does NOT have identical features to the other
+SRL/GAT baselines here (85 vs 84), so it isn't a perfectly isolated
+actor-architecture-only comparison.
+"""
 import copy
 import torch
 
