@@ -1,0 +1,18 @@
+program: rtv_solver/pipeline/sweep_td_bootstrap_trial.py
+project: srl-td-bootstrap-sweep
+method: bayes
+metric:
+  name: mean_final_service_rate
+  goal: maximize
+parameters:
+  gamma:
+    distribution: uniform
+    min: 0.95
+    max: 0.99
+  tau:
+    distribution: uniform
+    min: 0.001
+    max: 0.005
+command:
+  - ./venv/bin/python3
+  - ${program}
