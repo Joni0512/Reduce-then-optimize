@@ -1,5 +1,6 @@
 *.pyc
 .DS_Store
+CLAUDE.md
 /rtv_solver.egg-info
 /outputs
 *.html

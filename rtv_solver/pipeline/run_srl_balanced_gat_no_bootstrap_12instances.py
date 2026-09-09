@@ -1,14 +1,14 @@
 """
-2026-09-10: GAT critic WITHOUT TD-bootstrap (critic_target_mode left at its
-"monte_carlo" default) - the counterpart to test_srl_td_bootstrap_gat.py,
-so the two can be compared under an otherwise IDENTICAL config (same seed,
-same replay buffer settings, same 4 diagnostic instances) - see chat.
-Together with the existing gcn+td_bootstrap 12-instance result (seed 42),
-this gives a clean 2x2: gcn/gat x monte_carlo/td_bootstrap.
+2026-09-10: GAT critic WITHOUT TD-bootstrap (monte_carlo default target),
+on the FULL balanced 12-instance test set - see chat. Corrected from the
+earlier 4-instance test_srl_gat_no_bootstrap.py: for a clean comparison
+against the gcn+td_bootstrap 12-instance result
+(run_srl_balanced_td_bootstrap_gamma099_tau0005_12instances.py, seed 42),
+everything must run on the same 12 instances, not a 4-instance subset.
 
-Same gcn critic pretrain pattern as test_srl_td_bootstrap_gat.py, just
-aggregator="gat" and no critic_target_mode/gamma/tau passed (so train()
-uses its "monte_carlo" default and no target_critic is built).
+Same seed, replay buffer config (capacity=40) as all other TD-bootstrap/
+GAT tests - only aggregator="gat" and no critic_target_mode/gamma/tau
+(train() uses its "monte_carlo" default).
 """
 from rtv_solver.pipeline import feat_builder as _feat_builder_module
 _feat_builder_module.FeatureBuilder.ENABLE_PICKUP_SLACK_FEATURE = False
@@ -24,20 +24,18 @@ from rtv_solver.coaml_pipeline import COAMLPipeline
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.pipeline.critic_gnn import CriticGNN
 from rtv_solver.pipeline.run_srl_balanced_frozen_12instances import (
-    ACTOR_CHECKPOINT, TRAIN_INSTANCES, CRITIC_PRETRAIN_EPOCHS, BATCH_INTERVAL, STEP_SIZE, EPISODES, SEED,
+    ACTOR_CHECKPOINT, TRAIN_INSTANCES, TEST_INSTANCES, CRITIC_PRETRAIN_EPOCHS, BATCH_INTERVAL, STEP_SIZE, EPISODES, SEED,
 )
 from rtv_solver.pipeline.train_srl_single_instance import train, MANIFEST_DIR, REPO_ROOT
 from rtv_solver.structure.config import Config
 from rtv_solver.util.helper import set_seed
 from rtv_solver.util.logger import setup_loggers
 
-TEST_INSTANCES = ["lrc207", "lr210", "lrc108", "lc108"]
-
 
 def pretrain_shared_critic_gat() -> torch.nn.Module:
     critic = CriticGNN(aggregator="gat")
     critic_optimizer = torch.optim.Adam(critic.parameters(), lr=1e-3)
-    output_dir = REPO_ROOT / "outputs" / "test_srl_gat_no_bootstrap" / "critic_pretrain"
+    output_dir = REPO_ROOT / "outputs" / "run_srl_balanced_gat_no_bootstrap_12instances" / "critic_pretrain"
 
     for epoch in range(CRITIC_PRETRAIN_EPOCHS):
         for instance in TRAIN_INSTANCES:
@@ -60,10 +58,11 @@ def pretrain_shared_critic_gat() -> torch.nn.Module:
 if __name__ == "__main__":
     print("Pretraining shared GAT critic...")
     shared_critic = pretrain_shared_critic_gat()
-    print("Shared GAT critic pretraining done - running monte_carlo (no bootstrap) on the diagnostic instances.")
+    print("Shared GAT critic pretraining done - running all 12 test instances with monte_carlo (no bootstrap).")
 
+    failed = []
     for instance in TEST_INSTANCES:
-        print(f"\n=== {instance} (monte_carlo, gat, no bootstrap) ===")
+        print(f"\n=== {instance} (balanced, gat, monte_carlo, no bootstrap) ===")
         try:
             critic = copy.deepcopy(shared_critic)
             train(
@@ -75,13 +74,14 @@ if __name__ == "__main__":
                 actor_checkpoint=ACTOR_CHECKPOINT,
                 freeze_critic=False,
                 shared_critic=critic,
-                label_suffix="_gat_no_bootstrap",
+                label_suffix="_balanced_gat_no_bootstrap",
                 use_replay_buffer=True,
                 replay_capacity=40,
                 replay_batch_size=12,
                 replay_update_group_size=3,
             )
         except Exception as e:
-            print(f"!!! {instance} FAILED: {e!r} - skipping, continuing.")
+            print(f"!!! {instance} FAILED: {e!r} - skipping, continuing with remaining instances.")
+            failed.append(instance)
 
-    print("\n=== ALL GAT NO-BOOTSTRAP TESTS DONE ===")
+    print(f"\n=== ALL 12 INSTANCES DONE (balanced, gat, no bootstrap) - failed: {failed} ===")

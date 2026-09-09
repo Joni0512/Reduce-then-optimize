@@ -24,7 +24,7 @@ INSTANCES=(
 for INSTANCE in "${INSTANCES[@]}"; do
   FILE="solutions/li_lim/manifests/${INSTANCE}.json"
   echo "===== Running $INSTANCE | RH/offline no pruner | mc=${CARDINALITY} | h${BATCH_INTERVAL}s${STEP_SIZE} ====="
-  python3 -m rtv_solver.main \
+  ./venv/bin/python3 -m rtv_solver.main \
     --mode offline \
     --input_dir "" \
     --input_file "$FILE" \

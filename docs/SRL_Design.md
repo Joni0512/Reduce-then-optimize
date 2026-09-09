@@ -64,7 +64,7 @@ optimalen Lösungen für das eigentliche Trainingsziel nötig sein sollen.
 | Aktion a ∈ A(s) | Binäre ILP-Lösung (x_t, x_r, x_reject) → `AssignmentResult` | `assignment_result.py` |
 | Fenchel-Young-Loss | `FenchelYoungLoss` | `loss_FYscoring.py` |
 | Target y* (aktuell, IL) | One-Hot auf den Trip, der zur bekannten optimalen Route passt | `imitation_handler.py` (`ImitationHandler`) |
-| Kritiker Q_ψ(s,a) | existiert noch nicht | — |
+| Kritiker Q_ψ(s,a) | Graphstruktur begonnen (`MatchSolutionGraphBuilder`), Netz selbst noch offen | `match_solution_graph.py`, `critic_prototype.py` |
 
 Separates, vorgelagertes Modell (nicht φ_w): `RequestGraphEdgeGNN`
 (`request_graph_gnn.py`) scored Request-Request-Kanten und verkleinert A(s)
@@ -202,15 +202,48 @@ die kumulierte Service Rate über die Episode zählt, nicht nur die des
 aktuellen Batches — eine Pooling-Entscheidung jetzt kann ein Fahrzeug für den
 nächsten Batch schlecht positionieren; das sieht Phase 1 nicht.
 
-Kritiker Q_ψ(s,a):
-- Input: Trip-Features (wie φ_w) + Flag pro Trip "in dieser Aktion gewählt"
-- Aggregation nur über die gewählten Trips (gewichtete Summe/Pooling) →
-  variable Trip-Anzahl pro Batch kein Problem
-- Output: ein Skalar Q(s,a)
-- Training per TD: `y_t = r_t + γ · Q(s_{t+1}, a_{t+1})`, r_t = Service Rate
-  des aktuellen Batches (gleiche Definition wie in Phase 1)
-- Zielnetzwerk (langsam aktualisiert) + ggf. Double-Critic gegen
-  Overestimation-Bias
+**Korrektur (Chat 2026-08-06): der alte Kritiker-Entwurf unten (Trip-Features
++ Selected-Flag + Pooling, kein Graph) ist überholt.** Nach Durchsprache des
+Papers "Structured Reinforcement Learning" (Hoppe et al., NeurIPS 2025) mit
+dem Betreuer: unser Problem ist am nächsten am DVSP (Dynamic Vehicle
+Scheduling Problem) aus dem Paper, dessen Kritiker ein GNN auf einem
+"Solution Graph" ist, nicht ein einfaches Pooling über Kandidaten-Features.
+Neuer Plan folgt diesem Muster. (Paper liegt außerhalb des Repos unter
+`Literatur/SRL_Heiko.pdf`.)
+
+**Match-Graph (Solution Graph), DVSP-treu:**
+- Knoten: Requests + Vehicles (Paper hat nur Request-Knoten, Vehicles nur
+  implizit über Kanten — Betreuer will Vehicles explizit als eigene Knoten)
+- Kanten: nur wo tatsächlich gematcht wurde (aus dem finalen
+  `AssignmentResult` der aktuellen Iteration), nicht der volle
+  Kandidatenraum — anderer Graph als der Actor-Konflikt-Graph
+  (`CandidateConflictGraphBuilder`)
+- Scope V1 (Chat 2026-08-06): nur der aktuelle Entscheidungsspielraum
+  (`trip_handler.requests` = neue + noch offene aktive Requests). Bereits
+  geboardete Requests werden NICHT als eigene Knoten aufgenommen — deren
+  Zustand steckt schon in den Vehicle-Features.
+- Baustein: `MatchSolutionGraphBuilder`
+  (`rtv_solver/pipeline/match_solution_graph.py`) — baut nur die
+  Graphstruktur (Knoten/Kanten), noch ohne Node-/Edge-Features (folgt als
+  nächster Schritt, separat besprochen)
+
+**Architektur Q_ψ(s,a)** (DVSP-Rezept, Paper S. 24):
+- Solution Graph → mehrere Graph-Convolution-/Message-Passing-Layer →
+  globales additives Pooling → Feed-Forward-Layer → ein Skalar Q(s,a)
+- Node-Features: Vehicle-Knoten nutzen die bestehenden `_vehicle_features`;
+  Request-Knoten brauchen neue Features (noch offen, eigene Diskussion)
+- Edge-Features: Distanz/Traveltime zwischen zwei verbundenen Stops (wie im
+  Paper), noch nicht implementiert
+- Training per TD: `y_t = r_t + γ · Q(s_{t+1}, a_{t+1})`, Huber-Loss
+  (paper-nah, robuster als MSE)
+
+**Ausrollplan (Betreuer-Vorschlag, Chat 2026-08-06):**
+1. Ein Online-Kritiker + eine langsam aktualisierte Zielkopie (Paper nutzt im
+   DVSP explizit nur einen einzelnen Kritiker, kein Double-Q)
+2. Stabilität prüfen: explodieren Q-Werte, sinkt der TD-Loss, korrelieren
+   vorhergesagte Q-Werte mit realisierten Returns, hohe Seed-Varianz?
+3. Nur bei sichtbarer Overestimation: zwei unabhängige Kritiker, Q-Werte
+   mitteln (Double-Q, wie im Paper für kompliziertere Umgebungen wie GSPP)
 
 ## Neue Bausteine für Phase 1
 
@@ -289,8 +322,124 @@ nicht final festgelegt.
 5. Wie viele Perturbationen m und welches σ_b für den SRL-Target-Builder als
    Startwert?
 
+## Graph Attention (GAT) für den Critic — Plan (2026-09-05, noch nicht implementiert)
+
+**Motivation** (User, 2026-09-05): Node-Feature-Wichtigkeit zwischen Requests/
+Vehicles soll pro Kante gelernt werden statt gleichgewichtet (Mean-/Pool-
+Aggregation) — z.B. "ist Request 8 für Request 1 wichtiger als Request 9?".
+Klassische Referenz: Veličković et al. 2018, "Graph Attention Networks".
+
+**Formel** (GAT-Paper, Standard-Attention-Layer):
+- `e_ij = LeakyReLU(a^T [W·h_i ; W·h_j])` — ungewichteter Attention-Score für
+  Kante (i,j), `a` ein gelernter Vektor, `W` eine gelernte Gewichtsmatrix.
+- `α_ij = softmax_j(e_ij)` — normalisiert über alle Nachbarn j von i.
+- `h_i' = σ(Σ_j α_ij · W·h_j)` — neue Node-Embedding als gewichtete Summe der
+  Nachbar-Embeddings, Gewicht = gelernte Wichtigkeit dieser Kante.
+- Multi-Head-Variante: K unabhängige Attention-Köpfe, Ergebnisse konkateniert
+  (oder gemittelt in der letzten Schicht).
+
+**Wo im Code (Plan, nicht umgesetzt) — korrigiert 2026-09-05, User:**
+- Neue Klasse `GATLayer` zuerst DIREKT in `rtv_solver/pipeline/critic_gnn.py`
+  (nicht in `candidate_scoring_gnn.py`), da die erste Version ausschließlich
+  für den Critic gedacht ist und die Actor-Datei aktuell unangetastet bleiben
+  soll. Gleiche Schnittstelle wie die dort importierten Layer (`GCNMeanLayer`,
+  `GraphSAGEMeanLayer`, `GraphSAGEPoolLayer`): `forward(node_embeddings,
+  edge_index) -> node_embeddings`, damit sie sich in `CriticGNN.__init__`s
+  bestehendes `layer_classes`-Dict (Zeile 65–70) einfügt, einfach als weiterer
+  Eintrag `"gat": GATLayer`.
+- Erst NACHDEM sich das beim Critic bewährt hat, wird geprüft, ob `GATLayer`
+  in eine gemeinsame Datei verschoben und auch vom Actor-GNN
+  (`CandidateScoringGNN` in `candidate_scoring_gnn.py`, aktuell ungenutzt —
+  Actor läuft als MLP) wiederverwendet wird. Kein Code in
+  `candidate_scoring_gnn.py` in der ersten Version.
+- **Ein gemeinsamer Attention-Mechanismus für Requests + Vehicles zusammen**
+  (nicht node-typ-spezifisch) als erste Version — beide Node-Typen liegen
+  nach ihren separaten Encodern (`request_encoder`/`vehicle_encoder`) bereits
+  im selben `hidden_dim`-Raum, bevor `CriticGNN.forward()` sie zu einem
+  gemeinsamen `node_embeddings`-Tensor konkateniert (Zeile 108–110) — Message
+  Passing behandelt sie schon jetzt einheitlich, GAT würde daran anschließen.
+- Getrennte/heterogene Attention pro Kanten-/Node-Typ (z.B. eigene `a`/`W` für
+  "Request-Request"- vs. "Request-Vehicle"-Kanten) ist explizit eine SPÄTERE
+  Erweiterung, nicht Teil der ersten Version — deckt sich mit dem bereits
+  bestehenden REVIEW-Kommentar (2026-07-30) in `GCNMeanLayer`, der das exakt
+  gleiche "single homogeneous edge type"-Problem für die jetzige Mean-
+  Aggregation anmerkt.
+
+**Wie wir prüfen würden, ob es etwas bringt:**
+- Ablation auf dem balancierten 12-Instanzen-Set, Multi-Seed (analog zu allen
+  bisherigen SRL-Varianten-Vergleichen diese Session) — `aggregator="gat"`
+  vs. aktuell bestem `aggregator="gcn"` in `CriticGNN`, alle anderen
+  Hyperparameter (critic_lr, sigma, replay_capacity, etc.) unverändert
+  gehalten, damit der Vergleich nur die Aggregationsmethode isoliert — gleiche
+  Vorgehensweise wie beim gcn/mean/pool-Vergleich, der schon existiert.
+- Erst NACH den laufenden v4-Sweep-Ergebnissen sinnvoll, da GAT auf denselben
+  Hyperparametern (critic_lr etc.) aufsetzen würde wie die aktuell beste
+  gefundene Konfiguration.
+
+**Nachbarschaft `N_i` für GAT (geklärt 2026-09-05):**
+- `N_i` folgt NICHT der bestehenden `MatchGraph.edge_index` 1:1. Aktuell
+  verbindet `MatchSolutionGraphBuilder` nur direkt AUFEINANDERFOLGENDE
+  Requests auf derselben Route (Kette, `match_solution_graph.py:94-95`,
+  `zip(known_ids, known_ids[1:])`). Für GAT werden stattdessen ALLE Requests
+  derselben Route paarweise verbunden (Clique) — analog zum
+  `_connect_clique`-Pattern, das `CandidateConflictGraphBuilder` bereits für
+  "gleiches Fahrzeug" nutzt (`candidate_scoring_gnn.py:112-113`).
+- **Scope-Entscheidung (User, 2026-09-05): NUR für GAT**, nicht generell.
+  `match_solution_graph.py`'s bestehende Kette bleibt für `gcn`/`mean`/`pool`
+  unverändert — sonst wären deren bisherige Ergebnisse (diese ganze Session)
+  nicht mehr mit neuen Läufen vergleichbar, da sich die Graphstruktur selbst
+  ändern würde. GAT bekommt also einen eigenen/erweiterten `edge_index`
+  (z.B. neuer Parameter an `MatchSolutionGraphBuilder.build()`, additiv, oder
+  eine zweite Methode) statt den bestehenden zu überschreiben.
+- Request↔Vehicle-Kanten (Zeile 90-91) und die Bipartite-Struktur bleiben
+  unverändert — nur die Request↔Request-Kanten innerhalb einer Route werden
+  für GAT von "Kette" auf "Clique" erweitert.
+- Self-Loops (siehe oben, `i` selbst mit in `N_i`) kommen zusätzlich obendrauf,
+  unabhängig von Kette-vs-Clique.
+
+**Multi-Head-Kombination pro Schicht (geklärt 2026-09-05):**
+- Bei `CriticGNN`s `num_message_passing_layers=2`: Schicht 1 (nicht die
+  letzte) nutzt Konkatenation (Paper Eq. 5) — Output-Dimension wird
+  `K·hidden_dim`. Schicht 2 (die letzte Message-Passing-Schicht) nutzt
+  Mittelung (Paper Eq. 6) — Output-Dimension zurück auf `hidden_dim`, damit
+  `q_head` (erwartet `2·hidden_dim -> hidden_dim -> 1` nach Request/Vehicle-
+  Pooling) unverändert weiterfunktioniert. `GATLayer` braucht daher ein
+  Flag/Konstruktor-Argument, das steuert, ob eine Instanz konkateniert oder
+  mittelt (z.B. `is_final_layer: bool`), analog zur Paper-Unterscheidung.
+
+**Anzahl Attention-Heads (Startwert festgelegt 2026-09-05, User):**
+- Startwert: **K=4** für Schicht 1 (konkateniert), Mittelung in Schicht 2
+  (letzte Schicht) — als erster Test, nicht als Ergebnis einer Suche.
+- Anzahl Heads wird SPÄTER als eigener Sweep-Parameter behandelt (analog zu
+  critic_lr/sigma/actor_lr in den bisherigen wandb-Sweeps), sobald klar ist,
+  dass GAT überhaupt etwas bringt — nicht Teil des ersten Korrektheits-Tests.
+
+**Entschieden (2026-09-05):**
+- `LeakyReLU`-Slope: Paper-Default `α=0.2` übernommen (innerhalb des
+  Attention-Mechanismus `a`, Formel 3). Quelle: Maas, Hannun & Ng, "Rectifier
+  Nonlinearities Improve Neural Network Acoustic Models", ICML 2013.
+- `σ` (Aktivierung auf dem GAT-Output-Embedding, Formel 4/5/6): **erst ReLU**
+  (konsistent mit den 3 bestehenden Layern `GCNMeanLayer`/
+  `GraphSAGEMeanLayer`/`GraphSAGEPoolLayer`, die alle `F.relu` nutzen — damit
+  der erste Vergleich `gat` vs. `gcn`/`mean`/`pool` nur die
+  Aggregationsmethode isoliert, nicht zusätzlich die Aktivierungsfunktion
+  mitändert). **ELU als spätere Ablation**, falls GAT mit ReLU vielversprechend
+  aussieht — ELU sättigt für negative Inputs bei `-α` statt hart bei 0 wie
+  ReLU, bleibt glatt differenzierbar und vermeidet "tote Neuronen" bei
+  dauerhaft negativem Input; im GAT-Original-Paper ist ELU der übliche Wert
+  für `σ`. Quelle: Clevert, Unterthiner & Hochreiter, "Fast and Accurate Deep
+  Network Learning by Exponential Linear Units (ELUs)", ICLR 2016.
+- Dropout auf die Attention-Koeffizienten selbst (Paper-Trick gegen
+  Overfitting) — bisherige Layer haben nur Dropout auf den Output, nicht auf
+  Zwischenwerte. Noch offen.
+
+Kein Code geschrieben, nur Plan — Umsetzung erst nach explizitem Go.
+
 ## Nächste Schritte (Diskussion, keine Implementierung)
 
 - Offene Fragen 1–2 klären (Code-Recherche, kein Schreiben).
 - Reward-Definition (Frage 4) konkret festlegen.
 - Erst danach: `SRLTargetBuilder` entwerfen (Interface, nicht Code).
+- Graph Attention (GAT) für Critic — siehe eigener Plan-Abschnitt oben,
+  Priorität: Critic zuerst, gemeinsame Attention für beide Node-Typen zuerst,
+  node-typ-spezifisch danach.

@@ -1,7 +1,6 @@
 #!/bin/bash
-# 2026-08-03: GCN aggregator screening run (Eq. 2, self+neighbours meaned
+# 2026-08-04: GCN aggregator screening run (Eq. 2, self+neighbours meaned
 # together before one shared linear layer), 2 message-passing layers, seed 5.
-# Part of extending the L2 seed set toward 5 seeds total (2,3,4,5,6).
 set -eu
 
 echo "=== [$(date +%H:%M:%S)] SIL bi200/ss100 class1 legacy - GNN GCN 2L seed 5 ==="
