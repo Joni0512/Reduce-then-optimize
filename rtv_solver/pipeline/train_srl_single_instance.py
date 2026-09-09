@@ -340,6 +340,13 @@ def train(
             critic_tc_corr = None
             critic_tc_mean_abs_diff = None
 
+        # 2026-09-09: mean Q-value per episode for both networks (see chat) -
+        # plotted directly (not just the corr/diff summary stats above) so
+        # a TD-bootstrap run's critic and target_critic can be visually
+        # compared over the course of training.
+        mean_critic_q = sum(critic_preds) / len(critic_preds) if critic_preds else None
+        mean_target_critic_q = sum(tc_preds) / len(tc_preds) if tc_preds else None
+
         print(f"episode {episode}: service_rate={service_rate:.3f} ({num_serviced}/{num_requests})  mean_fy_loss={mean_fy_loss}  critic_loss={critic_loss_val}  buffered_iters={len(returns)}  accept_mass={mean_accept_mass}  reject_mass={mean_reject_mass}  critic_tc_corr={critic_tc_corr}  critic_tc_mean_abs_diff={critic_tc_mean_abs_diff}")
         rows.append({
             "episode": episode,
@@ -350,6 +357,8 @@ def train(
             "critic_loss": critic_loss_val,
             "critic_tc_corr": critic_tc_corr,
             "critic_tc_mean_abs_diff": critic_tc_mean_abs_diff,
+            "mean_critic_q": mean_critic_q,
+            "mean_target_critic_q": mean_target_critic_q,
         })
 
     print(f"Best episode: {best_episode} with service_rate={best_service_rate:.3f}")
@@ -359,13 +368,13 @@ def train(
 
     csv_path = output_dir / "srl_training_curves.csv"
     with open(csv_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["episode", "service_rate", "mean_fy_loss", "critic_loss", "mean_accept_mass", "mean_reject_mass", "critic_tc_corr", "critic_tc_mean_abs_diff"])
+        writer = csv.DictWriter(f, fieldnames=["episode", "service_rate", "mean_fy_loss", "critic_loss", "mean_accept_mass", "mean_reject_mass", "critic_tc_corr", "critic_tc_mean_abs_diff", "mean_critic_q", "mean_target_critic_q"])
         writer.writeheader()
         writer.writerows(rows)
     print(f"Saved {csv_path}")
 
     episodes_x = [r["episode"] for r in rows]
-    fig, axes = plt.subplots(1, 4, figsize=(19, 4.5))
+    fig, axes = plt.subplots(1, 5, figsize=(23, 4.5))
     axes[0].plot(episodes_x, [r["service_rate"] for r in rows], marker="o", color="tab:green")
     axes[0].set_title("Service rate per episode")
     axes[0].set_xlabel("Episode")
@@ -396,6 +405,23 @@ def train(
     axes[3].set_ylabel("Summed weight")
     axes[3].legend(fontsize=8)
     axes[3].grid(True, alpha=0.3)
+
+    # 2026-09-09: critic vs. target_critic mean Q-value per episode (see
+    # chat) - only meaningful when target_critic is a distinct object (not
+    # just falling back to the live critic), same guard as critic_tc_corr
+    # above; plots None values as gaps rather than crashing.
+    critic_q_series = [r["mean_critic_q"] for r in rows]
+    tc_q_series = [r["mean_target_critic_q"] for r in rows]
+    if any(v is not None for v in critic_q_series):
+        axes[4].plot(episodes_x, critic_q_series, marker="o", color="tab:blue", label="critic")
+        axes[4].plot(episodes_x, tc_q_series, marker="o", color="tab:orange", label="target_critic")
+        axes[4].set_title("Mean Q-value per episode: critic vs. target_critic")
+        axes[4].set_xlabel("Episode")
+        axes[4].set_ylabel("Q-value")
+        axes[4].legend(fontsize=8)
+        axes[4].grid(True, alpha=0.3)
+    else:
+        axes[4].set_visible(False)
 
     fig.suptitle(f"SRL actor-critic joint training, instance={instance}, {episodes} episodes")
     fig.tight_layout()
