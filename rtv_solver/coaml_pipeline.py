@@ -27,6 +27,7 @@ from rtv_solver.pipeline.candidate_scoring_gnn import build_scoring_model, Candi
 # 2026-08-14: critic (SRL Phase 2) building blocks - all optional, only used
 # when a critic model is actually passed into COAMLPipeline.__init__.
 from rtv_solver.pipeline.match_solution_graph import MatchSolutionGraphBuilder
+from rtv_solver.pipeline.td_target_builder import build_td_targets
 from rtv_solver.pipeline.match_graph_features import MatchGraphFeatureBuilder
 # 2026-08-21: SRL actor-critic integration (Algorithm 1 steps 1-6, see chat/
 # figures_export/srl_actor_critic_integration_steps.tex) - used by the new
@@ -88,6 +89,8 @@ class COAMLPipeline():
             replay_batch_size: int = 12,
             replay_update_group_size: int = 3,
             critic_use_route_clique: bool = False,
+            critic_target_mode: str = "monte_carlo",
+            gamma: float = 0.99,
         ):
         """
         Initialize the COAML pipeline solver.
@@ -134,6 +137,16 @@ class COAMLPipeline():
               edges unchanged for gcn/mean/pool; True connects all requests
               on the same route pairwise (a clique) instead, giving GAT's
               attention a richer neighbourhood to work with.
+            - critic_target_mode: 2026-09-09, see chat and
+              docs/SRL_Design.md's TD Bootstrap plan section. "monte_carlo"
+              (default) keeps the existing plain G_t/r_t target unchanged.
+              "td_bootstrap" replaces it with td_target_builder.py's
+              r_t + gamma * target_critic(next_step) - requires an explicit
+              target_critic (see the ValueError check below); falling back
+              to the live critic would make the critic bootstrap against
+              itself (moving-target instability).
+            - gamma: discount factor for critic_target_mode="td_bootstrap"
+              only (ignored otherwise). Default 0.99.
         """
         self.config = config
         self.offline_payload = offline_payload
@@ -177,6 +190,17 @@ class COAMLPipeline():
         self.replay_batch_size = replay_batch_size
         self.replay_update_group_size = replay_update_group_size
         self.critic_use_route_clique = critic_use_route_clique
+        self.critic_target_mode = critic_target_mode
+        self.gamma = gamma
+        # 2026-09-09: td_bootstrap requires an EXPLICIT target_critic - check
+        # the original argument, not self.target_critic (which already
+        # fell back to the live critic above). Bootstrapping against the
+        # live critic would be a moving target, not a stabilizing one.
+        if critic_target_mode == "td_bootstrap" and target_critic is None:
+            raise ValueError(
+                "critic_target_mode='td_bootstrap' requires an explicit target_critic "
+                "(no live-critic fallback allowed - see chat)."
+            )
         if self.critic is not None:
             self.match_graph_builder = MatchSolutionGraphBuilder()
             self.match_feature_builder = MatchGraphFeatureBuilder(
@@ -339,6 +363,15 @@ class COAMLPipeline():
             # that they come out sane), since episode_buffer.clear() below
             # would otherwise throw them away with nothing left to look at.
             self.last_episode_returns: list[float] = [g_t for _, g_t in step_return_pairs]
+
+            # 2026-09-09: TD-bootstrap switch (see chat, docs/SRL_Design.md's
+            # TD Bootstrap plan section) - overwrites step_return_pairs'
+            # plain Monte Carlo targets with the bootstrapped ones from
+            # td_target_builder.py BEFORE either training path below runs,
+            # so the replay-buffer and averaged-loss code stay 100%
+            # unchanged either way - they just see different target values.
+            if self.critic_target_mode == "td_bootstrap":
+                step_return_pairs = build_td_targets(step_return_pairs, self.target_critic, self.gamma)
 
             if self.replay_buffer is not None:
                 # 2026-08-28: replay-buffer critic training (see chat) -

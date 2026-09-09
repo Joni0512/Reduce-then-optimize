@@ -84,6 +84,8 @@ def train(
     model_type: str = "mlp",
     gnn_aggregator: str = "gcn",
     gnn_num_message_passing_layers: int = 1,
+    critic_target_mode: str = "monte_carlo",
+    gamma: float = 0.99,
 ) -> None:
     # 2026-08-23: actor_checkpoint added after the first "untrained actor"
     # test degenerated to service_rate=0.0 for all 20 episodes (see chat) -
@@ -257,6 +259,7 @@ def train(
             replay_buffer=replay_buffer, replay_batch_size=replay_batch_size,
             replay_update_group_size=replay_update_group_size,
             critic_use_route_clique=critic_use_route_clique,
+            critic_target_mode=critic_target_mode, gamma=gamma,
         )
         if actor_checkpoint and episode == 0:
             # 2026-08-23: only load on episode 0 - after that, `model` (the
@@ -427,6 +430,8 @@ if __name__ == "__main__":
     parser.add_argument("--replay_update_group_size", type=int, default=3)
     parser.add_argument("--critic_use_route_clique", action="store_true", help="GAT-only (see chat/docs/SRL_Design.md): connect all requests on the same route pairwise instead of only consecutive ones. No effect for gcn/mean/pool.")
     parser.add_argument("--max_cardinality", type=int, default=2)
+    parser.add_argument("--critic_target_mode", type=str, default="monte_carlo", choices=["monte_carlo", "td_bootstrap"], help="'monte_carlo' (default) = existing G_t/r_t target, unchanged. 'td_bootstrap' = r_t + gamma*target_critic(next_step), see chat/docs/SRL_Design.md. Requires --target_critic_update_interval or --target_critic_polyak_tau to be set (no live-critic fallback).")
+    parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor, only used when --critic_target_mode=td_bootstrap.")
     args = parser.parse_args()
 
     train(
@@ -451,4 +456,6 @@ if __name__ == "__main__":
         replay_update_group_size=args.replay_update_group_size,
         critic_use_route_clique=args.critic_use_route_clique,
         max_cardinality=args.max_cardinality,
+        critic_target_mode=args.critic_target_mode,
+        gamma=args.gamma,
     )
