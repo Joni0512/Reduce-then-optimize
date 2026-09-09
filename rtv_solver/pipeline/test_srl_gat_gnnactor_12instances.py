@@ -37,6 +37,21 @@ from rtv_solver.structure.config import Config
 from rtv_solver.util.helper import set_seed
 from rtv_solver.util.logger import setup_loggers
 
+# 2026-09-08: train_srl_single_instance.py (imported above) applies its OWN
+# ENABLE_PICKUP_SLACK_FEATURE=False patch at its own module level (see its
+# lines 19-33) - that re-disables the feature on import regardless of this
+# file not applying the patch itself, since Python only runs a module's
+# top-level code once and any later import just reuses the already-patched
+# class. Re-overriding here, AFTER the import above, so this file's
+# intent (keep the feature ON, matching the checkpoint) actually wins.
+from rtv_solver.pipeline import feat_builder as _feat_builder_module
+_feat_builder_module.FeatureBuilder.ENABLE_PICKUP_SLACK_FEATURE = True
+_feat_builder_module.FeatureBuilder.FEATURE_SIZE = (
+    _feat_builder_module.FeatureBuilder._BASE_FEATURE_SIZE
+    + (_feat_builder_module.FeatureBuilder._TRIP_COMPOSITION_FEATURE_SIZE if _feat_builder_module.FeatureBuilder.ENABLE_TRIP_COMPOSITION_FEATURES else 0)
+    + _feat_builder_module.FeatureBuilder._PICKUP_SLACK_FEATURE_SIZE
+)
+
 # 2026-09-08: GNN-actor SIL checkpoint (gcn, 2 layers), mixed balanced split,
 # best val service rate 70.83% at epoch 4 - see
 # run_sil_training_bi200_ss100_mixed_balanced_legacy_gnn_gcn_l2_seed1.sh /
