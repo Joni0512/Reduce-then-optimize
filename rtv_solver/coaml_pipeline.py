@@ -27,7 +27,7 @@ from rtv_solver.pipeline.candidate_scoring_gnn import build_scoring_model, Candi
 # 2026-08-14: critic (SRL Phase 2) building blocks - all optional, only used
 # when a critic model is actually passed into COAMLPipeline.__init__.
 from rtv_solver.pipeline.match_solution_graph import MatchSolutionGraphBuilder
-from rtv_solver.pipeline.td_target_builder import build_td_targets
+from rtv_solver.pipeline.td_target_builder import build_td_targets, td_target_for_step
 from rtv_solver.pipeline.match_graph_features import MatchGraphFeatureBuilder
 # 2026-08-21: SRL actor-critic integration (Algorithm 1 steps 1-6, see chat/
 # figures_export/srl_actor_critic_integration_steps.tex) - used by the new
@@ -364,24 +364,19 @@ class COAMLPipeline():
             # would otherwise throw them away with nothing left to look at.
             self.last_episode_returns: list[float] = [g_t for _, g_t in step_return_pairs]
 
-            # 2026-09-09: TD-bootstrap switch (see chat, docs/SRL_Design.md's
-            # TD Bootstrap plan section) - overwrites step_return_pairs'
-            # plain Monte Carlo targets with the bootstrapped ones from
-            # td_target_builder.py BEFORE either training path below runs,
-            # so the replay-buffer and averaged-loss code stay 100%
-            # unchanged either way - they just see different target values.
-            if self.critic_target_mode == "td_bootstrap":
-                step_return_pairs = build_td_targets(step_return_pairs, self.target_critic, self.gamma)
-
             if self.replay_buffer is not None:
-                # 2026-08-28: replay-buffer critic training (see chat) -
-                # this episode's (step, target) pairs go into the buffer
-                # first, then several mini-batch updates are sampled from
-                # the WHOLE buffer (mixing in earlier episodes of this same
-                # instance run), instead of one averaged step over only this
-                # episode's own steps. Targets are still plain Monte Carlo
-                # r_t/G_t (fixed once computed), no bootstrap involved - see
-                # replay_buffer.py's docstring.
+                # 2026-09-10: replay-buffer staleness fix (see chat,
+                # replay_buffer.py's docstring) - td_bootstrap no longer
+                # precomputes targets here (the old build_td_targets() call
+                # used to run BEFORE this block, baking in a target_critic
+                # snapshot that then sat frozen in the buffer for however
+                # many later episodes the entry survived). Now the RAW
+                # (step, r_t, next_step) transition goes into the buffer via
+                # add_transition() - the bootstrap target is only computed
+                # later, at SAMPLE time (see the batch loop below), using
+                # target_critic's weights at that later point. monte_carlo
+                # mode is unaffected: G_t/r_t is fixed and correct to store
+                # as-is via add_fixed_target(), same as before.
                 self.last_episode_predictions = []
                 # 2026-09-03: diagnostic (see chat) - investigating why
                 # target_critic (hard-copy or Polyak) consistently
@@ -393,14 +388,18 @@ class COAMLPipeline():
                 # (not just falling back to critic).
                 self.last_episode_target_critic_predictions = []
                 log_target_critic = self.target_critic is not self.critic
-                for step, g_t in step_return_pairs:
+                for i, (step, r_t) in enumerate(step_return_pairs):
                     with torch.no_grad():
                         q_pred = self.critic(step.request_features, step.vehicle_features, step.edge_index)
                         if log_target_critic:
                             tc_pred = self.target_critic(step.request_features, step.vehicle_features, step.edge_index)
                             self.last_episode_target_critic_predictions.append(tc_pred.item())
                     self.last_episode_predictions.append(q_pred.item())
-                    self.replay_buffer.add(step, g_t)
+                    if self.critic_target_mode == "td_bootstrap":
+                        next_step = step_return_pairs[i + 1][0] if i + 1 < len(step_return_pairs) else None
+                        self.replay_buffer.add_transition(step, r_t, next_step)
+                    else:
+                        self.replay_buffer.add_fixed_target(step, r_t)
 
                 num_new_steps = len(step_return_pairs)
                 num_updates = max(1, -(-num_new_steps // self.replay_update_group_size))  # ceil div
@@ -412,9 +411,22 @@ class COAMLPipeline():
                         self.critic(entry.step.request_features, entry.step.vehicle_features, entry.step.edge_index)
                         for entry in batch
                     ]
-                    batch_targets = [torch.tensor(entry.target, dtype=torch.float32) for entry in batch]
+                    # 2026-09-10: monte_carlo entries carry a fixed target
+                    # (entry.target), td_bootstrap entries carry (reward,
+                    # next_step) and get their target computed HERE, fresh,
+                    # with target_critic's CURRENT weights - see
+                    # td_target_for_step()'s docstring. Also MSE instead of
+                    # Huber loss below, per the advisor's spec (see chat).
+                    batch_targets = [
+                        torch.tensor(
+                            entry.target if entry.target is not None
+                            else td_target_for_step(entry.reward, entry.next_step, self.target_critic, self.gamma),
+                            dtype=torch.float32,
+                        )
+                        for entry in batch
+                    ]
                     batch_loss = torch.stack([
-                        F.huber_loss(q_pred, target) for q_pred, target in zip(batch_q_preds, batch_targets)
+                        F.mse_loss(q_pred, target) for q_pred, target in zip(batch_q_preds, batch_targets)
                     ]).mean()
                     batch_losses.append(batch_loss.item())
 
@@ -426,6 +438,16 @@ class COAMLPipeline():
 
                 self.last_episode_loss: float = sum(batch_losses) / len(batch_losses)
             else:
+                # 2026-09-10: td_bootstrap's episode-level build_td_targets()
+                # call moved here (was previously computed unconditionally
+                # before the replay-buffer branch above, which needed raw
+                # transitions instead now - see chat). Safe in THIS branch -
+                # no staleness concern, the computed targets are used
+                # immediately within this same episode, never stored for
+                # later reuse.
+                if self.critic_target_mode == "td_bootstrap":
+                    step_return_pairs = build_td_targets(step_return_pairs, self.target_critic, self.gamma)
+
                 # Option A (used here): one averaged loss for the whole episode.
                 # Chosen because G_t is a noisy single-sample Monte Carlo
                 # estimate (see chat, 2026-08-14) - averaging over the episode's
@@ -441,7 +463,8 @@ class COAMLPipeline():
                     q_pred = self.critic(step.request_features, step.vehicle_features, step.edge_index)
                     self.last_episode_predictions.append(q_pred.detach().item())
                     target = torch.tensor(g_t, dtype=torch.float32)
-                    losses.append(F.huber_loss(q_pred, target))
+                    # 2026-09-10: MSE instead of Huber, per the advisor's spec (see chat).
+                    losses.append(F.mse_loss(q_pred, target))
 
                 # 2026-08-18: diagnostic hook, mirrors last_episode_returns/
                 # last_episode_predictions - the averaged Huber loss for this
