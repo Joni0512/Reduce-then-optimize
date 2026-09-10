@@ -86,6 +86,7 @@ def train(
     gnn_num_message_passing_layers: int = 1,
     critic_target_mode: str = "monte_carlo",
     gamma: float = 0.99,
+    reward_mode: str = "local",
 ) -> None:
     # 2026-08-23: actor_checkpoint added after the first "untrained actor"
     # test degenerated to service_rate=0.0 for all 20 episodes (see chat) -
@@ -176,7 +177,7 @@ def train(
                         critic_use_route_clique=critic_use_route_clique,
                     )
                     pretrain_pipeline.load_model_weights(actor_checkpoint)
-                    pretrain_pipeline.solve_pdptw(pretrain_cleared_payload, mode="eval", train_critic=True, reward_mode="local")
+                    pretrain_pipeline.solve_pdptw(pretrain_cleared_payload, mode="eval", train_critic=True, reward_mode=reward_mode)
                 print(f"critic pretrain epoch {epoch} done")
 
     rows = []
@@ -274,7 +275,7 @@ def train(
             # every later episode (below) so weights persist too.
             actor_optimizer = torch.optim.Adam(pipeline.model.parameters(), lr=actor_lr)
 
-        final_driver_runs = pipeline.solve_pdptw(cleared_payload, mode="srl", optimizer=actor_optimizer, train_critic=not freeze_critic, reward_mode="local")
+        final_driver_runs = pipeline.solve_pdptw(cleared_payload, mode="srl", optimizer=actor_optimizer, train_critic=not freeze_critic, reward_mode=reward_mode)
         model = pipeline.model  # carry actor weights into the next episode
 
         # 2026-08-21: service rate independent of the critic's reward_mode
@@ -458,6 +459,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_cardinality", type=int, default=2)
     parser.add_argument("--critic_target_mode", type=str, default="monte_carlo", choices=["monte_carlo", "td_bootstrap"], help="'monte_carlo' (default) = existing G_t/r_t target, unchanged. 'td_bootstrap' = r_t + gamma*target_critic(next_step), see chat/docs/SRL_Design.md. Requires --target_critic_update_interval or --target_critic_polyak_tau to be set (no live-critic fallback).")
     parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor, only used when --critic_target_mode=td_bootstrap.")
+    parser.add_argument("--reward_mode", type=str, default="local", choices=["cumulative", "local", "local_positive"], help="'local' (default) = -1 only when a request's deadline permanently passes unserved, 0 otherwise. 'cumulative' = G_t Monte Carlo return. 'local_positive' (2026-09-10, see chat) = +1 only when a SERVICED request's deadline passes, 0 otherwise - denser positive-only signal, tried against TD-bootstrap's suspected sparse-reward instability.")
     args = parser.parse_args()
 
     train(
@@ -484,4 +486,5 @@ if __name__ == "__main__":
         max_cardinality=args.max_cardinality,
         critic_target_mode=args.critic_target_mode,
         gamma=args.gamma,
+        reward_mode=args.reward_mode,
     )

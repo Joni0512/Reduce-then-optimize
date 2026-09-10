@@ -135,3 +135,59 @@ class MonteCarloReturnBuilder:
         # G_n := 0 (nothing left to miss after the episode's last iteration)
         shifted = cumulative[1:] + [0.0]
         return [g_t - g_next for g_t, g_next in zip(cumulative, shifted)]
+
+    def build_local_positive(
+        self,
+        iteration_times: Sequence[float],
+        serviced_request_ids: Sequence[int],
+    ) -> list[float]:
+        """
+        2026-09-10: reward_mode="local_positive" (see chat) - +1 per request
+        instead of build_local()'s -1 per request, to make the TD-bootstrap
+        target less sparse (see chat/docs/SRL_Design.md's TD Bootstrap
+        section: r_t=0 almost everywhere under build_local() was suspected
+        as a root cause of the observed lr/lrc-instance collapse).
+
+        We only know WHICH requests end up serviced (StatsParser.evaluate()
+        runs once, at episode end) - not the exact iteration each one was
+        actually picked up and dropped off at, so we can't reward "the
+        moment of completion" directly without an expensive per-iteration
+        StatsParser call. Instead, mirrors build_local()'s own mechanism:
+        that -1 doesn't fire "the moment a request is abandoned" either -
+        it fires when the request's deadline passes (a purely time-based
+        event, independent of the actual rollout), which is why it can be
+        computed via build()'s existing relevant-set telescoping trick.
+
+        Analogously here: +1 fires in the window a SERVICED request's
+        deadline passes (same time-based checkpoint, opposite condition).
+        Not "the moment it was served" - "the moment it would have become
+        unservable, given that it was actually served in time."
+
+        2026-09-10: considered and explicitly deferred - the exact-moment-
+        of-completion alternative (user's preference if we ever revisit
+        this): call StatsParser.evaluate() once per rolling-horizon
+        iteration (on that iteration's partial, not-yet-final driver_runs)
+        instead of once at episode end, diff the newly-serviced request set
+        against the previous iteration's, and use that count as r_t. More
+        precise (rewards the real completion moment, not the deadline
+        proxy), but two real costs: (1) an expensive StatsParser call per
+        iteration instead of once per episode (see EpisodeBuffer's own
+        docstring on why it's currently only called once), and (2) an
+        alignment problem - EpisodeBuffer.add() (and so the buffered
+        EpisodeStep list build_td_targets()/with_returns() work over) skips
+        empty windows (no requests selected that iteration), so a per-
+        while-loop-iteration reward doesn't line up 1:1 with the buffered
+        steps; a skipped window's newly-completed count would need to
+        accumulate and land on the NEXT actually-buffered step instead of
+        being computed independently. Not implemented - staying with the
+        deadline-window proxy above for now.
+        """
+        serviced = {int(rid) for rid in serviced_request_ids}
+        cumulative_served: list[float] = []
+        for current_time in iteration_times:
+            relevant = self.relevant_request_ids_at(current_time)
+            served = relevant & serviced
+            cumulative_served.append(float(len(served)))
+
+        shifted = cumulative_served[1:] + [0.0]
+        return [g_t - g_next for g_t, g_next in zip(cumulative_served, shifted)]

@@ -74,6 +74,13 @@ class EpisodeBuffer:
         return (build()); "local" = r_t, -1 only in the window a request's
         deadline permanently passes unserved (build_local()) - see
         mc_return_builder.py's docstring for the tradeoff between the two.
+
+        2026-09-10: "local_positive" = r_t, +1 only in the window a SERVICED
+        request's deadline passes (build_local_positive()) - the mirror
+        image of "local", tried to make the TD-bootstrap target less sparse
+        (build_local()'s r_t=0 almost everywhere was suspected as a root
+        cause of the lr/lrc-instance collapse - see chat). Not combined
+        with "local"'s -1 yet - testing the +1 signal on its own first.
         """
         iteration_times = [step.current_time for step in self.steps]
         builder = MonteCarloReturnBuilder(requests)
@@ -81,8 +88,10 @@ class EpisodeBuffer:
             returns = builder.build(iteration_times, serviced_request_ids)
         elif reward_mode == "local":
             returns = builder.build_local(iteration_times, serviced_request_ids)
+        elif reward_mode == "local_positive":
+            returns = builder.build_local_positive(iteration_times, serviced_request_ids)
         else:
-            raise ValueError(f"Unknown reward_mode '{reward_mode}', expected 'cumulative' or 'local'.")
+            raise ValueError(f"Unknown reward_mode '{reward_mode}', expected 'cumulative', 'local', or 'local_positive'.")
         return list(zip(self.steps, returns))
 
     def clear(self) -> None:
