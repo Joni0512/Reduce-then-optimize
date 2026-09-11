@@ -87,6 +87,7 @@ def train(
     critic_target_mode: str = "monte_carlo",
     gamma: float = 0.99,
     reward_mode: str = "local",
+    use_stale_td_target: bool = False,
 ) -> None:
     # 2026-08-23: actor_checkpoint added after the first "untrained actor"
     # test degenerated to service_rate=0.0 for all 20 episodes (see chat) -
@@ -261,6 +262,7 @@ def train(
             replay_update_group_size=replay_update_group_size,
             critic_use_route_clique=critic_use_route_clique,
             critic_target_mode=critic_target_mode, gamma=gamma,
+            use_stale_td_target=use_stale_td_target,
         )
         if actor_checkpoint and episode == 0:
             # 2026-08-23: only load on episode 0 - after that, `model` (the

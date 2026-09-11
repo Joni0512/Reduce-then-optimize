@@ -91,6 +91,7 @@ class COAMLPipeline():
             critic_use_route_clique: bool = False,
             critic_target_mode: str = "monte_carlo",
             gamma: float = 0.99,
+            use_stale_td_target: bool = False,
         ):
         """
         Initialize the COAML pipeline solver.
@@ -147,6 +148,18 @@ class COAMLPipeline():
               itself (moving-target instability).
             - gamma: discount factor for critic_target_mode="td_bootstrap"
               only (ignored otherwise). Default 0.99.
+            - use_stale_td_target: 2026-09-11 (see chat). Opt-in ONLY for
+              reproducing the pre-fix staleness bug (commit 1bf3a77) on
+              purpose, for a clean before/after comparison run - never set
+              this for a real training run. When True AND
+              critic_target_mode="td_bootstrap" AND replay_buffer is given,
+              restores the old (buggy) behavior: the bootstrap target
+              r_t + gamma*target_critic(next_step) is computed ONCE at
+              episode end (target_critic's weights at that moment) and
+              stored as a frozen entry.target via add_fixed_target(),
+              instead of storing the raw transition and recomputing the
+              target fresh at every later sample time. False (default)
+              keeps the fixed, correct behavior unchanged.
         """
         self.config = config
         self.offline_payload = offline_payload
@@ -192,6 +205,7 @@ class COAMLPipeline():
         self.critic_use_route_clique = critic_use_route_clique
         self.critic_target_mode = critic_target_mode
         self.gamma = gamma
+        self.use_stale_td_target = use_stale_td_target
         # 2026-09-09: td_bootstrap requires an EXPLICIT target_critic - check
         # the original argument, not self.target_critic (which already
         # fell back to the live critic above). Bootstrapping against the
@@ -397,7 +411,16 @@ class COAMLPipeline():
                     self.last_episode_predictions.append(q_pred.item())
                     if self.critic_target_mode == "td_bootstrap":
                         next_step = step_return_pairs[i + 1][0] if i + 1 < len(step_return_pairs) else None
-                        self.replay_buffer.add_transition(step, r_t, next_step)
+                        if self.use_stale_td_target:
+                            # 2026-09-11: deliberately reproduces the pre-fix
+                            # staleness bug (see __init__ docstring) - target
+                            # frozen NOW, with target_critic's CURRENT
+                            # weights, and never recomputed again for
+                            # however long this entry survives in the buffer.
+                            stale_target = td_target_for_step(r_t, next_step, self.target_critic, self.gamma)
+                            self.replay_buffer.add_fixed_target(step, stale_target)
+                        else:
+                            self.replay_buffer.add_transition(step, r_t, next_step)
                     else:
                         self.replay_buffer.add_fixed_target(step, r_t)
 
