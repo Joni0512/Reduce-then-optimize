@@ -127,7 +127,7 @@ def run_srl_training_loop(
     actor_checkpoint: str,
     gamma: float = 0.99,
     tau: float = 0.001,
-    epochs: int = 30,
+    epochs: int = 20,
     val_every_n_epochs: int = 5,
     critic_pretrain_epochs: int = 10,
     batch_interval: int = 200,

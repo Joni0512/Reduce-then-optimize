@@ -3,7 +3,7 @@
 #SBATCH --clusters=serial
 #SBATCH --partition=serial_long
 #SBATCH --qos=cm4_serial_long
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 #SBATCH --output=srl_training_trial_%j.log

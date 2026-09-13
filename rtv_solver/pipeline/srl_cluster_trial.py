@@ -21,7 +21,7 @@ from rtv_solver.structure.config import Config
 
 ACTOR_CHECKPOINT = str(list((REPO_ROOT / "outputs/outputs/sil_training_bi200_ss100_mixed_balanced_legacy_mlp_seed1").rglob("coaml_model_weights_best_val.pt"))[0])
 
-EPOCHS = 30
+EPOCHS = 20
 VAL_EVERY_N_EPOCHS = 5
 GAMMA = 0.99
 TAU = 0.001
