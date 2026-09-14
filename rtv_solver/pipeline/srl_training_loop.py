@@ -275,7 +275,10 @@ def run_srl_training_loop(
     ax.legend(fontsize=8, loc="lower right")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
+    # 2026-09-14: PNG for quick viewing/slides, PDF (vector) for the thesis
+    # LaTeX document - see .claude/skills/experiment-results-export.
     fig.savefig(output_dir / "srl_train_val_curves.png", dpi=150)
+    fig.savefig(output_dir / "srl_train_val_curves.pdf")
     plt.close(fig)
 
     print(f"[srl_training_loop reward_mode={reward_mode}] best val service rate = {best_val_service_rate:.4f} at epoch {best_epoch} -> {best_checkpoint_path}")
