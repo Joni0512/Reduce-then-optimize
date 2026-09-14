@@ -93,6 +93,7 @@ class COAMLPipeline():
             gamma: float = 0.99,
             use_stale_td_target: bool = False,
             outcome_advantage_buffer: "list | None" = None,
+            outcome_advantage_sigma: float | None = None,
         ):
         """
         Initialize the COAML pipeline solver.
@@ -217,6 +218,11 @@ class COAMLPipeline():
         # policy-gradient-style loss = -advantage * score, done as a batch
         # step outside this class - see srl_rho_outcome_advantage.py.
         self.outcome_advantage_buffer = outcome_advantage_buffer
+        # 2026-09-14: Gaussian exploration noise std, added to scores ONLY
+        # for the ILP's candidate selection this iteration - see the
+        # perturbation block in solve_iteration(). None = no perturbation
+        # (deterministic argmax, the original behavior).
+        self.outcome_advantage_sigma = outcome_advantage_sigma
         # 2026-09-09: td_bootstrap requires an EXPLICIT target_critic - check
         # the original argument, not self.target_critic (which already
         # fell back to the live critic above). Bootstrapping against the
@@ -1052,13 +1058,26 @@ class COAMLPipeline():
                 # run_opt_single_instance.py). transform_solution_to_assignment() must be
                 # given the SAME list in the SAME order as solve_ilp(), since x_r's indices
                 # are positional against that requests list.
+                # 2026-09-14: RHO-outcome-advantage exploration (see chat/srl
+                # deck) - Gaussian noise perturbs which candidate the ILP
+                # SELECTS this iteration, but the buffer below still records
+                # the RAW (unperturbed) score - the noise is exploration on
+                # top of the network's output, not part of what gets trained
+                # against the advantage target.
+                ilp_feature_scores = feature_scores
+                ilp_reject_action_scores = reject_action_scores
+                if self.outcome_advantage_buffer is not None and self.outcome_advantage_sigma is not None:
+                    ilp_feature_scores = feature_scores + torch.randn_like(feature_scores) * self.outcome_advantage_sigma
+                    if reject_action_scores.numel() > 0:
+                        ilp_reject_action_scores = reject_action_scores + torch.randn_like(reject_action_scores) * self.outcome_advantage_sigma
+
                 ilp_model, x_t, x_r, x_reject = self.coaml_optimizer.solve_ilp(
-                    feature_scores,
+                    ilp_feature_scores,
                     trip_handler.requests,
                     active_requests,
                     penalty=self.config.ILP_PENALTY,
                     keep_active=self.config.KEEP_ACTIVE,
-                    reject_action_scores=reject_action_scores.detach().cpu().numpy(),
+                    reject_action_scores=ilp_reject_action_scores.detach().cpu().numpy(),
                     reject_vehicle_ids=reject_vehicle_ids,
                 )
                 # 2026-09-14: RHO-outcome-advantage buffering (see chat/srl

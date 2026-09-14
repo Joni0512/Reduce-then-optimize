@@ -109,6 +109,7 @@ def _run_actor_episode(instance: str, model: torch.nn.Module | None, output_dir:
     pipeline = COAMLPipeline(
         config, cleared_payload, model=model, imitation_solution_path=input_path,
         outcome_advantage_buffer=outcome_advantage_buffer,
+        outcome_advantage_sigma=0.2,
     )
     if model is None:
         pipeline.load_model_weights(ACTOR_CHECKPOINT)
