@@ -92,6 +92,7 @@ class COAMLPipeline():
             critic_target_mode: str = "monte_carlo",
             gamma: float = 0.99,
             use_stale_td_target: bool = False,
+            outcome_advantage_buffer: "list | None" = None,
         ):
         """
         Initialize the COAML pipeline solver.
@@ -206,6 +207,16 @@ class COAMLPipeline():
         self.critic_target_mode = critic_target_mode
         self.gamma = gamma
         self.use_stale_td_target = use_stale_td_target
+        # 2026-09-14: RHO-outcome-advantage method (see chat/srl deck's
+        # "Training Signal Design" slide, Option 2) - when set, solve_iteration()
+        # appends the raw (gradient-attached, NOT detached) score of every
+        # actually-selected candidate this iteration to this list. No critic
+        # needed; the caller computes an episode-level advantage AFTER the
+        # whole solve_pdptw() call finishes (actor_service_rate vs. a
+        # separately-run RHO baseline) and uses these buffered scores for a
+        # policy-gradient-style loss = -advantage * score, done as a batch
+        # step outside this class - see srl_rho_outcome_advantage.py.
+        self.outcome_advantage_buffer = outcome_advantage_buffer
         # 2026-09-09: td_bootstrap requires an EXPLICIT target_critic - check
         # the original argument, not self.target_critic (which already
         # fell back to the live critic above). Bootstrapping against the
@@ -1050,6 +1061,22 @@ class COAMLPipeline():
                     reject_action_scores=reject_action_scores.detach().cpu().numpy(),
                     reject_vehicle_ids=reject_vehicle_ids,
                 )
+                # 2026-09-14: RHO-outcome-advantage buffering (see chat/srl
+                # deck) - append the raw, gradient-attached score of every
+                # candidate the ILP actually selected this iteration (both
+                # accepted trips and reject actions). Only active when a
+                # buffer was explicitly passed in (outcome_advantage_buffer
+                # param), so this has zero effect on every other mode/path.
+                if self.outcome_advantage_buffer is not None:
+                    for trip_idx, var in x_t.items():
+                        if var.X > 0.5:
+                            self.outcome_advantage_buffer.append(feature_scores[trip_idx])
+                    if x_reject and num_reject_actions > 0:
+                        for reject_idx, vehicle_id in enumerate(reject_vehicle_ids):
+                            var = x_reject.get(vehicle_id)
+                            if var is not None and var.X > 0.5:
+                                self.outcome_advantage_buffer.append(reject_action_scores[reject_idx])
+
                 score_result = self.coaml_optimizer.transform_solution_to_assignment(
                     ilp_model,
                     x_t,
