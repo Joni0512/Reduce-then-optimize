@@ -226,4 +226,16 @@ def run(output_dir: Path) -> RhoOutcomeAdvantageResult:
 
 
 if __name__ == "__main__":
-    run(REPO_ROOT / "outputs" / "srl_rho_outcome_advantage_loop" / "run1")
+    _output_dir = REPO_ROOT / "outputs" / "srl_rho_outcome_advantage_loop" / "run1"
+    _output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        run(_output_dir)
+    except Exception:
+        # 2026-09-15: dump the full traceback to its own file regardless of
+        # what happens to stdout/stderr/logging at crash time - see chat.
+        import traceback
+        crash_path = _output_dir / "crash_traceback.txt"
+        with open(crash_path, "w") as f:
+            traceback.print_exc(file=f)
+        print(f"!!! srl_rho_outcome_advantage_loop CRASHED - full traceback written to {crash_path}")
+        raise

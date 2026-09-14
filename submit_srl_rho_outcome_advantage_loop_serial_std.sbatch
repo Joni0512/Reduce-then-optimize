@@ -18,4 +18,4 @@
 cd "$SLURM_SUBMIT_DIR" || exit 1
 export GRB_LICENSE_FILE="$HOME/.gurobi/gurobi.lic"
 
-./venv/bin/python3 -u -m rtv_solver.pipeline.srl_rho_outcome_advantage_loop 2>&1 | grep --line-buffered -E "^\[rho_outcome_advantage\]|^!!!"
+./venv/bin/python3 -u -m rtv_solver.pipeline.srl_rho_outcome_advantage_loop

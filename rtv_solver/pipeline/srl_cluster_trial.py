@@ -13,6 +13,7 @@ Usage: ./venv/bin/python3 -m rtv_solver.pipeline.srl_cluster_trial <run_id> <rew
 """
 import json
 import sys
+import traceback
 from pathlib import Path
 
 from rtv_solver.pipeline.srl_training_loop import run_srl_training_loop, REPO_ROOT, _pooled_service_rate
@@ -38,6 +39,24 @@ def main() -> None:
     print(f"=== srl_cluster_trial {run_id}: reward_mode={reward_mode} actor_lr={actor_lr} critic_lr={critic_lr} ===")
 
     output_dir = REPO_ROOT / "outputs" / "srl_training_sweep" / run_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        _run(run_id, reward_mode, actor_lr, critic_lr, output_dir)
+    except Exception:
+        # 2026-09-15: dump the FULL traceback to its own file, independent of
+        # whatever happened to stdout/stderr/logging at crash time - see
+        # chat (a run died with an empty, unreadable "Logging error" and no
+        # visible traceback in the sbatch .err file; root cause still
+        # unconfirmed). Re-raise after so the process still exits non-zero
+        # and SLURM/wandb see it as failed, same as before.
+        crash_path = output_dir / "crash_traceback.txt"
+        with open(crash_path, "w") as f:
+            traceback.print_exc(file=f)
+        print(f"!!! srl_cluster_trial {run_id} CRASHED - full traceback written to {crash_path}")
+        raise
+
+
+def _run(run_id: str, reward_mode: str, actor_lr: float, critic_lr: float, output_dir: Path) -> None:
     result = run_srl_training_loop(
         reward_mode=reward_mode, actor_lr=actor_lr, critic_lr=critic_lr,
         output_dir=output_dir, actor_checkpoint=ACTOR_CHECKPOINT,

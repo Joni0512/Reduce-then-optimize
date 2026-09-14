@@ -11,4 +11,14 @@ m.RHO_BATCH_INTERVAL = 200
 m.RHO_STEP_SIZE = 100
 
 if __name__ == "__main__":
-    m.run(m.REPO_ROOT / "outputs" / "srl_rho_outcome_advantage_loop" / "run_samehorizon")
+    _output_dir = m.REPO_ROOT / "outputs" / "srl_rho_outcome_advantage_loop" / "run_samehorizon"
+    _output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        m.run(_output_dir)
+    except Exception:
+        import traceback
+        crash_path = _output_dir / "crash_traceback.txt"
+        with open(crash_path, "w") as f:
+            traceback.print_exc(file=f)
+        print(f"!!! srl_rho_outcome_advantage_loop_samehorizon CRASHED - full traceback written to {crash_path}")
+        raise

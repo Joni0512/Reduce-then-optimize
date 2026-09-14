@@ -16,6 +16,7 @@ same time.
 Usage: ./venv/bin/python3 -m rtv_solver.pipeline.srl_local_trial <sweep_id> [count]
 """
 import sys
+import traceback
 import uuid
 
 import torch
@@ -71,7 +72,11 @@ def run_one_trial() -> None:
         print(f"=== srl_local_trial {run_id} DONE: test_service_rate={test_service_rate:.4f} ===")
         wandb.finish()
     except Exception as e:
-        print(f"!!! srl_local_trial {run_id} FAILED: {e!r}")
+        crash_path = output_dir / "crash_traceback.txt"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        with open(crash_path, "w") as f:
+            traceback.print_exc(file=f)
+        print(f"!!! srl_local_trial {run_id} FAILED: {e!r} - full traceback written to {crash_path}")
         wandb.log({"best_val_service_rate": 0.0, "test_service_rate": 0.0, "trial_failed": True})
         wandb.finish(exit_code=1)
 

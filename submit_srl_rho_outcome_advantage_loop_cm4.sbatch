@@ -5,7 +5,7 @@
 #SBATCH --qos=cm4_tiny
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
-#SBATCH --time=48:00:00
+#SBATCH --time=08:00:00
 #SBATCH --output=srl_rho_outcome_adv_cm4_%j.log
 #SBATCH --error=srl_rho_outcome_adv_cm4_%j.err
 
@@ -17,4 +17,4 @@
 cd "$SLURM_SUBMIT_DIR" || exit 1
 export GRB_LICENSE_FILE="$HOME/.gurobi/gurobi.lic"
 
-./venv/bin/python3 -u -m rtv_solver.pipeline.srl_rho_outcome_advantage_loop 2>&1 | grep --line-buffered -E "^\[rho_outcome_advantage\]|^!!!"
+./venv/bin/python3 -u -m rtv_solver.pipeline.srl_rho_outcome_advantage_loop

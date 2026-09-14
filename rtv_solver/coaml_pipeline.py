@@ -1196,11 +1196,21 @@ class COAMLPipeline():
             console_logger.info(f"Default result: {default_result.request_assignment}, cost: {default_result.added_distance}, rejected: {default_result.unassigned_trip_count}")
             console_logger.info(f"Complete solution: {self.imitation_handler.optimal_solution}")
             
-            # NOTE this is code to check results more easily from terminal - no priority to keep this code 
-            if len(feature_tensor_with_reject) > 0:
-                for idx, (ml_score, tc, imitation_score) in enumerate[TripCost](
+            # 2026-09-15: gated behind config.DEBUG (was unconditional - fired
+            # print() on every iteration of every mode regardless of debug
+            # need, flooding stdout on real training runs; combined with a
+            # sbatch script piping stdout through `grep` to filter it, a
+            # closed/broken pipe here raised SIGPIPE mid-write, which showed
+            # up as an unexplained silent crash with an empty "Logging
+            # error" and no traceback - see chat, this was the actual root
+            # cause of a run of cluster sweep trial failures previously
+            # misattributed to the Gurobi token server). Also fixes
+            # enumerate[TripCost](...) (subscripting the builtin class) back
+            # to plain enumerate(...) - only worked by accident before.
+            if self.config.DEBUG and len(feature_tensor_with_reject) > 0:
+                for idx, (ml_score, tc, imitation_score) in enumerate(
                     zip(feature_scores, trip_costs, imitation_scores_with_reject[:len(trip_costs)])
-                ):  
+                ):
                     # print each score from the three different result assignments (score, optimal, default)
                     selected_by_score = x_t[idx].X > 0.5
                     selected_by_optimal = y_star[idx].item() > 0.5
