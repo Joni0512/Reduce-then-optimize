@@ -33,6 +33,12 @@ import random
 from dataclasses import dataclass
 from pathlib import Path
 
+# 2026-09-15: force the non-interactive Agg backend before importing pyplot -
+# sweep trials run outside the main thread, and macOS's default GUI backend
+# raises RuntimeError there, crashing every trial right after training
+# finishes (at the plot-save step, before the result reaches wandb).
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import torch
 
