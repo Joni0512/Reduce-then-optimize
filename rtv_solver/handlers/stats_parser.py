@@ -258,7 +258,16 @@ class StatsParser:
         self.stats.total_vehicles = len(driver_runs)
         self.stats.finalize()
 
-        self._print_per_request_stats(driver_runs)
+        # 2026-09-15: gated behind config.DEBUG - was unconditional, printing
+        # a full per-request stats table on EVERY evaluate() call (every
+        # episode/validation step of every training run). Confirmed root
+        # cause of a "Disk quota exceeded" crash (see chat) when this print
+        # output, redirected to a SLURM log file, filled the per-user quota
+        # during a long multi-epoch/multi-instance run - previously
+        # misattributed to the Gurobi token server and to coaml_pipeline.py's
+        # separate (also now-gated) debug print block.
+        if self.config.DEBUG:
+            self._print_per_request_stats(driver_runs)
 
         return feasible, self.stats, self.violations
     
