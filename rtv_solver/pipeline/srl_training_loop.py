@@ -44,6 +44,7 @@ _feat_builder_module.FeatureBuilder.FEATURE_SIZE = (
 )
 
 from rtv_solver.coaml_pipeline import COAMLPipeline
+from rtv_solver.pipeline.co_base import InfeasibleAssignmentError
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
 from rtv_solver.handlers.request_handler import RequestHandler
@@ -105,7 +106,14 @@ def _per_instance_service_rates(
             SEED=config_template.SEED,
         )
         pipeline = COAMLPipeline(config, cleared_payload, model=model, imitation_solution_path=input_path)
-        driver_runs = pipeline.solve_pdptw(cleared_payload, mode="eval")
+        try:
+            driver_runs = pipeline.solve_pdptw(cleared_payload, mode="eval")
+        except InfeasibleAssignmentError as e:
+            # 2026-09-15: see InfeasibleAssignmentError's docstring (co_base.py) -
+            # skip this instance's validation rate rather than crashing the
+            # whole epoch loop over one rare, instance-specific ILP conflict.
+            print(f"[srl_training_loop] {tag} epoch {epoch_num}: SKIPPING {instance} - {e}")
+            continue
         rates[instance] = _instance_service_rate(config, cleared_payload, driver_runs)
     return rates
 
@@ -209,7 +217,16 @@ def run_srl_training_loop(
             if actor_optimizer is None:
                 actor_optimizer = torch.optim.Adam(pipeline.model.parameters(), lr=actor_lr)
 
-            pipeline.solve_pdptw(cleared_payload, mode="srl", optimizer=actor_optimizer, train_critic=True, reward_mode=reward_mode)
+            try:
+                pipeline.solve_pdptw(cleared_payload, mode="srl", optimizer=actor_optimizer, train_critic=True, reward_mode=reward_mode)
+            except InfeasibleAssignmentError as e:
+                # 2026-09-15: see InfeasibleAssignmentError's docstring
+                # (co_base.py) - a structural trip-generation gap, not a bug
+                # to fix per-occurrence. Skip this one instance for this
+                # epoch rather than losing the whole multi-hour training run
+                # to a rare, instance-specific ILP conflict.
+                print(f"[srl_training_loop reward_mode={reward_mode}] epoch {epoch_num}: SKIPPING {instance} - {e}")
+                continue
             model = pipeline.model  # carry actor weights forward
 
         print(f"[srl_training_loop reward_mode={reward_mode}] epoch {epoch_num}/{epochs} training done")
@@ -218,8 +235,11 @@ def run_srl_training_loop(
             config_template = Config(OUTPUT_DIR=output_dir, BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed)
             val_rates = _per_instance_service_rates(VAL_INSTANCES, model, config_template, output_dir, epoch_num, tag="val")
             overfit_rates = _per_instance_service_rates(OVERFIT_CHECK_INSTANCES, model, config_template, output_dir, epoch_num, tag="overfit_check")
-            val_rate = sum(val_rates.values()) / len(val_rates)
-            overfit_rate = sum(overfit_rates.values()) / len(overfit_rates)
+            # max(..., 1) guards against every instance in a round hitting
+            # InfeasibleAssignmentError and being skipped (see above) - an
+            # empty dict would otherwise ZeroDivisionError here.
+            val_rate = sum(val_rates.values()) / max(len(val_rates), 1)
+            overfit_rate = sum(overfit_rates.values()) / max(len(overfit_rates), 1)
             val_curve.append({"epoch": epoch_num, "service_rate": val_rate, "per_instance": val_rates})
             overfit_curve.append({"epoch": epoch_num, "service_rate": overfit_rate, "per_instance": overfit_rates})
             print(f"[srl_training_loop reward_mode={reward_mode}] epoch {epoch_num}: val={val_rate:.4f} overfit_check={overfit_rate:.4f}")

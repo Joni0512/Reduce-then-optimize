@@ -17,6 +17,33 @@ console_logger = logging.getLogger(BASIC_LOGGER)
 data_logger = logging.getLogger(DATA_LOGGER)
 
 
+class InfeasibleAssignmentError(Exception):
+    """
+    2026-09-15: raised by _handle_infeasibility() instead of a bare Exception
+    (see chat) - lets callers (training loops) catch specifically THIS
+    failure mode and skip the offending instance/iteration, without
+    accidentally swallowing unrelated real bugs via a broad `except
+    Exception`.
+
+    Root cause (confirmed via IIS dumps on lc206 2026-08-25, and again on a
+    local SRL training run 2026-09-15 - see chat): the ILP has three
+    constraint families that can structurally conflict:
+      - req_<id>:        x_r[req] + sum(x_t[trips serving req]) == 1
+      - active_req_<id>: x_r[req] == 0                (active req can't be rejected)
+      - veh_<id>:        sum(x_t[vehicle's trips]) (+ x_reject) == 1  (one action per vehicle)
+    If two or more ACTIVE (already-committed) requests can only be served by
+    trips belonging to the SAME vehicle, and trip generation (bounded by
+    max_cardinality) never produced a single trip covering all of them
+    together, the model has no feasible solution: every active request's
+    constraint forces it to be served, but the vehicle constraint allows only
+    one trip total. This is a genuine gap in trip-generation guarantees
+    (it doesn't ensure every active request always has a jointly-feasible
+    continuation), not a fixable one-line bug - the practical mitigation is
+    to skip the affected instance/iteration rather than let it crash an
+    entire multi-hour training run.
+    """
+
+
 class CO(ABC):
     """
     Separation of concerns for the combinatorial optimization layer. The result must always be a clear assignment to the vehicles independent of the score representation or other values.
@@ -341,7 +368,7 @@ class CO(ABC):
                 # lc206 (same underlying code path as the 2026-08-25 Path fix
                 # above, this is its sibling bug in the same rarely-hit block).
                 console_logger.error(f"IIS: {constraint.ConstrName}")
-        raise Exception(f"Gurobi solver ended with code: {model.Status}") # Code 3 INFEASIBLE
+        raise InfeasibleAssignmentError(f"Gurobi solver ended with code: {model.Status}") # Code 3 INFEASIBLE
 
     @staticmethod
     def extract_y_binary(

@@ -50,6 +50,7 @@ _feat_builder_module.FeatureBuilder.FEATURE_SIZE = (
 )
 
 from rtv_solver.coaml_pipeline import COAMLPipeline
+from rtv_solver.pipeline.co_base import InfeasibleAssignmentError
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.pipeline.srl_train_val_test_split import (
     TRAIN_INSTANCES, VAL_INSTANCES, OVERFIT_CHECK_INSTANCES,
@@ -137,8 +138,18 @@ def run(output_dir: Path) -> RhoOutcomeAdvantageResult:
 
         epoch_buffer: list[tuple[torch.Tensor, float]] = []
         for instance in shuffled:
-            rho_rate = _run_rho_baseline(instance, output_dir, epoch, SEED)
-            actor_rate, model, raw_scores = _run_actor_episode(instance, model, output_dir, epoch, SEED)
+            try:
+                rho_rate = _run_rho_baseline(instance, output_dir, epoch, SEED)
+                actor_rate, model, raw_scores = _run_actor_episode(instance, model, output_dir, epoch, SEED)
+            except InfeasibleAssignmentError as e:
+                # 2026-09-15: see InfeasibleAssignmentError's docstring
+                # (co_base.py) - a structural trip-generation gap, not a bug
+                # to fix per-occurrence. Skip this one instance's
+                # contribution to this epoch's buffer rather than losing the
+                # whole multi-hour training run to a rare, instance-specific
+                # ILP conflict.
+                print(f"[rho_outcome_advantage] epoch {epoch}: SKIPPING {instance} - {e}")
+                continue
             advantage = actor_rate - rho_rate
             # Option A: uniform broadcast - every score from this instance
             # gets the SAME advantage as its target.
@@ -169,8 +180,13 @@ def run(output_dir: Path) -> RhoOutcomeAdvantageResult:
             config_template = Config(OUTPUT_DIR=output_dir, BATCH_INTERVAL=ACTOR_BATCH_INTERVAL, STEP_SIZE=ACTOR_STEP_SIZE, SEED=SEED)
             val_rates = _per_instance_service_rates(VAL_INSTANCES, model, config_template, output_dir, epoch, tag="val")
             overfit_rates = _per_instance_service_rates(OVERFIT_CHECK_INSTANCES, model, config_template, output_dir, epoch, tag="overfit_check")
-            val_rate = sum(val_rates.values()) / len(val_rates)
-            overfit_rate = sum(overfit_rates.values()) / len(overfit_rates)
+            # max(..., 1) guards against every instance in a round hitting
+            # InfeasibleAssignmentError and being skipped inside
+            # _per_instance_service_rates() (see co_base.py's
+            # InfeasibleAssignmentError docstring) - an empty dict would
+            # otherwise ZeroDivisionError here.
+            val_rate = sum(val_rates.values()) / max(len(val_rates), 1)
+            overfit_rate = sum(overfit_rates.values()) / max(len(overfit_rates), 1)
             val_curve.append({"epoch": epoch, "service_rate": val_rate, "per_instance": val_rates})
             overfit_curve.append({"epoch": epoch, "service_rate": overfit_rate, "per_instance": overfit_rates})
             print(f"[rho_outcome_advantage] epoch {epoch}: val={val_rate:.4f} overfit_check={overfit_rate:.4f}")
