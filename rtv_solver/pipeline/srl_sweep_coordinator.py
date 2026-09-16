@@ -13,8 +13,18 @@ here for it.
 
 Usage (on a login node, e.g. cm4login1/2):
     ./venv/bin/python3 -m rtv_solver.pipeline.srl_sweep_coordinator <sweep_id> <count>
+
+2026-09-16: SBATCH_SCRIPT is now overridable via the SBATCH_SCRIPT env var
+(see chat) - lets a second coordinator instance submit trials to a
+different partition/QOS (e.g. submit_srl_cluster_trial_serial_std.sbatch on
+serial_std/cm4_serial) to spread sweep trials across separate memory quota
+pools instead of all queueing behind the same serial_long QOS:
+    SBATCH_SCRIPT=submit_srl_cluster_trial_serial_std.sbatch \\
+        ./venv/bin/python3 -m rtv_solver.pipeline.srl_sweep_coordinator <sweep_id> <count>
+Default (unset) keeps the original serial_long behavior unchanged.
 """
 import json
+import os
 import subprocess
 import sys
 import time
@@ -22,7 +32,7 @@ import uuid
 
 import wandb
 
-SBATCH_SCRIPT = "submit_srl_cluster_trial.sbatch"
+SBATCH_SCRIPT = os.environ.get("SBATCH_SCRIPT", "submit_srl_cluster_trial.sbatch")
 POLL_INTERVAL_SECONDS = 120
 
 
