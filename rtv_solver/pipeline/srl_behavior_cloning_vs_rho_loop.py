@@ -58,6 +58,7 @@ _feat_builder_module.FeatureBuilder.FEATURE_SIZE = (
 )
 
 from rtv_solver.coaml_pipeline import COAMLPipeline
+from rtv_solver.online_rtv_solver import ManifestConsistencyError
 from rtv_solver.pipeline.co_base import InfeasibleAssignmentError
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.pipeline.srl_rho_outcome_advantage import ACTOR_CHECKPOINT
@@ -171,6 +172,22 @@ def run(output_dir: Path) -> BehaviorCloningVsRhoResult:
                     instance, model, optimizer, rho_manifest_by_instance[instance], output_dir, epoch,
                 )
             except InfeasibleAssignmentError as e:
+                print(f"[bc_vs_rho_loop] epoch {epoch}: SKIPPING {instance} - {e}")
+                continue
+            except ManifestConsistencyError as e:
+                # 2026-09-16: see chat - actor and RHO are independent solver
+                # runs (RHO minimizes pure cost, the actor follows its own
+                # NN scores) and can genuinely disagree on which vehicle
+                # serves a given request, even at the SAME bi/ss horizon
+                # (matching horizons was tried first and did NOT fix this -
+                # a different instance/request still hit the same error).
+                # When that happens, RHO's per-vehicle target sequence can
+                # omit a request the actor already committed to ("active"),
+                # which violates the keep_active invariant. Skipping the
+                # instance is the pragmatic fix (chosen over forcing active
+                # requests into y* in ImitationHandler, a larger change) -
+                # loses that instance's contribution to this epoch, not the
+                # whole run.
                 print(f"[bc_vs_rho_loop] epoch {epoch}: SKIPPING {instance} - {e}")
                 continue
             if mean_fy_loss is not None:

@@ -10,10 +10,15 @@ metric:
 parameters:
   reward_mode:
     value: "local"
+  # 2026-09-16: narrowed max from 0.01 to 0.0015 (see chat) - empirically,
+  # 4 of 5 completed local trials with actor_lr >= 0.0018 collapsed to 0.0
+  # service rate (policy drifts to always-reject), while the one trial at
+  # actor_lr=0.0012 reached 0.64. The old 1e-4..1e-2 range was wasting most
+  # trials on a collapse-prone region.
   actor_lr:
     distribution: log_uniform_values
     min: 0.0001
-    max: 0.01
+    max: 0.0015
   critic_lr:
     distribution: log_uniform_values
     min: 0.0001
