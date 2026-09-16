@@ -9,12 +9,15 @@
 #SBATCH --output=srl_bc_vs_rho_%j.log
 #SBATCH --error=srl_bc_vs_rho_%j.err
 
-# 2026-09-16: Behavior Cloning (Option 1) against a live RHO baseline, both
-# actor and RHO at bi200/ss100 (same horizon - see srl_behavior_cloning_vs_rho_loop.py's
-# module docstring: a first run with RHO at bi400/ss100 crashed with
-# ManifestConsistencyError from the horizon mismatch), on the full
-# 38-instance train split - sanity check requested by the advisor: can the
-# actor imitate RHO at all (see chat, 2026-09-16). RHO baselines are
+# 2026-09-16: Behavior Cloning (Option 1) against a live RHO baseline, RHO
+# at bi400/ss100 (longer horizon than the actor's bi200/ss100 - original
+# design intent, see srl_behavior_cloning_vs_rho_loop.py's module docstring:
+# matching horizons was tried and neither fixed the ManifestConsistencyError
+# nor was it the intended comparison), on the full 38-instance train split -
+# sanity check requested by the advisor: can the actor imitate a
+# more-informed RHO at all (see chat, 2026-09-16). ManifestConsistencyError
+# occurrences are caught and that instance skipped (~18% of train instances
+# in the same-horizon run, expect similar here). RHO baselines are
 # precomputed once per instance and cached (38 solves total), not
 # recomputed per epoch.
 
