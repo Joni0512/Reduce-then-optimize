@@ -6,8 +6,19 @@ the actor converges exactly to RHO's own service rate on lc101) to the full
 stratified 38/9/9 split (srl_train_val_test_split.py) - see chat, 2026-09-16:
 before trying to beat RHO with a shorter actor horizon (the RHO-outcome-
 advantage method), first check whether the actor can even IMITATE RHO at
-all, at the same bi200-vs-bi400 actor/RHO horizon setup used everywhere else
-in this method family.
+all.
+
+2026-09-16: switched RHO to the SAME horizon as the actor (bi200/ss100 for
+both, was bi400/ss100 for RHO) after the first 38-instance run crashed with
+ManifestConsistencyError ("active_requests {6} were not kept in the
+manifest despite config.keep_active = True") - see chat. Root cause: with
+different horizons, RHO's finished route (independent rollout, bi400) can
+disagree with what the actor already committed to for a vehicle in ITS OWN
+rolling-horizon state (bi200) - e.g. RHO's target sequence for a vehicle
+drops a request the actor already picked up and must keep. Matching
+horizons means both rollouts advance through time the same way, so the
+actor's already-active requests are far more likely to still appear in
+RHO's per-vehicle target sequence at the point the actor queries it.
 
 RHO baseline is deterministic (doesn't depend on the actor's model state),
 so it is computed and cached ONCE per instance before the epoch loop even
@@ -63,7 +74,9 @@ from rtv_solver.util.logger import setup_loggers
 
 ACTOR_BATCH_INTERVAL = 200
 ACTOR_STEP_SIZE = 100
-RHO_BATCH_INTERVAL = 400
+# 2026-09-16: same horizon as the actor now (was 400/100) - see module
+# docstring's 2026-09-16 note on the ManifestConsistencyError this fixes.
+RHO_BATCH_INTERVAL = 200
 RHO_STEP_SIZE = 100
 SEED = 42
 ACTOR_LR = 1e-4

@@ -181,6 +181,27 @@ class MonteCarloReturnBuilder:
         accumulate and land on the NEXT actually-buffered step instead of
         being computed independently. Not implemented - staying with the
         deadline-window proxy above for now.
+
+        2026-09-16: KNOWN ISSUE (see chat) - despite the "mirror of
+        build_local()" framing above, the two are NOT symmetric in reward
+        MAGNITUDE, only in mechanism. build_local()'s -1 only fires for
+        MISSED requests (typically a handful per episode on a decent
+        policy), so its per-episode total stays small. build_local_positive()
+        fires +1 for every SERVICED request's deadline (typically ~90-98 of
+        ~100 requests on a decent policy), so its per-episode total is
+        roughly 10-50x larger. Confirmed empirically (diagnose script,
+        3 instances/5 critic-pretrain epochs, critic_lr=1e-3): mean Q-value
+        drift was ~2x faster under local_positive than local (0.067->1.15
+        vs. -0.144->-1.27 over 5 epochs), and full sweep trials showed
+        local_positive collapsing to 0.0 service rate even at actor_lr as
+        low as 2.3e-4 - well below the ~1.8e-3 threshold where local starts
+        collapsing. Root cause not yet fixed: gamma/tau/critic_lr are tuned
+        for local's small-magnitude signal (see run_srl_balanced_*
+        scripts' "current default setup" framing) and were never
+        re-calibrated for local_positive's much larger one. A fix would need
+        either rescaling this reward down to local's magnitude, or
+        re-tuning gamma/critic_lr/SRL_TAU specifically for reward_mode=
+        "local_positive" rather than sharing local's hyperparameters.
         """
         serviced = {int(rid) for rid in serviced_request_ids}
         cumulative_served: list[float] = []

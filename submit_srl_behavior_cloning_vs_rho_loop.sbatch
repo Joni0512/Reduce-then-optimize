@@ -9,12 +9,14 @@
 #SBATCH --output=srl_bc_vs_rho_%j.log
 #SBATCH --error=srl_bc_vs_rho_%j.err
 
-# 2026-09-16: Behavior Cloning (Option 1) against a live RHO baseline
-# (bi400/ss100), actor at bi200/ss100, on the full 38-instance train split -
-# sanity check requested by the advisor: can the actor imitate RHO at all,
-# before trying to beat it with the outcome-advantage method under the same
-# horizon handicap (see chat, 2026-09-16). RHO baselines are precomputed
-# once per instance and cached (38 solves total), not recomputed per epoch.
+# 2026-09-16: Behavior Cloning (Option 1) against a live RHO baseline, both
+# actor and RHO at bi200/ss100 (same horizon - see srl_behavior_cloning_vs_rho_loop.py's
+# module docstring: a first run with RHO at bi400/ss100 crashed with
+# ManifestConsistencyError from the horizon mismatch), on the full
+# 38-instance train split - sanity check requested by the advisor: can the
+# actor imitate RHO at all (see chat, 2026-09-16). RHO baselines are
+# precomputed once per instance and cached (38 solves total), not
+# recomputed per epoch.
 
 cd "$SLURM_SUBMIT_DIR" || exit 1
 export GRB_LICENSE_FILE="$HOME/.gurobi/gurobi.lic"
