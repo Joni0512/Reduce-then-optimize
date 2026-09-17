@@ -216,7 +216,7 @@ def run(output_dir: Path) -> BehaviorCloningVsRhoResult:
 
 
 if __name__ == "__main__":
-    _output_dir = REPO_ROOT / "outputs" / "srl_behavior_cloning_vs_rho_loop_bi800" / "run1"
+    _output_dir = REPO_ROOT / "outputs" / "srl_behavior_cloning_vs_rho_loop_bi800" / "run1_exppref"
     _output_dir.mkdir(parents=True, exist_ok=True)
     try:
         run(_output_dir)
