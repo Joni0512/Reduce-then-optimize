@@ -89,7 +89,9 @@ def _train_one_instance(instance: str, model: torch.nn.Module | None, optimizer,
     cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
     train_out_dir = output_dir / "train" / f"epoch_{epoch}" / instance
     train_out_dir.mkdir(parents=True, exist_ok=True)
-    config = Config(OUTPUT_DIR=train_out_dir, MODE="coaml", BATCH_INTERVAL=ACTOR_BATCH_INTERVAL, STEP_SIZE=ACTOR_STEP_SIZE, SEED=SEED)
+    # 2026-09-17: IMITATION_SCORING_RULE="exponential_prefix" - see
+    # srl_behavior_cloning_vs_rho_loop.py's matching comment/chat for why.
+    config = Config(OUTPUT_DIR=train_out_dir, MODE="coaml", BATCH_INTERVAL=ACTOR_BATCH_INTERVAL, STEP_SIZE=ACTOR_STEP_SIZE, SEED=SEED, IMITATION_SCORING_RULE="exponential_prefix")
     setup_loggers(config.OUTPUT_DIR)
     set_seed(config.SEED, config.DEBUG)
 

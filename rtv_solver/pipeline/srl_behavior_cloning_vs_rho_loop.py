@@ -125,7 +125,18 @@ def _train_one_instance(instance: str, model: torch.nn.Module | None, optimizer,
     cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
     train_out_dir = output_dir / "train" / f"epoch_{epoch}" / instance
     train_out_dir.mkdir(parents=True, exist_ok=True)
-    config = Config(OUTPUT_DIR=train_out_dir, MODE="coaml", BATCH_INTERVAL=ACTOR_BATCH_INTERVAL, STEP_SIZE=ACTOR_STEP_SIZE, SEED=SEED)
+    # 2026-09-17: IMITATION_SCORING_RULE="exponential_prefix" instead of the
+    # Config default "legacy" (see chat) - legacy's y* build
+    # (ImitationHandler.build_y_star_per_vehicle_from_imit_scores) skips the
+    # constraint-aware assignment ILP entirely (a 2026-07-27 optimization
+    # that only considered preventing cross-vehicle double-booking - see its
+    # own comment - and didn't realize it also drops the keep_active
+    # enforcement as a side effect). exponential_prefix routes y* through
+    # solve_ilp(..., keep_active=...), the SAME constrained ILP already used
+    # correctly at eval time, so a chosen y* can no longer omit an active
+    # request - this should turn ManifestConsistencyError into a much rarer
+    # InfeasibleAssignmentError (already caught) instead.
+    config = Config(OUTPUT_DIR=train_out_dir, MODE="coaml", BATCH_INTERVAL=ACTOR_BATCH_INTERVAL, STEP_SIZE=ACTOR_STEP_SIZE, SEED=SEED, IMITATION_SCORING_RULE="exponential_prefix")
     setup_loggers(config.OUTPUT_DIR)
     set_seed(config.SEED, config.DEBUG)
 
