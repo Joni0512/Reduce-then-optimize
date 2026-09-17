@@ -2,9 +2,8 @@
 2026-09-16: plain SIL (behavior cloning against the precomputed Li&Lim
 optimal manifest, NOT live RHO - no critic, no RL) training-from-scratch
 run on the stratified 38/9/9 split (srl_train_val_test_split.py), for a
-small actor_lr sweep (10 fixed values, same seed) requested in chat -
-separate from the SRL/RHO-outcome-advantage method family, this is the
-"classic" SIL baseline.
+small actor_lr sweep requested in chat - separate from the SRL/RHO-
+outcome-advantage method family, this is the "classic" SIL baseline.
 
 Model starts from scratch (COAMLPipeline with model=None and no
 load_model_weights() call -> build_scoring_model() inside __init__), NOT
@@ -12,12 +11,27 @@ warm-started from an existing checkpoint (unlike srl_rho_outcome_advantage_loop.
 and srl_behavior_cloning_vs_rho_loop.py, which fine-tune an already-SIL-
 trained actor).
 
-Usage: ./venv/bin/python3 -m rtv_solver.pipeline.sil_lr_sweep_run <actor_lr>
+2026-09-16: BATCH_INTERVAL corrected from 200 to 400 (see chat) - 200 was
+wrongly copied from the SRL/outcome-advantage actor convention; main.py's
+own default for plain SIL training is --batch_interval=400. Also added an
+INSTANCE_SET switch ("mixed"/"class1") after a first "mixed" run crashed
+with ManifestConsistencyError (rtv_solver/training_loop.py's own default
+TRAINING_FILES is Class-1-only - Class 2's wider time windows are flagged
+there as causing "combinatorial blowup in trip generation" - so this run's
+crash on the 38-instance split, which mixes in Class 2, is plausibly
+related). "class1" filters TRAIN_INSTANCES/OVERFIT_CHECK_INSTANCES down to
+their Class-1 subset (VAL_INSTANCES stays the full 9 for a comparable
+eval set across both runs). ManifestConsistencyError is now also caught
+and the instance skipped (same pragmatic fix as srl_behavior_cloning_vs_rho_loop.py)
+so a crash doesn't lose the whole run even under "mixed".
+
+Usage: ./venv/bin/python3 -m rtv_solver.pipeline.sil_lr_sweep_run <actor_lr> [mixed|class1]
 """
 from __future__ import annotations
 
 import csv
 import random
+import re
 import sys
 from pathlib import Path
 
@@ -34,10 +48,13 @@ _feat_builder_module.FeatureBuilder.FEATURE_SIZE = (
 )
 
 from rtv_solver.coaml_pipeline import COAMLPipeline
+from rtv_solver.online_rtv_solver import ManifestConsistencyError
 from rtv_solver.pipeline.co_base import InfeasibleAssignmentError
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.pipeline.srl_train_val_test_split import (
-    TRAIN_INSTANCES, VAL_INSTANCES, OVERFIT_CHECK_INSTANCES,
+    TRAIN_INSTANCES as _ALL_TRAIN_INSTANCES,
+    VAL_INSTANCES,
+    OVERFIT_CHECK_INSTANCES as _ALL_OVERFIT_CHECK_INSTANCES,
 )
 from rtv_solver.pipeline.srl_training_loop import (
     REPO_ROOT, MANIFEST_DIR, _per_instance_service_rates,
@@ -46,11 +63,17 @@ from rtv_solver.structure.config import Config
 from rtv_solver.util.helper import set_seed
 from rtv_solver.util.logger import setup_loggers
 
-BATCH_INTERVAL = 200
+BATCH_INTERVAL = 400
 STEP_SIZE = 100
 SEED = 42
 EPOCHS = 5
 VAL_EVERY_N_EPOCHS = 1  # only 5 epochs total, validate every one
+
+
+def _is_class1(instance: str) -> bool:
+    """Li&Lim naming: class digit is the first digit right after the letter prefix (e.g. lc101 -> '1', lc201 -> '2')."""
+    letters = re.match(r"^[a-z]+", instance).group(0)
+    return instance[len(letters)] == "1"
 
 
 def _train_one_instance(instance: str, model, optimizer, output_dir: Path, epoch: int, actor_lr: float):
@@ -79,7 +102,16 @@ def _train_one_instance(instance: str, model, optimizer, output_dir: Path, epoch
     return pipeline.model, optimizer, mean_fy_loss
 
 
-def run(actor_lr: float, output_dir: Path):
+def run(actor_lr: float, output_dir: Path, instance_set: str = "mixed"):
+    if instance_set == "class1":
+        TRAIN_INSTANCES = [i for i in _ALL_TRAIN_INSTANCES if _is_class1(i)]
+        OVERFIT_CHECK_INSTANCES = [i for i in _ALL_OVERFIT_CHECK_INSTANCES if _is_class1(i)]
+    elif instance_set == "mixed":
+        TRAIN_INSTANCES = _ALL_TRAIN_INSTANCES
+        OVERFIT_CHECK_INSTANCES = _ALL_OVERFIT_CHECK_INSTANCES
+    else:
+        raise ValueError(f"Unknown instance_set {instance_set!r}, expected 'mixed' or 'class1'")
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     rng = random.Random(SEED)
@@ -101,6 +133,11 @@ def run(actor_lr: float, output_dir: Path):
             try:
                 model, optimizer, mean_fy_loss = _train_one_instance(instance, model, optimizer, output_dir, epoch, actor_lr)
             except InfeasibleAssignmentError as e:
+                print(f"[sil_lr_sweep actor_lr={actor_lr:.6g}] epoch {epoch}: SKIPPING {instance} - {e}")
+                continue
+            except ManifestConsistencyError as e:
+                # 2026-09-16: see module docstring - same pragmatic skip as
+                # srl_behavior_cloning_vs_rho_loop.py.
                 print(f"[sil_lr_sweep actor_lr={actor_lr:.6g}] epoch {epoch}: SKIPPING {instance} - {e}")
                 continue
             if mean_fy_loss is not None:
@@ -158,14 +195,15 @@ def run(actor_lr: float, output_dir: Path):
 
 if __name__ == "__main__":
     _actor_lr = float(sys.argv[1])
-    _output_dir = REPO_ROOT / "outputs" / "sil_lr_sweep" / f"actor_lr_{_actor_lr:.6g}"
+    _instance_set = sys.argv[2] if len(sys.argv) > 2 else "mixed"
+    _output_dir = REPO_ROOT / "outputs" / "sil_lr_sweep" / f"actor_lr_{_actor_lr:.6g}_{_instance_set}"
     _output_dir.mkdir(parents=True, exist_ok=True)
     try:
-        run(_actor_lr, _output_dir)
+        run(_actor_lr, _output_dir, _instance_set)
     except Exception:
         import traceback
         crash_path = _output_dir / "crash_traceback.txt"
         with open(crash_path, "w") as f:
             traceback.print_exc(file=f)
-        print(f"!!! sil_lr_sweep_run CRASHED (actor_lr={_actor_lr}) - full traceback written to {crash_path}")
+        print(f"!!! sil_lr_sweep_run CRASHED (actor_lr={_actor_lr}, instance_set={_instance_set}) - full traceback written to {crash_path}")
         raise
