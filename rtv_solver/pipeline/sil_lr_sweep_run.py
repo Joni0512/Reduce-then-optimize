@@ -67,6 +67,16 @@ BATCH_INTERVAL = 400
 STEP_SIZE = 100
 SEED = 42
 EPOCHS = 5
+# 2026-09-17: MAX_CARDINALITY=3 (Config's own default is 2) - see chat.
+# lc102's precomputed Li&Lim-optimal manifest requires vehicle 3 to carry
+# requests 37+38+39 simultaneously (a genuine cardinality-3 shared trip:
+# pickup(37)->pickup(38)->pickup(39)->dropoff(39)->dropoff(38)->dropoff(37)).
+# At MAX_CARDINALITY=2, TripHandler can never generate a 3-request candidate
+# trip, so the actor can structurally never match that target combination -
+# request 38 (or 37) becomes "active" with no matching candidate available,
+# guaranteeing a ManifestConsistencyError on lc102 every single epoch
+# (confirmed: it was the only instance skipped in a Class-1-only run).
+MAX_CARDINALITY = 3
 VAL_EVERY_N_EPOCHS = 1  # only 5 epochs total, validate every one
 
 
@@ -82,7 +92,7 @@ def _train_one_instance(instance: str, model, optimizer, output_dir: Path, epoch
     cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
     train_out_dir = output_dir / "train" / f"epoch_{epoch}" / instance
     train_out_dir.mkdir(parents=True, exist_ok=True)
-    config = Config(OUTPUT_DIR=train_out_dir, MODE="coaml", BATCH_INTERVAL=BATCH_INTERVAL, STEP_SIZE=STEP_SIZE, SEED=SEED)
+    config = Config(OUTPUT_DIR=train_out_dir, MODE="coaml", BATCH_INTERVAL=BATCH_INTERVAL, STEP_SIZE=STEP_SIZE, SEED=SEED, MAX_CARDINALITY=MAX_CARDINALITY)
     setup_loggers(config.OUTPUT_DIR)
     set_seed(config.SEED, config.DEBUG)
 
@@ -147,7 +157,7 @@ def run(actor_lr: float, output_dir: Path, instance_set: str = "mixed"):
         print(f"[sil_lr_sweep actor_lr={actor_lr:.6g}] epoch {epoch}/{EPOCHS}: mean_fy_loss={avg_loss}")
 
         if epoch % VAL_EVERY_N_EPOCHS == 0 or epoch == EPOCHS:
-            config_template = Config(OUTPUT_DIR=output_dir, BATCH_INTERVAL=BATCH_INTERVAL, STEP_SIZE=STEP_SIZE, SEED=SEED)
+            config_template = Config(OUTPUT_DIR=output_dir, BATCH_INTERVAL=BATCH_INTERVAL, STEP_SIZE=STEP_SIZE, SEED=SEED, MAX_CARDINALITY=MAX_CARDINALITY)
             val_rates = _per_instance_service_rates(VAL_INSTANCES, model, config_template, output_dir, epoch, tag="val")
             overfit_rates = _per_instance_service_rates(OVERFIT_CHECK_INSTANCES, model, config_template, output_dir, epoch, tag="overfit_check")
             val_rate = sum(val_rates.values()) / max(len(val_rates), 1)
