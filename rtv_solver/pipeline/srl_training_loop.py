@@ -152,14 +152,26 @@ def run_srl_training_loop(
     replay_batch_size: int = 12,
     replay_update_group_size: int = 3,
     max_cardinality: int = 2,
+    deterministic: bool = False,
 ) -> SRLTrainingLoopResult:
+    """
+    2026-09-17: added `deterministic` (see chat) - was previously hardcoded
+    to set_seed(seed, debug=False), meaning torch.use_deterministic_algorithms
+    was NEVER enabled here despite a fixed seed. Investigating why identical
+    actor_lr/critic_lr pairs across sweep trials sometimes succeed and
+    sometimes collapse (GAT's attention uses scatter/segment ops that are a
+    known non-determinism source without this flag) - pass deterministic=True
+    for a controlled reproducibility check. NOT the config.DEBUG print-spam
+    flag (see stats_parser.py's gating) - this only affects set_seed()'s
+    torch determinism enforcement, independent of Config.DEBUG.
+    """
     if reward_mode not in ("local", "local_positive"):
         raise ValueError(f"Expected reward_mode in ('local', 'local_positive'), got {reward_mode!r}")
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     setup_loggers(output_dir)
-    set_seed(seed, debug=False)
+    set_seed(seed, debug=deterministic)
     rng = random.Random(seed)
 
     # --- critic pretraining, ONCE, before the epoch loop ---
