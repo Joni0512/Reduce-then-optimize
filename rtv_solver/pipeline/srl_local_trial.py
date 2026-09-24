@@ -33,7 +33,8 @@ ACTOR_CHECKPOINT = str(list((REPO_ROOT / "outputs/outputs/sil_training_bi200_ss1
 EPOCHS = 20
 VAL_EVERY_N_EPOCHS = 5
 GAMMA = 0.99
-TAU = 0.001
+TAU = 0.005  # 2026-09-24 fix: was 0.001 (copy-paste bug, see chat) - matches the
+# validated run_srl_balanced_td_bootstrap_gat_bufferfix_12instances.py config
 BATCH_INTERVAL = 200
 STEP_SIZE = 100
 SEED = 42

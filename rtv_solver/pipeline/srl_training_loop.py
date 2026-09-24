@@ -140,7 +140,9 @@ def run_srl_training_loop(
     output_dir: Path,
     actor_checkpoint: str,
     gamma: float = 0.99,
-    tau: float = 0.001,
+    tau: float = 0.005,  # 2026-09-24 fix: was 0.001, a copy-paste bug - the intended/validated
+    # value is 0.005, matching run_srl_balanced_td_bootstrap_gat_bufferfix_12instances.py
+    # (see chat), which this loop's own docstring already claimed to reuse "as-is".
     epochs: int = 20,
     val_every_n_epochs: int = 5,
     critic_pretrain_epochs: int = 10,
@@ -153,8 +155,19 @@ def run_srl_training_loop(
     replay_update_group_size: int = 3,
     max_cardinality: int = 2,
     deterministic: bool = False,
+    use_twin_critic: bool = False,
 ) -> SRLTrainingLoopResult:
     """
+    2026-09-24: added `use_twin_critic` (see chat) - TD3-style second,
+    independently-initialized CriticGNN (same aggregator as the first,
+    matching TD3's own same-architecture-different-init design). When True,
+    builds critic2/critic_optimizer2/target_critic2 alongside the existing
+    critic, Polyak-updates target_critic2 on the exact same per-instance
+    schedule/tau as target_critic, and passes all three through to
+    COAMLPipeline (see its __init__ docstring for the min-target/mean-action
+    semantics). False (default) is the original single-critic behavior,
+    unchanged.
+
     2026-09-17: added `deterministic` (see chat) - was previously hardcoded
     to set_seed(seed, debug=False), meaning torch.use_deterministic_algorithms
     was NEVER enabled here despite a fixed seed. Investigating why identical
@@ -177,6 +190,13 @@ def run_srl_training_loop(
     # --- critic pretraining, ONCE, before the epoch loop ---
     critic = CriticGNN(aggregator=gnn_aggregator)
     critic_optimizer = torch.optim.Adam(critic.parameters(), lr=critic_lr)
+    # 2026-09-24: twin critic (see chat) - critic2 gets the SAME pretraining
+    # loop as critic, run separately below, so both critics enter the main
+    # epoch loop with equal pretrain exposure (only independent init/gradient
+    # noise differs) - pretraining just critic and not critic2 would give
+    # critic1 an unfair head start beyond initialization.
+    critic2 = CriticGNN(aggregator=gnn_aggregator) if use_twin_critic else None
+    critic_optimizer2 = torch.optim.Adam(critic2.parameters(), lr=critic_lr) if use_twin_critic else None
     pretrain_dir = output_dir / "critic_pretrain"
     for epoch in range(critic_pretrain_epochs):
         for instance in TRAIN_INSTANCES:
@@ -189,12 +209,23 @@ def run_srl_training_loop(
             pipeline = COAMLPipeline(config, cleared_payload, imitation_solution_path=input_path, critic=critic, critic_optimizer=critic_optimizer)
             pipeline.load_model_weights(actor_checkpoint)
             pipeline.solve_pdptw(cleared_payload, mode="eval", train_critic=True, reward_mode=reward_mode)
+
+            if use_twin_critic:
+                inst_out_dir2 = pretrain_dir / f"{instance}_critic2"
+                inst_out_dir2.mkdir(parents=True, exist_ok=True)
+                config2 = Config(OUTPUT_DIR=inst_out_dir2, MODE="coaml", BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed)
+                pipeline2 = COAMLPipeline(config2, cleared_payload, imitation_solution_path=input_path, critic=critic2, critic_optimizer=critic_optimizer2)
+                pipeline2.load_model_weights(actor_checkpoint)
+                pipeline2.solve_pdptw(cleared_payload, mode="eval", train_critic=True, reward_mode=reward_mode)
         print(f"[srl_training_loop reward_mode={reward_mode}] critic pretrain epoch {epoch} done")
 
     # --- shared actor/critic/replay-buffer state, persists across epochs and instances ---
     model = None  # first pipeline() call below loads actor_checkpoint and creates a fresh model
     actor_optimizer = None
     target_critic = copy.deepcopy(critic)
+    # 2026-09-24: twin critic (see chat) - target_critic2 mirrors target_critic,
+    # copied from the now-pretrained critic2.
+    target_critic2 = copy.deepcopy(critic2) if use_twin_critic else None
     replay_buffer = ReplayBuffer(capacity=replay_capacity)
 
     best_val_service_rate = -1.0
@@ -222,10 +253,18 @@ def run_srl_training_loop(
                 for target_param, live_param in zip(target_critic.parameters(), critic.parameters()):
                     target_param.data.copy_(tau * live_param.data + (1 - tau) * target_param.data)
 
+            # 2026-09-24: twin critic (see chat) - target_critic2 blended on the
+            # exact same schedule/tau as target_critic above.
+            if use_twin_critic:
+                with torch.no_grad():
+                    for target_param, live_param in zip(target_critic2.parameters(), critic2.parameters()):
+                        target_param.data.copy_(tau * live_param.data + (1 - tau) * target_param.data)
+
             pipeline = COAMLPipeline(
                 config, cleared_payload, imitation_solution_path=input_path,
                 model=model, critic=critic, critic_optimizer=critic_optimizer,
                 target_critic=target_critic,
+                critic2=critic2, critic_optimizer2=critic_optimizer2, target_critic2=target_critic2,
                 replay_buffer=replay_buffer, replay_batch_size=replay_batch_size,
                 replay_update_group_size=replay_update_group_size,
                 critic_target_mode="td_bootstrap", gamma=gamma,
@@ -296,10 +335,18 @@ def run_srl_training_loop(
     # "best" (best_checkpoint_path) - see chat.
     fig, ax = plt.subplots(figsize=(9, 5.5))
     epochs_x = [r["epoch"] for r in val_curve]
+    # 2026-09-24: instances can be missing from a given epoch's per_instance dict
+    # (InfeasibleAssignmentError skip, see 01e8c80) - direct [inst] lookups here
+    # crashed live sweep trials as recently as 2026-09-22 (KeyError 'lc202'/'lc204',
+    # see chat). Only plot the (epoch, rate) points where that instance is present.
     for inst in VAL_INSTANCES:
-        ax.plot(epochs_x, [r["per_instance"][inst] for r in val_curve], color="tab:blue", alpha=0.25, linewidth=1)
+        xs_i = [r["epoch"] for r in val_curve if inst in r["per_instance"]]
+        ys_i = [r["per_instance"][inst] for r in val_curve if inst in r["per_instance"]]
+        ax.plot(xs_i, ys_i, color="tab:blue", alpha=0.25, linewidth=1)
     for inst in OVERFIT_CHECK_INSTANCES:
-        ax.plot(epochs_x, [r["per_instance"][inst] for r in overfit_curve], color="tab:orange", alpha=0.25, linewidth=1)
+        xs_i = [r["epoch"] for r in overfit_curve if inst in r["per_instance"]]
+        ys_i = [r["per_instance"][inst] for r in overfit_curve if inst in r["per_instance"]]
+        ax.plot(xs_i, ys_i, color="tab:orange", alpha=0.25, linewidth=1)
     ax.plot(epochs_x, [r["service_rate"] for r in val_curve], marker="o", label="val avg (9 instances)", color="tab:blue", linewidth=2.5)
     ax.plot(epochs_x, [r["service_rate"] for r in overfit_curve], marker="o", label="train-subset avg (9 instances, overfit check)", color="tab:orange", linewidth=2.5)
     if best_epoch in epochs_x:

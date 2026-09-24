@@ -81,6 +81,7 @@ def score_candidates(
     match_feature_builder: MatchGraphFeatureBuilder,
     critic: torch.nn.Module,
     *,
+    critic2: torch.nn.Module | None = None,
     use_route_clique: bool = False,
 ) -> List[torch.Tensor]:
     """
@@ -96,6 +97,13 @@ def score_candidates(
     use_route_clique: 2026-09-05 - forwarded to build_from_candidate(), see
     its docstring / docs/SRL_Design.md's GAT plan section. Default False.
 
+    2026-09-24: optional critic2 (see chat) - TD3-style twin critic, but
+    MEAN instead of min here (deliberate deviation from TD3, user's choice):
+    the actor's target-action ranking uses the average of both critics'
+    scores to reduce ranking noise, while the TD-bootstrap target used to
+    TRAIN the critics (td_target_builder.py) still uses min. None (default)
+    keeps single-critic behavior unchanged.
+
     Returns one scalar Q-value tensor per candidate, same order as
     `candidates`. Q(s, y^(i)) - see step 4 in
     figures_export/srl_actor_critic_integration_steps.tex.
@@ -109,6 +117,9 @@ def score_candidates(
             requests, vehicles, active_requests, candidate_graph, current_time, actor_feature_builder,
         )
         q_value = critic(request_features, vehicle_features, candidate_graph.edge_index)
+        if critic2 is not None:
+            q_value2 = critic2(request_features, vehicle_features, candidate_graph.edge_index)
+            q_value = (q_value + q_value2) / 2
         q_values.append(q_value)
     return q_values
 

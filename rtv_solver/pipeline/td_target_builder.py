@@ -10,6 +10,7 @@ def td_target_for_step(
     next_step: EpisodeStep | None,
     target_critic: torch.nn.Module,
     gamma: float,
+    target_critic2: torch.nn.Module | None = None,
 ) -> float:
     """
     2026-09-10: single-step TD target (see chat) - y = r_t + gamma*(1-done)*
@@ -25,6 +26,12 @@ def td_target_for_step(
 
     done = 1 (next_step is None, terminal step) -> bootstrap term is 0,
     target is r_t alone. done = 0 (normal step) -> full bootstrap term.
+
+    2026-09-24: optional target_critic2 (see chat) - TD3-style twin critic.
+    When set, q_next is min(target_critic, target_critic2) instead of just
+    target_critic, so BOTH critics train against the same pessimistic
+    bootstrap target (fights Q-value overestimation drift). None (default)
+    keeps single-critic behavior unchanged.
     """
     done = 1.0 if next_step is None else 0.0
     if done == 1.0:
@@ -36,6 +43,11 @@ def td_target_for_step(
             q_next = target_critic(
                 next_step.request_features, next_step.vehicle_features, next_step.edge_index
             ).item()
+            if target_critic2 is not None:
+                q_next2 = target_critic2(
+                    next_step.request_features, next_step.vehicle_features, next_step.edge_index
+                ).item()
+                q_next = min(q_next, q_next2)
     return r_t + gamma * (1.0 - done) * q_next
 
 
@@ -43,6 +55,7 @@ def build_td_targets(
     step_return_pairs: list[tuple[EpisodeStep, float]],
     target_critic: torch.nn.Module,
     gamma: float,
+    target_critic2: torch.nn.Module | None = None,
 ) -> list[tuple[EpisodeStep, float]]:
     """
     2026-09-09: TD-bootstrap critic target (see chat, docs/SRL_Design.md's
@@ -69,6 +82,6 @@ def build_td_targets(
     td_pairs: list[tuple[EpisodeStep, float]] = []
     for i, (step, r_t) in enumerate(step_return_pairs):
         next_step = step_return_pairs[i + 1][0] if i + 1 < len(step_return_pairs) else None
-        target = td_target_for_step(r_t, next_step, target_critic, gamma)
+        target = td_target_for_step(r_t, next_step, target_critic, gamma, target_critic2)
         td_pairs.append((step, target))
     return td_pairs

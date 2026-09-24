@@ -85,6 +85,9 @@ class COAMLPipeline():
             critic: torch.nn.Module | None = None,
             critic_optimizer: torch.optim.Optimizer | None = None,
             target_critic: torch.nn.Module | None = None,
+            critic2: torch.nn.Module | None = None,
+            critic_optimizer2: torch.optim.Optimizer | None = None,
+            target_critic2: torch.nn.Module | None = None,
             replay_buffer: "ReplayBuffer | None" = None,
             replay_batch_size: int = 12,
             replay_update_group_size: int = 3,
@@ -118,6 +121,23 @@ class COAMLPipeline():
               Monte Carlo G_t/r_t, unchanged). If None (default), the live
               `critic` is used for both roles, exactly as before this was
               added - fully backward compatible.
+            - critic2 / critic_optimizer2 / target_critic2: optional
+              (2026-09-24, TD3-style twin critic - see chat). A second,
+              independently-initialized CriticGNN (same architecture as
+              `critic`, e.g. both "gat" - twin-critic diversity comes from
+              random init + training-run stochasticity, not architecture,
+              matching TD3's own design) with its own optimizer and its own
+              Polyak-updated target copy. When set:
+                - the TD-bootstrap target used to train BOTH critics is
+                  min(target_critic(...), target_critic2(...)) (fights
+                  Q-value overestimation drift, see td_target_builder.py).
+                - the actor's target-action ranking (_compute_srl_actor_loss
+                  -> score_candidates) uses the MEAN of target_critic and
+                  target_critic2 instead (reduces ranking noise) - this mean
+                  choice is a deliberate deviation from TD3 (which uses only
+                  Q1 there), per the user's explicit design (see chat).
+              None (default, for all three) fully preserves single-critic
+              behavior - no min, no mean, nothing changes.
             - replay_buffer: optional (2026-08-28, see chat). If given, the
               critic is trained from mini-batches sampled from this
               cross-episode buffer instead of one averaged step over only
@@ -201,6 +221,11 @@ class COAMLPipeline():
         # 2026-08-26: falls back to the live critic when no target_critic is
         # given - see __init__ docstring above.
         self.target_critic = target_critic if target_critic is not None else critic
+        # 2026-09-24: twin critic (see __init__ docstring) - critic2 mirrors
+        # critic/critic_optimizer/target_critic exactly, all None by default.
+        self.critic2 = critic2
+        self.critic_optimizer2 = critic_optimizer2
+        self.target_critic2 = target_critic2 if target_critic2 is not None else critic2
         self.replay_buffer = replay_buffer
         self.replay_batch_size = replay_batch_size
         self.replay_update_group_size = replay_update_group_size
@@ -460,7 +485,10 @@ class COAMLPipeline():
                     batch_targets = [
                         torch.tensor(
                             entry.target if entry.target is not None
-                            else td_target_for_step(entry.reward, entry.next_step, self.target_critic, self.gamma),
+                            else td_target_for_step(
+                                entry.reward, entry.next_step, self.target_critic, self.gamma,
+                                target_critic2=self.target_critic2,
+                            ),
                             dtype=torch.float32,
                         )
                         for entry in batch
@@ -476,6 +504,23 @@ class COAMLPipeline():
                         torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
                         self.critic_optimizer.step()
 
+                    # 2026-09-24: twin critic (see chat/__init__ docstring) - critic2
+                    # trains against the SAME batch_targets (already min'd above when
+                    # target_critic2 is set), on its own forward pass/optimizer.
+                    if self.critic2 is not None:
+                        batch_q_preds2 = [
+                            self.critic2(entry.step.request_features, entry.step.vehicle_features, entry.step.edge_index)
+                            for entry in batch
+                        ]
+                        batch_loss2 = torch.stack([
+                            F.mse_loss(q_pred, target) for q_pred, target in zip(batch_q_preds2, batch_targets)
+                        ]).mean()
+                        if train_critic:
+                            self.critic_optimizer2.zero_grad(set_to_none=True)
+                            batch_loss2.backward()
+                            torch.nn.utils.clip_grad_norm_(self.critic2.parameters(), max_norm=1.0)
+                            self.critic_optimizer2.step()
+
                 self.last_episode_loss: float = sum(batch_losses) / len(batch_losses)
             else:
                 # 2026-09-10: td_bootstrap's episode-level build_td_targets()
@@ -486,7 +531,10 @@ class COAMLPipeline():
                 # immediately within this same episode, never stored for
                 # later reuse.
                 if self.critic_target_mode == "td_bootstrap":
-                    step_return_pairs = build_td_targets(step_return_pairs, self.target_critic, self.gamma)
+                    step_return_pairs = build_td_targets(
+                        step_return_pairs, self.target_critic, self.gamma,
+                        target_critic2=self.target_critic2,
+                    )
 
                 # Option A (used here): one averaged loss for the whole episode.
                 # Chosen because G_t is a noisy single-sample Monte Carlo
@@ -526,6 +574,22 @@ class COAMLPipeline():
                     # implementation clips both actor and critic gradients.
                     torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
                     self.critic_optimizer.step()
+
+                # 2026-09-24: twin critic (see chat/__init__ docstring) - critic2
+                # trains against the SAME targets (step_return_pairs' g_t already
+                # includes the min-bootstrap when target_critic2 was set above).
+                if self.critic2 is not None:
+                    losses2 = []
+                    for step, g_t in step_return_pairs:
+                        q_pred2 = self.critic2(step.request_features, step.vehicle_features, step.edge_index)
+                        target2 = torch.tensor(g_t, dtype=torch.float32)
+                        losses2.append(F.mse_loss(q_pred2, target2))
+                    total_loss2 = torch.stack(losses2).mean()
+                    if train_critic:
+                        self.critic_optimizer2.zero_grad(set_to_none=True)
+                        total_loss2.backward()
+                        torch.nn.utils.clip_grad_norm_(self.critic2.parameters(), max_norm=1.0)
+                        self.critic_optimizer2.step()
 
                 # Option B (not used, left as reference): one optimizer step per
                 # buffered iteration instead of one averaged step per episode.
@@ -1608,9 +1672,13 @@ class COAMLPipeline():
         # docstring), NOT self.critic - defaults to self.critic when no
         # separate target_critic was set, so nothing changes unless a caller
         # explicitly passes target_critic=... to COAMLPipeline().
+        # 2026-09-24: self.target_critic2 (twin critic, see __init__
+        # docstring) additionally passed as critic2 - score_candidates()
+        # takes the MEAN of both when set, None (default) unchanged.
         q_values = score_candidates(
             candidates, requests, vehicles, trip_costs, active_requests, current_time,
             self.feature_builder, self.match_graph_builder, self.match_feature_builder, self.target_critic,
+            critic2=self.target_critic2,
             use_route_clique=self.critic_use_route_clique,
         )
 
