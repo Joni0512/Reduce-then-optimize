@@ -388,11 +388,21 @@ class PayloadParser:
                 if stop[PayloadKeys.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP
                 and stop[PayloadKeys.MANIFEST_SCHED_TIME] < current_time
             }
-            driver_run[PayloadKeys.DRIVER_MANIFEST] = [
+            filtered_manifest = [
                 stop for stop in rho_manifest
                 if stop[PayloadKeys.MANIFEST_BOOKING_ID] in already_active_booking_ids
                 or is_visible_to_actor(stop[PayloadKeys.MANIFEST_BOOKING_ID])
             ]
+            # Renumber MANIFEST_ORDER sequentially (0,1,2,...) to match the filtered list's own
+            # positions - VehicleHandler.add_manifest_to_vehicle compares stop[MANIFEST_ORDER]
+            # (the field) against current_order (a position-based counter from
+            # simulate_manifest); leftover ORIGINAL order numbers with gaps (from stops removed
+            # above) broke that comparison, causing it to stop early and miscompute vehicle
+            # capacity/boarded state - the actual remaining cause of the veh_0/veh_1 IIS
+            # infeasibilities seen after the DRIVER_STATE fix (see chat, 2026-09-26).
+            for i, stop in enumerate(filtered_manifest):
+                stop[PayloadKeys.MANIFEST_ORDER] = i
+            driver_run[PayloadKeys.DRIVER_MANIFEST] = filtered_manifest
             # Reset to a fresh-vehicle baseline (same fields/values PayloadParser uses
             # elsewhere to initialize a driver_run from scratch) so simulate_manifest below
             # walks the NEW manifest from its own start, not from stale old-manifest indices.
