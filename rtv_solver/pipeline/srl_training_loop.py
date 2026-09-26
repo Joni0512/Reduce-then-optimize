@@ -63,6 +63,8 @@ from rtv_solver.schema.payload_keys import PayloadKeys
 from rtv_solver.structure.config import Config
 from rtv_solver.util.helper import set_seed
 from rtv_solver.util.logger import setup_loggers
+from rtv_solver.pipeline.candidate_scoring_gnn import build_scoring_model
+from rtv_solver.pipeline import select_feature_builder_class
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 MANIFEST_DIR = REPO_ROOT / "solutions" / "li_lim" / "manifests"
@@ -156,6 +158,7 @@ def run_srl_training_loop(
     max_cardinality: int = 2,
     deterministic: bool = False,
     use_twin_critic: bool = False,
+    use_actor_warmstart: bool = True,
 ) -> SRLTrainingLoopResult:
     """
     2026-09-24: added `use_twin_critic` (see chat) - TD3-style second,
@@ -197,6 +200,20 @@ def run_srl_training_loop(
     # critic1 an unfair head start beyond initialization.
     critic2 = CriticGNN(aggregator=gnn_aggregator) if use_twin_critic else None
     critic_optimizer2 = torch.optim.Adam(critic2.parameters(), lr=critic_lr) if use_twin_critic else None
+
+    # use_actor_warmstart=False: build ONE randomly-initialized actor up front and reuse it
+    # for every pretrain/training call (instead of loading actor_checkpoint each time) - see
+    # chat, matches the reference SRL paper's "same random model initialization for SIL, PPO,
+    # and SRL" (no SIL-pretrained warmstart). Built once here so it stays the SAME random
+    # weights throughout (a fresh COAMLPipeline call with model=None would otherwise
+    # reinitialize randomly on every single call, which is not equivalent to one consistent
+    # random init).
+    pretrain_actor_model = None
+    if not use_actor_warmstart:
+        config_template = Config(OUTPUT_DIR=output_dir, BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed)
+        active_feature_builder = select_feature_builder_class(config_template)
+        pretrain_actor_model = build_scoring_model("mlp", feature_dim=active_feature_builder.FEATURE_SIZE, hidden_dim=64)
+
     pretrain_dir = output_dir / "critic_pretrain"
     for epoch in range(critic_pretrain_epochs):
         for instance in TRAIN_INSTANCES:
@@ -206,21 +223,27 @@ def run_srl_training_loop(
             config = Config(OUTPUT_DIR=inst_out_dir, MODE="coaml", BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed)
             payload = PayloadParser.load_input_data(input_path)
             cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
-            pipeline = COAMLPipeline(config, cleared_payload, imitation_solution_path=input_path, critic=critic, critic_optimizer=critic_optimizer)
-            pipeline.load_model_weights(actor_checkpoint)
+            pipeline = COAMLPipeline(config, cleared_payload, imitation_solution_path=input_path, critic=critic, critic_optimizer=critic_optimizer, model=pretrain_actor_model)
+            if use_actor_warmstart:
+                pipeline.load_model_weights(actor_checkpoint)
             pipeline.solve_pdptw(cleared_payload, mode="eval", train_critic=True, reward_mode=reward_mode)
 
             if use_twin_critic:
                 inst_out_dir2 = pretrain_dir / f"{instance}_critic2"
                 inst_out_dir2.mkdir(parents=True, exist_ok=True)
                 config2 = Config(OUTPUT_DIR=inst_out_dir2, MODE="coaml", BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed)
-                pipeline2 = COAMLPipeline(config2, cleared_payload, imitation_solution_path=input_path, critic=critic2, critic_optimizer=critic_optimizer2)
-                pipeline2.load_model_weights(actor_checkpoint)
+                pipeline2 = COAMLPipeline(config2, cleared_payload, imitation_solution_path=input_path, critic=critic2, critic_optimizer=critic_optimizer2, model=pretrain_actor_model)
+                if use_actor_warmstart:
+                    pipeline2.load_model_weights(actor_checkpoint)
                 pipeline2.solve_pdptw(cleared_payload, mode="eval", train_critic=True, reward_mode=reward_mode)
         print(f"[srl_training_loop reward_mode={reward_mode}] critic pretrain epoch {epoch} done")
 
     # --- shared actor/critic/replay-buffer state, persists across epochs and instances ---
-    model = None  # first pipeline() call below loads actor_checkpoint and creates a fresh model
+    # model=None (default): first pipeline() call below loads actor_checkpoint and creates a
+    # fresh model. use_actor_warmstart=False: reuse the SAME random-init actor that was already
+    # used throughout critic pretraining above, so training continues from those exact weights
+    # instead of loading a checkpoint.
+    model = pretrain_actor_model if not use_actor_warmstart else None
     actor_optimizer = None
     target_critic = copy.deepcopy(critic)
     # 2026-09-24: twin critic (see chat) - target_critic2 mirrors target_critic,
