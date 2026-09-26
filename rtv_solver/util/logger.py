@@ -54,7 +54,11 @@ def setup_loggers(output_dir: str):
     basic_logger = logging.getLogger(BASIC_LOGGER)
     basic_logger.setLevel(LOG_LEVEL)
     basic_logger.propagate = False
-    # basic_logger.propagate = False
+    # Clear handlers from any previous setup_loggers() call - this function is called once per
+    # instance/epoch by rolling-horizon training loops (hundreds of times per run), and without
+    # clearing, handlers accumulate unboundedly, causing every log line to be written once per
+    # PAST call as well - explosive log growth (multi-GB/hour), see chat 2026-09-25/26.
+    basic_logger.handlers.clear()
     basic_logger_fileHandler = FileHandler(output_dir / "main.log")
     basic_logger_fileHandler.setFormatter(Formatter(LOG_FORMAT))
     basic_logger.addHandler(basic_logger_fileHandler)

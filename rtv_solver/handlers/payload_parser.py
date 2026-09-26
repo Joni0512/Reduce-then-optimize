@@ -322,6 +322,92 @@ class PayloadParser:
         return updated_payload
 
     @staticmethod
+    def inject_vehicle_manifest_from_rho(
+        payload: dict[str, Any], rho_driver_runs: list, current_time: float, actor_batch_interval: float,
+        config,
+    ) -> dict[str, Any]:
+        """
+        Actor/RHO state-sync fix (see chat): return a payload copy where each vehicle's
+        manifest is overwritten with RHO's own manifest for that vehicle at this timestamp,
+        keeping only the requests the ACTOR's (smaller) batch_interval would already make
+        visible (same visibility rule as offline_rtv_solver.py's iteration filter, just
+        evaluated with actor_batch_interval instead of the RHO run's own interval).
+
+        2026-09-25 fix (see chat): filters whole REQUESTS, not individual stops - dropping only
+        a request's pickup or only its dropoff (stop-by-stop filtering) left some vehicles with
+        a malformed manifest (e.g. a dropoff with no matching pickup), which made the
+        assignment ILP infeasible for that vehicle far more often than before this fix (found
+        via IIS: veh_0/veh_1 constraints, not the active-request ones). A request not visible
+        to the actor now has BOTH its stops dropped together, never just one.
+
+        A request already picked up by RHO before current_time (its pickup stop's
+        scheduled_time is in the past) is always kept regardless of visibility - it is a live
+        obligation of that vehicle right now, same treatment VehicleHandler.add_manifest_to_
+        vehicle already gives "boarded" requests elsewhere in this codebase.
+
+        2026-09-25 fix #2 (see chat): swapping DRIVER_MANIFEST alone left DRIVER_STATE (position,
+        DRIVER_STATE_LOC_SERV - a literal array INDEX into the manifest marking how many stops
+        are already done) pointing at indices/positions from the OLD (actor's own) manifest,
+        which no longer line up with the new one - this alone caused "no candidate trip found"
+        infeasibility (Gurobi IIS: veh_0/veh_1), independently of fix #1 above. Fixed the same
+        way PayloadParser already resets a fresh driver_run elsewhere in this file (see
+        the Chattanooga-format normalizer above): LOC_SERV=0, DT_SEC=0, LOC=depot, then
+        OnlineRTVSolver.simulate_manifest() is re-run to walk this vehicle's DRIVER_STATE
+        forward through the NEW manifest up to current_time, deriving state that is actually
+        consistent with what got just injected.
+        """
+        # Local import - online_rtv_solver.py imports PayloadParser, so importing
+        # OnlineRTVSolver at module level here would be circular.
+        from rtv_solver.online_rtv_solver import OnlineRTVSolver
+
+        updated_payload = copy.deepcopy(payload)
+        requests_by_booking_id = {r[PayloadKeys.REQ_BOOKING_ID]: r for r in payload[PayloadKeys.REQUESTS]}
+        depot_pt = updated_payload[PayloadKeys.DEPOT][PayloadKeys.DEPOT_PT]
+        # node_id lives on DEPOT itself (a sibling of DEPOT_PT, not inside it) - needed for
+        # precomputed-time-matrix instances (e.g. Li&Lim), where travel time lookups index by
+        # node_id, not by lat/lon; omitting it left the reset vehicle position without a
+        # resolvable node_id, crashing trip generation with "NoneType * int" (see chat).
+        depot_loc = {"lat": depot_pt["lat"], "lon": depot_pt["lon"], "node_id": updated_payload[PayloadKeys.DEPOT].get("node_id")}
+
+        def is_visible_to_actor(booking_id) -> bool:
+            request = requests_by_booking_id.get(booking_id)
+            if request is None:
+                return False
+            return (request[PayloadKeys.REQ_PICKUP_WINDOW_END] > current_time
+                    and request[PayloadKeys.REQ_PICKUP_WINDOW_START] < current_time + actor_batch_interval)
+
+        rho_manifest_by_run_id = {
+            driver_run[PayloadKeys.DRIVER_STATE][PayloadKeys.DRIVER_STATE_RUN_ID]: driver_run[PayloadKeys.DRIVER_MANIFEST]
+            for driver_run in rho_driver_runs
+        }
+        for driver_run in updated_payload.get(PayloadKeys.DRIVERS, []):
+            run_id = driver_run[PayloadKeys.DRIVER_STATE][PayloadKeys.DRIVER_STATE_RUN_ID]
+            rho_manifest = rho_manifest_by_run_id.get(run_id, [])
+            already_active_booking_ids = {
+                stop[PayloadKeys.MANIFEST_BOOKING_ID] for stop in rho_manifest
+                if stop[PayloadKeys.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP
+                and stop[PayloadKeys.MANIFEST_SCHED_TIME] < current_time
+            }
+            driver_run[PayloadKeys.DRIVER_MANIFEST] = [
+                stop for stop in rho_manifest
+                if stop[PayloadKeys.MANIFEST_BOOKING_ID] in already_active_booking_ids
+                or is_visible_to_actor(stop[PayloadKeys.MANIFEST_BOOKING_ID])
+            ]
+            # Reset to a fresh-vehicle baseline (same fields/values PayloadParser uses
+            # elsewhere to initialize a driver_run from scratch) so simulate_manifest below
+            # walks the NEW manifest from its own start, not from stale old-manifest indices.
+            state = driver_run[PayloadKeys.DRIVER_STATE]
+            state[PayloadKeys.DRIVER_STATE_LOC_SERV] = 0
+            state[PayloadKeys.DRIVER_STATE_DT_SEC] = 0
+            state[PayloadKeys.DRIVER_STATE_LOC] = dict(depot_loc)
+
+        updated_payload[PayloadKeys.DRIVERS] = OnlineRTVSolver.simulate_manifest(
+            config, current_time, updated_payload[PayloadKeys.DRIVERS],
+            tt_matrix=updated_payload.get(PayloadKeys.TIME_MATRIX),
+        )
+        return updated_payload
+
+    @staticmethod
     def _build_request_from_manifest_index(manifest, pick_up_index):
         stop = manifest[pick_up_index]
         booking_id = stop[PayloadKeys.MANIFEST_BOOKING_ID]

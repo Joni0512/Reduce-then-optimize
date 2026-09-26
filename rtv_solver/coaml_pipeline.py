@@ -97,6 +97,7 @@ class COAMLPipeline():
             use_stale_td_target: bool = False,
             outcome_advantage_buffer: "list | None" = None,
             outcome_advantage_sigma: float | None = None,
+            rho_state_sync_manifest: list | None = None,
         ):
         """
         Initialize the COAML pipeline solver.
@@ -138,6 +139,14 @@ class COAMLPipeline():
                   Q1 there), per the user's explicit design (see chat).
               None (default, for all three) fully preserves single-critic
               behavior - no min, no mean, nothing changes.
+            - rho_state_sync_manifest: optional (see chat). RHO's own
+              driver_runs for this instance - when set, solve_pdptw()
+              overwrites the actor's simulated vehicle state after every
+              iteration with RHO's state at that timestamp (filtered to
+              requests visible under this pipeline's own BATCH_INTERVAL),
+              instead of carrying forward the actor's own simulated outcome.
+              Fixes actor/RHO trajectory drift in behavior-cloning-vs-RHO
+              training. None (default) keeps the existing behavior unchanged.
             - replay_buffer: optional (2026-08-28, see chat). If given, the
               critic is trained from mini-batches sampled from this
               cross-episode buffer instead of one averaged step over only
@@ -226,6 +235,7 @@ class COAMLPipeline():
         self.critic2 = critic2
         self.critic_optimizer2 = critic_optimizer2
         self.target_critic2 = target_critic2 if target_critic2 is not None else critic2
+        self.rho_state_sync_manifest = rho_state_sync_manifest
         self.replay_buffer = replay_buffer
         self.replay_batch_size = replay_batch_size
         self.replay_update_group_size = replay_update_group_size
@@ -378,7 +388,17 @@ class COAMLPipeline():
 
             # update vehicles based on decisions in the previous step until current time (might not be the entire interval)
             simulated_driver_runs = OnlineRTVSolver.simulate_manifest(self.config, current_time, new_driver_runs, tt_matrix=new_payload[PayloadKeys.TIME_MATRIX])
-            driver_runs = simulated_driver_runs
+            if self.rho_state_sync_manifest is not None:
+                # actor/RHO state sync (see __init__ docstring) - overwrite the actor's own
+                # simulated outcome with RHO's state at this timestamp, filtered to requests
+                # visible under this pipeline's own BATCH_INTERVAL.
+                synced_payload = PayloadParser.inject_vehicle_manifest_from_rho(
+                    new_payload, self.rho_state_sync_manifest, current_time, self.config.BATCH_INTERVAL,
+                    self.config,
+                )
+                driver_runs = synced_payload[PayloadKeys.DRIVERS]
+            else:
+                driver_runs = simulated_driver_runs
 
         final_driver_runs = OnlineRTVSolver.finalize_driverRuns(
             self.config, driver_runs, payload[PayloadKeys.DEPOT]
