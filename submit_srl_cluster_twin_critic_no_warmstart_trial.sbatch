@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=srl_twin_nows
 #SBATCH --clusters=serial
-#SBATCH --partition=serial_long
-#SBATCH --qos=cm4_serial_long
+#SBATCH --partition=serial_std
+#SBATCH --qos=cm4_serial
 #SBATCH --time=24:00:00
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
