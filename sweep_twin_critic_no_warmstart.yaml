@@ -1,0 +1,23 @@
+# Cluster-only sweep (see chat) - create with `wandb sweep sweep_twin_critic_no_warmstart.yaml`,
+# then run srl_twin_critic_no_warmstart_sweep_coordinator.py with the printed sweep_id on a
+# login node. Twin-critic, no SIL warmstart, epochs=30, tau=0.005, reward_mode=local_positive
+# all fixed in srl_cluster_twin_critic_no_warmstart_sweep_trial.py - only actor_lr/critic_lr/
+# seed are swept here.
+project: srl-twin-critic-no-warmstart-sweep
+method: random
+metric:
+  name: best_val_service_rate
+  goal: maximize
+parameters:
+  actor_lr:
+    distribution: log_uniform_values
+    min: 0.0003
+    max: 0.006
+  critic_lr:
+    distribution: log_uniform_values
+    min: 0.0003
+    max: 0.006
+  seed:
+    distribution: int_uniform
+    min: 1
+    max: 1000
