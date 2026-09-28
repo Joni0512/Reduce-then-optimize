@@ -159,6 +159,8 @@ def run_srl_training_loop(
     deterministic: bool = False,
     use_twin_critic: bool = False,
     use_actor_warmstart: bool = True,
+    gat_num_heads: int = 4,
+    num_message_passing_layers: int = 2,
 ) -> SRLTrainingLoopResult:
     """
     2026-09-24: added `use_twin_critic` (see chat) - TD3-style second,
@@ -191,14 +193,14 @@ def run_srl_training_loop(
     rng = random.Random(seed)
 
     # --- critic pretraining, ONCE, before the epoch loop ---
-    critic = CriticGNN(aggregator=gnn_aggregator)
+    critic = CriticGNN(aggregator=gnn_aggregator, gat_num_heads=gat_num_heads, num_message_passing_layers=num_message_passing_layers)
     critic_optimizer = torch.optim.Adam(critic.parameters(), lr=critic_lr)
     # 2026-09-24: twin critic (see chat) - critic2 gets the SAME pretraining
     # loop as critic, run separately below, so both critics enter the main
     # epoch loop with equal pretrain exposure (only independent init/gradient
     # noise differs) - pretraining just critic and not critic2 would give
     # critic1 an unfair head start beyond initialization.
-    critic2 = CriticGNN(aggregator=gnn_aggregator) if use_twin_critic else None
+    critic2 = CriticGNN(aggregator=gnn_aggregator, gat_num_heads=gat_num_heads, num_message_passing_layers=num_message_passing_layers) if use_twin_critic else None
     critic_optimizer2 = torch.optim.Adam(critic2.parameters(), lr=critic_lr) if use_twin_critic else None
 
     # use_actor_warmstart=False: build ONE randomly-initialized actor up front and reuse it
