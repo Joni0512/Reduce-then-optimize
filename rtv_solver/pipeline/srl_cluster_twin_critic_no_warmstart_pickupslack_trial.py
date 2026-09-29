@@ -28,6 +28,7 @@ _feat_builder_module.FeatureBuilder.ENABLE_PICKUP_SLACK_FEATURE = True
 _feat_builder_module.FeatureBuilder.FEATURE_SIZE = (
     _feat_builder_module.FeatureBuilder._BASE_FEATURE_SIZE
     + (_feat_builder_module.FeatureBuilder._TRIP_COMPOSITION_FEATURE_SIZE if _feat_builder_module.FeatureBuilder.ENABLE_TRIP_COMPOSITION_FEATURES else 0)
+    + (_feat_builder_module.FeatureBuilder._PICKUP_SLACK_FEATURE_SIZE if _feat_builder_module.FeatureBuilder.ENABLE_PICKUP_SLACK_FEATURE else 0)
 )
 
 ACTOR_CHECKPOINT = str(list((REPO_ROOT / "outputs/outputs/sil_training_bi200_ss100_mixed_balanced_legacy_mlp_seed1").rglob("coaml_model_weights_best_val.pt"))[0])
