@@ -13,6 +13,16 @@ hyperparameters: no-warmstart got best_val=0.6872/test=0.7056 at epoch 30 (seed 
 (leaky) warmstart got 0.7085 at epoch 25 - now unknown how much of that gap was leakage vs. a
 genuine warmstart benefit.
 
+2026-09-30 correction: the clean SIL checkpoint was actually trained with pickup_slack
+enabled (85 features) - the SIL training script never overrode FeatureBuilder's own class
+default (ENABLE_PICKUP_SLACK_FEATURE=True in feat_builder.py), so a first run of this script
+crashed with a state_dict shape mismatch (checkpoint 85 features vs. the SRL actor's default 84,
+since srl_training_loop.py forces pickup_slack=False at its own import time). Re-patching to
+True here so the actor's feature set matches what the checkpoint was actually trained with -
+this is no longer a "no pickup_slack" baseline warmstart comparison, it's warmstart+pickup_slack
+vs. the no-warmstart+pickup_slack run (twin_critic_no_warmstart_pickupslack_1: best_val=0.7215,
+test=0.7702 at seed=42).
+
 Usage: ./venv/bin/python3 -m rtv_solver.pipeline.srl_local_twin_critic_warmstart_clean_epochs30_trial
 """
 import traceback
@@ -24,6 +34,16 @@ from rtv_solver.pipeline.srl_train_val_test_split import TEST_INSTANCES
 from rtv_solver.pipeline.candidate_scoring_gnn import build_scoring_model
 from rtv_solver.pipeline import select_feature_builder_class
 from rtv_solver.structure.config import Config
+
+# Re-patch AFTER srl_training_loop's own import-time patch (which forces False) - see module
+# docstring above: the clean checkpoint was trained with pickup_slack enabled.
+from rtv_solver.pipeline import feat_builder as _feat_builder_module
+_feat_builder_module.FeatureBuilder.ENABLE_PICKUP_SLACK_FEATURE = True
+_feat_builder_module.FeatureBuilder.FEATURE_SIZE = (
+    _feat_builder_module.FeatureBuilder._BASE_FEATURE_SIZE
+    + (_feat_builder_module.FeatureBuilder._TRIP_COMPOSITION_FEATURE_SIZE if _feat_builder_module.FeatureBuilder.ENABLE_TRIP_COMPOSITION_FEATURES else 0)
+    + (_feat_builder_module.FeatureBuilder._PICKUP_SLACK_FEATURE_SIZE if _feat_builder_module.FeatureBuilder.ENABLE_PICKUP_SLACK_FEATURE else 0)
+)
 
 ACTOR_CHECKPOINT = str(list((REPO_ROOT / "outputs/outputs/sil_training_bi200_ss100_clean_srl_split_legacy_mlp_seed1").rglob("coaml_model_weights_best_val.pt"))[0])
 
@@ -42,9 +62,9 @@ CRITIC_LR = 0.0010833586558285635  # baseline, unchanged
 
 
 def main() -> None:
-    run_id = "twin_critic_warmstart_clean_epochs30_1"
+    run_id = "twin_critic_warmstart_clean_pickupslack_epochs30_1"
     output_dir = REPO_ROOT / "outputs" / "srl_training_sweep" / run_id
-    print(f"=== srl_local_twin_critic_warmstart_clean_epochs30_trial {run_id}: reward_mode={REWARD_MODE} actor_lr={ACTOR_LR} critic_lr={CRITIC_LR} tau={TAU} gamma={GAMMA} epochs={EPOCHS} actor_checkpoint={ACTOR_CHECKPOINT} use_twin_critic=True use_actor_warmstart=True ===")
+    print(f"=== srl_local_twin_critic_warmstart_clean_epochs30_trial {run_id}: reward_mode={REWARD_MODE} actor_lr={ACTOR_LR} critic_lr={CRITIC_LR} tau={TAU} gamma={GAMMA} epochs={EPOCHS} actor_checkpoint={ACTOR_CHECKPOINT} pickup_slack=True feature_size={_feat_builder_module.FeatureBuilder.FEATURE_SIZE} use_twin_critic=True use_actor_warmstart=True ===")
     try:
         result = run_srl_training_loop(
             reward_mode=REWARD_MODE, actor_lr=ACTOR_LR, critic_lr=CRITIC_LR,
