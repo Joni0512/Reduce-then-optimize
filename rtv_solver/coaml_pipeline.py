@@ -97,7 +97,8 @@ class COAMLPipeline():
             use_stale_td_target: bool = False,
             outcome_advantage_buffer: "list | None" = None,
             outcome_advantage_sigma: float | None = None,
-            rho_state_sync_manifest: list | None = None,
+            rho_state_sync_manifest: "dict[float, list] | None" = None,
+            record_driver_runs_snapshots: bool = False,
         ):
         """
         Initialize the COAML pipeline solver.
@@ -147,6 +148,19 @@ class COAMLPipeline():
               instead of carrying forward the actor's own simulated outcome.
               Fixes actor/RHO trajectory drift in behavior-cloning-vs-RHO
               training. None (default) keeps the existing behavior unchanged.
+              2026-09-27 (see chat): now a dict {current_time: RHO driver_runs
+              at that time} (see record_driver_runs_snapshots below), NOT RHO's
+              final end-of-episode driver_runs anymore. The final manifest
+              contained RHO's LATER decisions too, so the actor was handed
+              future assignments as already-committed (active) requests - with
+              KEEP_ACTIVE=True, MAX_CARDINALITY=2 and one trip per vehicle this
+              made the assignment ILP infeasible (lr204 @ t=100: 19 active
+              requests on 2 vehicles, IIS veh_*/active_req_*).
+            - record_driver_runs_snapshots: 2026-09-27 (see chat). If True,
+              solve_pdptw() stores a deepcopy of the simulated driver_runs after
+              every iteration in self.driver_runs_snapshots[current_time] - used
+              on the RHO run to build rho_state_sync_manifest. False (default)
+              records nothing, existing behavior unchanged.
             - replay_buffer: optional (2026-08-28, see chat). If given, the
               critic is trained from mini-batches sampled from this
               cross-episode buffer instead of one averaged step over only
@@ -219,6 +233,11 @@ class COAMLPipeline():
 
         self.last_loss: Optional[torch.Tensor] = None
         self.loss_history: list[Optional[float]] = []
+        # 2026-10-01: tracks the actor weight L2 norm right after each optimizer.step() in
+        # solve_pdptw (mode="train"/"srl") - one entry per rolling-horizon time window update,
+        # for analyzing how fast/far the actor moves per step (e.g. comparing a stable vs. a
+        # collapsing critic_lr run). See chat.
+        self.weight_norm_history: list[float] = []
         self.epoch = epoch
 
         # 2026-08-14: critic (SRL Phase 2) - see __init__ docstring. Builders
@@ -236,6 +255,8 @@ class COAMLPipeline():
         self.critic_optimizer2 = critic_optimizer2
         self.target_critic2 = target_critic2 if target_critic2 is not None else critic2
         self.rho_state_sync_manifest = rho_state_sync_manifest
+        self.record_driver_runs_snapshots = record_driver_runs_snapshots
+        self.driver_runs_snapshots: dict[float, list] = {}
         self.replay_buffer = replay_buffer
         self.replay_batch_size = replay_batch_size
         self.replay_update_group_size = replay_update_group_size
@@ -381,6 +402,11 @@ class COAMLPipeline():
                     # 1.0 is a common general-purpose default, not re-tuned yet.
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     optimizer.step()
+                    # 2026-10-01: see weight_norm_history's docstring in __init__ - logged right
+                    # after step() so it reflects the post-update weights.
+                    with torch.no_grad():
+                        total_norm = torch.sqrt(sum(p.pow(2).sum() for p in self.model.parameters()))
+                    self.weight_norm_history.append(total_norm.item())
                           
             # increment time (might not be the size of the batch) and iteration
             current_time += self.config.STEP_SIZE 
@@ -388,12 +414,26 @@ class COAMLPipeline():
 
             # update vehicles based on decisions in the previous step until current time (might not be the entire interval)
             simulated_driver_runs = OnlineRTVSolver.simulate_manifest(self.config, current_time, new_driver_runs, tt_matrix=new_payload[PayloadKeys.TIME_MATRIX])
+            if self.record_driver_runs_snapshots:
+                # 2026-09-27 (see chat): per-timestamp RHO state for state sync - deepcopy
+                # because simulate_manifest/later iterations mutate these dicts in place.
+                self.driver_runs_snapshots[current_time] = copy.deepcopy(simulated_driver_runs)
             if self.rho_state_sync_manifest is not None:
                 # actor/RHO state sync (see __init__ docstring) - overwrite the actor's own
                 # simulated outcome with RHO's state at this timestamp, filtered to requests
                 # visible under this pipeline's own BATCH_INTERVAL.
+                # 2026-09-27 (see chat): use RHO's snapshot AT current_time, not its final
+                # manifest (which leaked RHO's future assignments in as active requests).
+                # Actor and RHO share STEP_SIZE=100, so an exact key is expected; otherwise
+                # fall back to the latest RHO snapshot not after current_time.
+                rho_times = [t for t in self.rho_state_sync_manifest if t <= current_time]
+                if not rho_times:
+                    raise ValueError(f"State sync: no RHO snapshot at or before t={current_time}")
+                rho_t = max(rho_times)
+                if rho_t != current_time:
+                    console_logger.warning(f"State sync: no RHO snapshot at t={current_time}, using t={rho_t}")
                 synced_payload = PayloadParser.inject_vehicle_manifest_from_rho(
-                    new_payload, self.rho_state_sync_manifest, current_time, self.config.BATCH_INTERVAL,
+                    new_payload, self.rho_state_sync_manifest[rho_t], current_time, self.config.BATCH_INTERVAL,
                     self.config,
                 )
                 driver_runs = synced_payload[PayloadKeys.DRIVERS]

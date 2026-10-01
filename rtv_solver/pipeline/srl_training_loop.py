@@ -169,6 +169,7 @@ def run_srl_training_loop(
     use_actor_warmstart: bool = True,
     gat_num_heads: int = 4,
     num_message_passing_layers: int = 2,
+    weight_norm_trace: list[dict] | None = None,
 ) -> SRLTrainingLoopResult:
     """
     2026-09-24: added `use_twin_critic` (see chat) - TD3-style second,
@@ -190,6 +191,13 @@ def run_srl_training_loop(
     for a controlled reproducibility check. NOT the config.DEBUG print-spam
     flag (see stats_parser.py's gating) - this only affects set_seed()'s
     torch determinism enforcement, independent of Config.DEBUG.
+
+    2026-10-01: added `weight_norm_trace` (see chat) - if given a list, every main-loop
+    instance's pipeline.weight_norm_history (one actor weight L2 norm per rolling-horizon
+    gradient step, see coaml_pipeline.py) is appended to it as
+    {"epoch": epoch_num, "instance": instance, "norms": [...]}, for analyzing how far/fast the
+    actor moves per step (e.g. comparing a stable vs. a collapsing critic_lr run). None
+    (default) skips this - no behavior change for existing callers.
     """
     if reward_mode not in ("local", "local_positive"):
         raise ValueError(f"Expected reward_mode in ('local', 'local_positive'), got {reward_mode!r}")
@@ -320,6 +328,8 @@ def run_srl_training_loop(
                 print(f"[srl_training_loop reward_mode={reward_mode}] epoch {epoch_num}: SKIPPING {instance} - {e}")
                 continue
             model = pipeline.model  # carry actor weights forward
+            if weight_norm_trace is not None:
+                weight_norm_trace.append({"epoch": epoch_num, "instance": instance, "norms": pipeline.weight_norm_history})
 
         print(f"[srl_training_loop reward_mode={reward_mode}] epoch {epoch_num}/{epochs} training done")
 
