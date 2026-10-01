@@ -400,8 +400,14 @@ class PayloadParser:
             # above) broke that comparison, causing it to stop early and miscompute vehicle
             # capacity/boarded state - the actual remaining cause of the veh_0/veh_1 IIS
             # infeasibilities seen after the DRIVER_STATE fix (see chat, 2026-09-26).
+            # 2026-09-27 fix (see chat): renumber 1-based (i + 1), not 0-based - the rest of the
+            # codebase uses 1-based MANIFEST_ORDER (VehicleHandler.get_manifest increments
+            # current_order BEFORE assigning it; LOC_SERV counts served stops, "served" means
+            # MANIFEST_ORDER <= LOC_SERV). 0-based numbering marked the NEXT unserved stop as
+            # served, so its pickup was treated as boarded, never re-emitted by update_run, and
+            # check_manifest_consistency raised "boarded_requests ... were not picked up".
             for i, stop in enumerate(filtered_manifest):
-                stop[PayloadKeys.MANIFEST_ORDER] = i
+                stop[PayloadKeys.MANIFEST_ORDER] = i + 1
             driver_run[PayloadKeys.DRIVER_MANIFEST] = filtered_manifest
             # Reset to a fresh-vehicle baseline (same fields/values PayloadParser uses
             # elsewhere to initialize a driver_run from scratch) so simulate_manifest below

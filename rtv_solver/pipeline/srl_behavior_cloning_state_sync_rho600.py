@@ -46,6 +46,10 @@ SEED = 42
 ACTOR_LR = 1e-4
 EPOCHS = 20
 VAL_EVERY_N_EPOCHS = 5
+# 2026-09-27 (see chat): actor starts from random init, NOT from the SIL checkpoint - the actor
+# should learn ONLY from RHO (SIL checkpoint = second teacher, Li&Lim optimum, and saw 4 of the
+# VAL_INSTANCES). Same change as srl_behavior_cloning_training.py. True restores old behavior.
+INIT_FROM_SIL_CHECKPOINT = False
 
 
 @dataclass
@@ -55,7 +59,7 @@ class StateSyncResult:
     best_checkpoint_path: Path
 
 
-def _run_live_rho_and_cache_manifest(instance: str, output_dir: Path) -> tuple[Path, list, float]:
+def _run_live_rho_and_cache_manifest(instance: str, output_dir: Path) -> tuple[Path, dict, float]:
     """
     Solves RHO once for this instance (RHO doesn't depend on the actor's weights, so this is
     never repeated across epochs). Returns three things:
@@ -74,7 +78,10 @@ def _run_live_rho_and_cache_manifest(instance: str, output_dir: Path) -> tuple[P
     setup_loggers(config.OUTPUT_DIR)
     set_seed(config.SEED, config.DEBUG)
     # mode="offline" = the plain rolling-horizon solver (no ML) - this IS RHO.
-    pipeline = COAMLPipeline(config, cleared_payload, imitation_solution_path=input_path)
+    # 2026-09-27 (see chat): record RHO's driver_runs after every iteration - state sync must
+    # use RHO's state AT each timestamp, not its final manifest (which leaked RHO's later
+    # assignments into the actor as already-active requests -> infeasible ILP).
+    pipeline = COAMLPipeline(config, cleared_payload, imitation_solution_path=input_path, record_driver_runs_snapshots=True)
     driver_runs = pipeline.solve_pdptw(cleared_payload, mode="offline")
     rho_rate = _instance_service_rate(config, cleared_payload, driver_runs)
 
@@ -86,11 +93,12 @@ def _run_live_rho_and_cache_manifest(instance: str, output_dir: Path) -> tuple[P
     }
     rho_manifest_path = rho_out_dir / "rho_manifest.json"
     save_json(rho_manifest_payload, rho_manifest_path)
-    return rho_manifest_path, driver_runs, rho_rate
+    # 2026-09-27: second return value is now the per-timestamp snapshots, not final driver_runs.
+    return rho_manifest_path, pipeline.driver_runs_snapshots, rho_rate
 
 
 def _train_one_instance(
-    instance: str, model: torch.nn.Module | None, optimizer, rho_manifest_path: Path, rho_driver_runs: list,
+    instance: str, model: torch.nn.Module | None, optimizer, rho_manifest_path: Path, rho_driver_runs: dict,
     output_dir: Path, epoch: int,
 ):
     """
@@ -114,7 +122,7 @@ def _train_one_instance(
         imitation_solution_path=rho_manifest_path,
         rho_state_sync_manifest=rho_driver_runs,
     )
-    if model is None:
+    if model is None and INIT_FROM_SIL_CHECKPOINT:
         pipeline.load_model_weights(ACTOR_CHECKPOINT)
     if optimizer is None:
         optimizer = torch.optim.Adam(pipeline.model.parameters(), lr=ACTOR_LR)
@@ -140,7 +148,7 @@ def run(output_dir: Path) -> StateSyncResult:
 
     print(f"=== Caching live RHO baselines (bi{RHO_BATCH_INTERVAL}/ss{RHO_STEP_SIZE}) for {len(TRAIN_INSTANCES)} train instances ===")
     rho_manifest_path_by_instance: dict[str, Path] = {}
-    rho_driver_runs_by_instance: dict[str, list] = {}
+    rho_driver_runs_by_instance: dict[str, dict] = {}
     for instance in TRAIN_INSTANCES:
         manifest_path, driver_runs, rho_rate = _run_live_rho_and_cache_manifest(instance, output_dir)
         rho_manifest_path_by_instance[instance] = manifest_path
@@ -202,5 +210,7 @@ def run(output_dir: Path) -> StateSyncResult:
 
 
 if __name__ == "__main__":
-    result = run(REPO_ROOT / "outputs" / "srl_behavior_cloning_state_sync_rho600")
+    # 2026-09-27: separate output dir per init mode (never overwrite the SIL-init run's checkpoint).
+    out_name = "srl_behavior_cloning_state_sync_rho600" if INIT_FROM_SIL_CHECKPOINT else "srl_behavior_cloning_state_sync_rho600_scratch"
+    result = run(REPO_ROOT / "outputs" / out_name)
     print(f"=== DONE: best_epoch={result.best_epoch} best_val_service_rate={result.best_val_service_rate:.4f} ===")

@@ -9,6 +9,7 @@ target construction, train/val loop) is unchanged from srl_behavior_cloning_vs_r
 """
 from __future__ import annotations
 
+import os
 import random
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,14 +44,22 @@ from rtv_solver.util.logger import setup_loggers
 # Actor: shorter horizon (bi200/ss100). RHO: longer horizon (bi400/ss100) - RHO is meant to
 # have more information than the actor; state sync (below) is what keeps this asymmetry from
 # causing the actor's own state to drift away from RHO's.
-ACTOR_BATCH_INTERVAL = 200
-ACTOR_STEP_SIZE = 100
-RHO_BATCH_INTERVAL = 400
-RHO_STEP_SIZE = 100
-SEED = 42
+# 2026-10-01 (see chat): overridable via env vars (ACTOR_BI, ACTOR_SS, RHO_BI, RHO_SS, SEED) for cluster jobs,
+# e.g. actor step_size=10/batch_interval=20 vs RHO step_size=10/batch_interval=40/60/80. Defaults = previous values.
+ACTOR_BATCH_INTERVAL = int(os.environ.get("ACTOR_BI", 200))
+ACTOR_STEP_SIZE = int(os.environ.get("ACTOR_SS", 100))
+RHO_BATCH_INTERVAL = int(os.environ.get("RHO_BI", 400))
+RHO_STEP_SIZE = int(os.environ.get("RHO_SS", 100))
+SEED = int(os.environ.get("SEED", 42))
+CONFIG_OVERRIDDEN = any(k in os.environ for k in ("ACTOR_BI", "ACTOR_SS", "RHO_BI", "RHO_SS", "SEED"))
 ACTOR_LR = 1e-4
 EPOCHS = 20
 VAL_EVERY_N_EPOCHS = 5
+# 2026-09-27 (see chat): actor starts from random init (seed-reproducible via set_seed before the
+# model is built), NOT from the SIL checkpoint - the actor should learn ONLY from RHO. The SIL
+# checkpoint was pre-trained on Li&Lim optimal solutions (a second teacher) and on 4 of today's
+# VAL_INSTANCES (lc202, lr202, lrc102, lrc202). Set True to restore the old behavior.
+INIT_FROM_SIL_CHECKPOINT = False
 
 
 @dataclass
@@ -60,7 +69,7 @@ class StateSyncResult:
     best_checkpoint_path: Path
 
 
-def _run_live_rho_and_cache_manifest(instance: str, output_dir: Path) -> tuple[Path, list, float]:
+def _run_live_rho_and_cache_manifest(instance: str, output_dir: Path) -> tuple[Path, dict, float]:
     """
     Solves RHO once for this instance (RHO doesn't depend on the actor's weights, so this is
     never repeated across epochs). Returns three things:
@@ -79,7 +88,10 @@ def _run_live_rho_and_cache_manifest(instance: str, output_dir: Path) -> tuple[P
     setup_loggers(config.OUTPUT_DIR)
     set_seed(config.SEED, config.DEBUG)
     # mode="offline" = the plain rolling-horizon solver (no ML) - this IS RHO.
-    pipeline = COAMLPipeline(config, cleared_payload, imitation_solution_path=input_path)
+    # 2026-09-27 (see chat): record RHO's driver_runs after every iteration - state sync must
+    # use RHO's state AT each timestamp, not its final manifest (which leaked RHO's later
+    # assignments into the actor as already-active requests -> infeasible ILP).
+    pipeline = COAMLPipeline(config, cleared_payload, imitation_solution_path=input_path, record_driver_runs_snapshots=True)
     driver_runs = pipeline.solve_pdptw(cleared_payload, mode="offline")
     rho_rate = _instance_service_rate(config, cleared_payload, driver_runs)
 
@@ -91,11 +103,12 @@ def _run_live_rho_and_cache_manifest(instance: str, output_dir: Path) -> tuple[P
     }
     rho_manifest_path = rho_out_dir / "rho_manifest.json"
     save_json(rho_manifest_payload, rho_manifest_path)
-    return rho_manifest_path, driver_runs, rho_rate
+    # 2026-09-27: second return value is now the per-timestamp snapshots, not final driver_runs.
+    return rho_manifest_path, pipeline.driver_runs_snapshots, rho_rate
 
 
 def _train_one_instance(
-    instance: str, model: torch.nn.Module | None, optimizer, rho_manifest_path: Path, rho_driver_runs: list,
+    instance: str, model: torch.nn.Module | None, optimizer, rho_manifest_path: Path, rho_driver_runs: dict,
     output_dir: Path, epoch: int,
 ):
     """
@@ -127,7 +140,7 @@ def _train_one_instance(
     # model is None only on the very first call (first instance, first epoch) - loads the SIL
     # checkpoint as the actor's starting point. Every later call reuses the SAME model object,
     # so weights keep accumulating training across instances and epochs, never reset.
-    if model is None:
+    if model is None and INIT_FROM_SIL_CHECKPOINT:
         pipeline.load_model_weights(ACTOR_CHECKPOINT)
     if optimizer is None:
         optimizer = torch.optim.Adam(pipeline.model.parameters(), lr=ACTOR_LR)
@@ -159,9 +172,15 @@ def run(output_dir: Path) -> StateSyncResult:
     # since RHO's solution never depends on the actor's (changing) weights.
     print(f"=== Caching live RHO baselines (bi{RHO_BATCH_INTERVAL}/ss{RHO_STEP_SIZE}) for {len(TRAIN_INSTANCES)} train instances ===")
     rho_manifest_path_by_instance: dict[str, Path] = {}
-    rho_driver_runs_by_instance: dict[str, list] = {}
+    rho_driver_runs_by_instance: dict[str, dict] = {}
     for instance in TRAIN_INSTANCES:
-        manifest_path, driver_runs, rho_rate = _run_live_rho_and_cache_manifest(instance, output_dir)
+        # 2026-10-01 (see chat): RHO itself can hit an infeasible ILP at small step sizes (3/180 instance
+        # runs at step_size=10) - skip that instance for the whole training instead of killing the job.
+        try:
+            manifest_path, driver_runs, rho_rate = _run_live_rho_and_cache_manifest(instance, output_dir)
+        except (InfeasibleAssignmentError, ManifestConsistencyError) as e:
+            print(f"[state_sync_loop] RHO caching: SKIPPING {instance} for the whole run - {e}")
+            continue
         rho_manifest_path_by_instance[instance] = manifest_path
         rho_driver_runs_by_instance[instance] = driver_runs
         print(f"  {instance}: rho_service_rate={rho_rate:.4f}")
@@ -176,7 +195,8 @@ def run(output_dir: Path) -> StateSyncResult:
 
     # Stage 2: epoch loop - one epoch = one shuffled pass over all 38 train instances.
     for epoch in range(1, EPOCHS + 1):
-        shuffled = TRAIN_INSTANCES.copy()
+        # 2026-10-01: only instances with a cached RHO baseline (see RHO caching skip above)
+        shuffled = [i for i in TRAIN_INSTANCES if i in rho_manifest_path_by_instance]
         rng.shuffle(shuffled)
 
         epoch_losses = []
@@ -207,8 +227,8 @@ def run(output_dir: Path) -> StateSyncResult:
         # Stage 3: validation, every VAL_EVERY_N_EPOCHS epochs (and always on the last epoch).
         if epoch % VAL_EVERY_N_EPOCHS == 0 or epoch == EPOCHS:
             config_template = Config(OUTPUT_DIR=output_dir, BATCH_INTERVAL=ACTOR_BATCH_INTERVAL, STEP_SIZE=ACTOR_STEP_SIZE, SEED=SEED)
-            val_rates = _per_instance_service_rates(VAL_INSTANCES, model, config_template, output_dir, epoch, tag="val")
-            overfit_rates = _per_instance_service_rates(OVERFIT_CHECK_INSTANCES, model, config_template, output_dir, epoch, tag="overfit_check")
+            val_rates = _per_instance_service_rates(VAL_INSTANCES, model, config_template, output_dir, epoch, tag="val", keep_active=True)  # 2026-10-01: same commitment rule as training
+            overfit_rates = _per_instance_service_rates(OVERFIT_CHECK_INSTANCES, model, config_template, output_dir, epoch, tag="overfit_check", keep_active=True)
             val_rate = sum(val_rates.values()) / max(len(val_rates), 1)
             overfit_rate = sum(overfit_rates.values()) / max(len(overfit_rates), 1)
             val_curve.append({"epoch": epoch, "service_rate": val_rate, "per_instance": val_rates})
@@ -232,5 +252,11 @@ def run(output_dir: Path) -> StateSyncResult:
 
 
 if __name__ == "__main__":
-    result = run(REPO_ROOT / "outputs" / "srl_behavior_cloning_state_sync_loop")
+    # 2026-09-27: separate output dir per init mode, so a from-scratch run never overwrites the
+    # SIL-initialized run's best_actor_checkpoint.pt.
+    out_name = "srl_behavior_cloning_state_sync_loop" if INIT_FROM_SIL_CHECKPOINT else "srl_behavior_cloning_state_sync_scratch"
+    if CONFIG_OVERRIDDEN:  # 2026-10-01: config in the dir name so parallel cluster jobs never share an output dir
+        out_name += f"_actor_bi{ACTOR_BATCH_INTERVAL}_ss{ACTOR_STEP_SIZE}_rho_bi{RHO_BATCH_INTERVAL}_ss{RHO_STEP_SIZE}_seed{SEED}"
+    print(f"=== config: actor bi{ACTOR_BATCH_INTERVAL}/ss{ACTOR_STEP_SIZE}, RHO bi{RHO_BATCH_INTERVAL}/ss{RHO_STEP_SIZE}, seed {SEED}, out={out_name} ===")
+    result = run(REPO_ROOT / "outputs" / out_name)
     print(f"=== DONE: best_epoch={result.best_epoch} best_val_service_rate={result.best_val_service_rate:.4f} ===")

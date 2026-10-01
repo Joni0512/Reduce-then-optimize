@@ -51,6 +51,7 @@ _feat_builder_module.FeatureBuilder.FEATURE_SIZE = (
 
 from rtv_solver.coaml_pipeline import COAMLPipeline
 from rtv_solver.pipeline.co_base import InfeasibleAssignmentError
+from rtv_solver.online_rtv_solver import ManifestConsistencyError  # 2026-10-01: caught in _per_instance_service_rates
 from rtv_solver.handlers.payload_parser import PayloadParser
 from rtv_solver.handlers.stats_parser import StatsParser
 from rtv_solver.handlers.request_handler import RequestHandler
@@ -99,6 +100,7 @@ def _instance_service_rate(config: Config, cleared_payload: dict, driver_runs: l
 def _per_instance_service_rates(
     instances: list[str], model: torch.nn.Module, config_template: Config,
     output_dir: Path, epoch_num: int, tag: str,
+    keep_active: bool = False,
 ) -> dict[str, float]:
     """Returns {instance: service_rate} - caller decides how to aggregate."""
     rates: dict[str, float] = {}
@@ -119,12 +121,18 @@ def _per_instance_service_rates(
             # never built to actually keep active requests (see coaml_pipeline.py's own TODO at
             # the "currently KEEP_ACTIVE does not work in COAML" comment) - explicit False here
             # just disables an assertion the code can't satisfy, see chat.
-            KEEP_ACTIVE=False,
+            # 2026-10-01 (see chat): keep_active param (default False = unchanged behavior for all existing
+            # callers). Behavior-cloning scripts pass True so validation uses the same commitment rule as
+            # training/RHO - KEEP_ACTIVE DOES change the ILP (active_req constraints + 100x penalty in
+            # co_tripCostMinimization.py / co_scoreMaximization.py), contrary to the note above.
+            KEEP_ACTIVE=keep_active,
         )
         pipeline = COAMLPipeline(config, cleared_payload, model=model, imitation_solution_path=input_path)
         try:
             driver_runs = pipeline.solve_pdptw(cleared_payload, mode="eval")
-        except InfeasibleAssignmentError as e:
+        except (InfeasibleAssignmentError, ManifestConsistencyError) as e:
+            # 2026-10-01: ManifestConsistencyError added (only reachable with keep_active=True) so one
+            # instance can't kill a multi-day cluster job; skipped like an infeasible ILP (see chat).
             # 2026-09-15: see InfeasibleAssignmentError's docstring (co_base.py) -
             # skip this instance's validation rate rather than crashing the
             # whole epoch loop over one rare, instance-specific ILP conflict.
