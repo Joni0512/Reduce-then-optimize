@@ -11,6 +11,7 @@ from rtv_solver.structure.trip import Trip
 from rtv_solver.structure.trip_cost import TripCost
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
+from rtv_solver.util.gurobi_env import start_gurobi_env
 import logging
 
 console_logger = logging.getLogger(BASIC_LOGGER)
@@ -72,9 +73,9 @@ class CO_ScoreMaximization(CO):
 
         console_logger.debug("Started building optimization problem")
         # setup Integer Linear Program 
-        with gp.Env(empty=True) as env:
-            env.setParam('OutputFlag', 0)
-            env.start()
+        # 2026-10-05: start_gurobi_env() retries on token-server outages instead of letting
+        # env.start() kill the whole run (see rtv_solver/util/gurobi_env.py); same env otherwise.
+        with start_gurobi_env() as env:
             model = gp.Model('RTV assignment - Service rate + Minimum distance', env=env)
             model.Params.OutputFlag = 0
 

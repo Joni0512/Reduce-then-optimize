@@ -14,6 +14,7 @@ from rtv_solver.schema.payload_keys import PayloadKeys
 from rtv_solver.structure.node import Node
 from rtv_solver.structure.vehicle_stop import VehicleStop
 from rtv_solver.structure.config import Config
+from rtv_solver.util.gurobi_env import start_gurobi_env
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
 import logging
@@ -170,9 +171,9 @@ class SwapHandler:
         selected_options = []
         console_logger.debug("Number of manifest options: {0}".format(no_options))
         console_logger.debug("Started building optimization problem")
-        with gp.Env(empty=True) as env:
-            env.setParam('OutputFlag', 0)
-            env.start()
+        # 2026-10-05: start_gurobi_env() retries on token-server outages instead of letting
+        # env.start() kill the whole run (see rtv_solver/util/gurobi_env.py); same env otherwise.
+        with start_gurobi_env() as env:
             m = gp.Model('Swap assignment',env=env)
             var_type = GRB.BINARY
             trip_costs = np.zeros(no_options)
