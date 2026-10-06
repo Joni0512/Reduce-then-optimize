@@ -10,7 +10,7 @@ actor_lr is scanned at 1x/2x/4x/8x the old baseline 0.0031923396291543868).
 
 Writes result.json (incl. val_curve/overfit_curve) like the cm4 trial; run_id encodes
 epochs/actor_lr/seed. Usage (local or cluster):
-./venv/bin/python3 -m rtv_solver.pipeline.srl_buffered_actor_lr_trial <actor_lr> <seed> [epochs=20]
+./venv/bin/python3 -m rtv_solver.pipeline.srl_buffered_actor_lr_trial <actor_lr> <seed> [epochs=20] [critic_lr=baseline]
 """
 import json
 import sys
@@ -53,13 +53,18 @@ def main() -> None:
     actor_lr = float(sys.argv[1])
     seed = int(sys.argv[2])
     epochs = int(sys.argv[3]) if len(sys.argv) > 3 else 20
+    # 2026-10-06: optional 4th arg critic_lr (default = baseline CRITIC_LR, run_id unchanged then) -
+    # used to rerun the critic_lr=0.001 config that collapsed in the old architecture (see chat).
+    critic_lr = float(sys.argv[4]) if len(sys.argv) > 4 else CRITIC_LR
     actor_lr_tag = str(actor_lr).replace(".", "p")
     run_id = f"buf_ep{epochs}_ps_alr{actor_lr_tag}_s{seed}"
+    if critic_lr != CRITIC_LR:
+        run_id += f"_clr{str(critic_lr).replace('.', 'p')}"
     output_dir = REPO_ROOT / "outputs" / "srl_training_sweep" / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
-    print(f"=== srl_buffered_actor_lr_trial {run_id}: actor_lr={actor_lr} critic_lr={CRITIC_LR} actor_update_mode={ACTOR_UPDATE_MODE} actor_batch_size={ACTOR_BATCH_SIZE} seed={seed} epochs={epochs} (+{CRITIC_PRETRAIN_EPOCHS} critic pretrain) batch_interval={BATCH_INTERVAL} step_size={STEP_SIZE} pickup_slack=True feature_size={_feat_builder_module.FeatureBuilder.FEATURE_SIZE} ===")
+    print(f"=== srl_buffered_actor_lr_trial {run_id}: actor_lr={actor_lr} critic_lr={critic_lr} actor_update_mode={ACTOR_UPDATE_MODE} actor_batch_size={ACTOR_BATCH_SIZE} seed={seed} epochs={epochs} (+{CRITIC_PRETRAIN_EPOCHS} critic pretrain) batch_interval={BATCH_INTERVAL} step_size={STEP_SIZE} pickup_slack=True feature_size={_feat_builder_module.FeatureBuilder.FEATURE_SIZE} ===")
     try:
-        _run(run_id, actor_lr, seed, epochs, output_dir)
+        _run(run_id, actor_lr, critic_lr, seed, epochs, output_dir)
     except Exception:
         crash_path = output_dir / "crash_traceback.txt"
         with open(crash_path, "w") as f:
@@ -68,9 +73,9 @@ def main() -> None:
         raise
 
 
-def _run(run_id: str, actor_lr: float, seed: int, epochs: int, output_dir: Path) -> None:
+def _run(run_id: str, actor_lr: float, critic_lr: float, seed: int, epochs: int, output_dir: Path) -> None:
     result = run_srl_training_loop(
-        reward_mode=REWARD_MODE, actor_lr=actor_lr, critic_lr=CRITIC_LR,
+        reward_mode=REWARD_MODE, actor_lr=actor_lr, critic_lr=critic_lr,
         output_dir=output_dir, actor_checkpoint=ACTOR_CHECKPOINT,
         gamma=GAMMA, tau=TAU, epochs=epochs, val_every_n_epochs=VAL_EVERY_N_EPOCHS,
         critic_pretrain_epochs=CRITIC_PRETRAIN_EPOCHS,
@@ -90,7 +95,7 @@ def _run(run_id: str, actor_lr: float, seed: int, epochs: int, output_dir: Path)
     result_path = output_dir / "result.json"
     with open(result_path, "w") as f:
         json.dump({
-            "run_id": run_id, "actor_lr": actor_lr, "critic_lr": CRITIC_LR, "seed": seed,
+            "run_id": run_id, "actor_lr": actor_lr, "critic_lr": critic_lr, "seed": seed,
             "actor_update_mode": ACTOR_UPDATE_MODE, "actor_batch_size": ACTOR_BATCH_SIZE,
             "epochs": epochs, "critic_pretrain_epochs": CRITIC_PRETRAIN_EPOCHS,
             "batch_interval": BATCH_INTERVAL, "step_size": STEP_SIZE, "pickup_slack": True,
