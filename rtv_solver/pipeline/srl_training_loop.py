@@ -30,6 +30,7 @@ from __future__ import annotations
 import copy
 import csv
 import random
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -57,6 +58,7 @@ from rtv_solver.handlers.stats_parser import StatsParser
 from rtv_solver.handlers.request_handler import RequestHandler
 from rtv_solver.pipeline.critic_gnn import CriticGNN
 from rtv_solver.pipeline.replay_buffer import ReplayBuffer
+from rtv_solver.pipeline.actor_transition_buffer import ActorTransitionBuffer  # 2026-10-06
 from rtv_solver.pipeline.srl_train_val_test_split import (
     TRAIN_INSTANCES, VAL_INSTANCES, OVERFIT_CHECK_INSTANCES,
 )
@@ -151,6 +153,43 @@ def _pooled_service_rate(
     return sum(rates.values()) / len(rates)
 
 
+def _run_actor_update_phase(
+    actor_buffer: ActorTransitionBuffer,
+    model: torch.nn.Module,
+    actor_optimizer: torch.optim.Optimizer,
+    batch_size: int,
+    rng: random.Random,
+) -> tuple[list[float], list[float]]:
+    """
+    2026-10-06: update phase of the "collect, then update" actor scheme (see chat,
+    project_srl_minibatch_update_plan). Random permutation of all buffered windows
+    (each exactly once), batches of batch_size; per batch: loss per window recomputed
+    with the CURRENT actor + target critics (compute_srl_actor_loss_for_transition),
+    mean over the batch's windows, one clipped Adam step. Critics are read-only here.
+    The mean is realized by accumulating loss/len(batch) per window (FenchelYoungLoss
+    only supports one instance at a time), which equals the gradient of the batch mean.
+    Returns (per-batch mean losses, actor weight norm after each step).
+    """
+    batch_losses: list[float] = []
+    weight_norms: list[float] = []
+    for batch in actor_buffer.epoch_batches(batch_size, rng):
+        actor_optimizer.zero_grad(set_to_none=True)
+        batch_loss = 0.0
+        for transition in batch:
+            # all instance pipelines of a run share ONE actor object; re-pointing guards the
+            # rare case where a pipeline was built before the shared model existed.
+            transition.pipeline.model = model
+            loss = transition.pipeline.compute_srl_actor_loss_for_transition(transition)
+            (loss / len(batch)).backward()
+            batch_loss += loss.item() / len(batch)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        actor_optimizer.step()
+        with torch.no_grad():
+            weight_norms.append(torch.sqrt(sum(p.pow(2).sum() for p in model.parameters())).item())
+        batch_losses.append(batch_loss)
+    return batch_losses, weight_norms
+
+
 def run_srl_training_loop(
     reward_mode: str,
     actor_lr: float,
@@ -178,8 +217,22 @@ def run_srl_training_loop(
     gat_num_heads: int = 4,
     num_message_passing_layers: int = 2,
     weight_norm_trace: list[dict] | None = None,
+    actor_update_mode: str = "per_window",
+    actor_batch_size: int = 16,
+    actor_buffer_capacity: int | None = None,
 ) -> SRLTrainingLoopResult:
     """
+    2026-10-06: added `actor_update_mode` (see chat, "collect, then update"):
+    - "per_window" (default): the ORIGINAL scheme, completely unchanged - one actor
+      gradient step per rolling-horizon window while the instances are played.
+    - "buffered": per epoch, phase A plays all train instances with the actor frozen
+      (windows are stored in an ActorTransitionBuffer, no actor step; critic training/
+      Polyak as before), phase B shuffles the stored windows and updates the actor in
+      batches of `actor_batch_size` (mean loss per batch, one step per batch, critics
+      read-only). `actor_buffer_capacity=None` clears the buffer after every epoch
+      (exactly one epoch of windows); an int keeps the newest N windows across epochs
+      (FIFO ring, not yet used in any experiment).
+
     2026-09-24: added `use_twin_critic` (see chat) - TD3-style second,
     independently-initialized CriticGNN (same aggregator as the first,
     matching TD3's own same-architecture-different-init design). When True,
@@ -209,6 +262,9 @@ def run_srl_training_loop(
     """
     if reward_mode not in ("local", "local_positive"):
         raise ValueError(f"Expected reward_mode in ('local', 'local_positive'), got {reward_mode!r}")
+    if actor_update_mode not in ("per_window", "buffered"):
+        raise ValueError(f"Expected actor_update_mode in ('per_window', 'buffered'), got {actor_update_mode!r}")
+    buffered = actor_update_mode == "buffered"
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -278,6 +334,7 @@ def run_srl_training_loop(
     # copied from the now-pretrained critic2.
     target_critic2 = copy.deepcopy(critic2) if use_twin_critic else None
     replay_buffer = ReplayBuffer(capacity=replay_capacity)
+    actor_buffer = ActorTransitionBuffer(capacity=actor_buffer_capacity) if buffered else None  # 2026-10-06
 
     best_val_service_rate = -1.0
     best_epoch = -1
@@ -289,6 +346,7 @@ def run_srl_training_loop(
         epoch_num = epoch + 1
         shuffled_train_instances = TRAIN_INSTANCES.copy()
         rng.shuffle(shuffled_train_instances)
+        collect_start = time.perf_counter()
 
         for instance in shuffled_train_instances:
             input_path = MANIFEST_DIR / f"{instance}.json"
@@ -319,6 +377,7 @@ def run_srl_training_loop(
                 replay_buffer=replay_buffer, replay_batch_size=replay_batch_size,
                 replay_update_group_size=replay_update_group_size,
                 critic_target_mode="td_bootstrap", gamma=gamma,
+                actor_transition_buffer=actor_buffer,  # 2026-10-06: None in per_window mode = old behavior
             )
             if model is None:
                 pipeline.load_model_weights(actor_checkpoint)
@@ -326,7 +385,9 @@ def run_srl_training_loop(
                 actor_optimizer = torch.optim.Adam(pipeline.model.parameters(), lr=actor_lr)
 
             try:
-                pipeline.solve_pdptw(cleared_payload, mode="srl", optimizer=actor_optimizer, train_critic=True, reward_mode=reward_mode)
+                # 2026-10-06: buffered mode passes optimizer=None - the actor must not step during the
+                # rollout (windows are only stored); per_window passes the real optimizer as before.
+                pipeline.solve_pdptw(cleared_payload, mode="srl", optimizer=None if buffered else actor_optimizer, train_critic=True, reward_mode=reward_mode)
             except InfeasibleAssignmentError as e:
                 # 2026-09-15: see InfeasibleAssignmentError's docstring
                 # (co_base.py) - a structural trip-generation gap, not a bug
@@ -338,6 +399,25 @@ def run_srl_training_loop(
             model = pipeline.model  # carry actor weights forward
             if weight_norm_trace is not None:
                 weight_norm_trace.append({"epoch": epoch_num, "instance": instance, "norms": pipeline.weight_norm_history})
+
+        if buffered:
+            # 2026-10-06: phase B of "collect, then update". Partial instances (skipped after an
+            # InfeasibleAssignmentError) keep the windows stored before the failure.
+            collect_s = time.perf_counter() - collect_start
+            update_start = time.perf_counter()
+            num_windows = len(actor_buffer)
+            if num_windows > 0 and model is not None:
+                batch_losses, weight_norms = _run_actor_update_phase(actor_buffer, model, actor_optimizer, actor_batch_size, rng)
+                if weight_norm_trace is not None:
+                    weight_norm_trace.append({"epoch": epoch_num, "instance": "actor_update_phase", "norms": weight_norms})
+                print(
+                    f"[srl_training_loop reward_mode={reward_mode}] epoch {epoch_num}: actor update phase - "
+                    f"{num_windows} windows, {len(batch_losses)} batches of <= {actor_batch_size}, "
+                    f"mean batch loss {sum(batch_losses) / len(batch_losses):.4f}, "
+                    f"collect {collect_s:.0f}s, update {time.perf_counter() - update_start:.0f}s"
+                )
+            if actor_buffer_capacity is None:
+                actor_buffer.clear()  # exactly one epoch of windows, see run_srl_training_loop's docstring
 
         print(f"[srl_training_loop reward_mode={reward_mode}] epoch {epoch_num}/{epochs} training done")
 

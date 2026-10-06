@@ -23,6 +23,7 @@ from rtv_solver.structure.assignment_result import AssignmentResult
 
 from rtv_solver.pipeline import CO, CO_ScoreMaximization, CO_TripCostMinimization, CO_RebalancingCoverage, FeatureBuilder, build_feature_builder
 from rtv_solver.pipeline import FenchelYoungLoss, make_map_oracle, ScoringMLP
+from rtv_solver.pipeline.actor_transition_buffer import ActorTransition, ActorTransitionBuffer  # 2026-10-06
 from rtv_solver.pipeline.candidate_scoring_gnn import build_scoring_model, CandidateConflictGraphBuilder
 # 2026-08-14: critic (SRL Phase 2) building blocks - all optional, only used
 # when a critic model is actually passed into COAMLPipeline.__init__.
@@ -99,6 +100,7 @@ class COAMLPipeline():
             outcome_advantage_sigma: float | None = None,
             rho_state_sync_manifest: "dict[float, list] | None" = None,
             record_driver_runs_snapshots: bool = False,
+            actor_transition_buffer: "ActorTransitionBuffer | None" = None,
         ):
         """
         Initialize the COAML pipeline solver.
@@ -107,6 +109,14 @@ class COAMLPipeline():
             - config: Config object
             - offline_payload: Offline payload object in order to calculate feature normalization values and get structure of feature matrix
             - imitation_solution_path: Path to the file containing the optimal solution (same file the pipeline runs on). If None, ImitationHandler falls back to config.IMITATION_SOLUTION_FILE.
+            - actor_transition_buffer: 2026-10-06 (see chat, "collect, then update").
+              OPT-IN, only used with mode="srl". If given, solve_iteration() does NOT
+              compute the actor loss inline; it stores a snapshot of the window in this
+              buffer (ActorTransition) and leaves last_loss=None, so no actor step
+              happens during the rollout. The caller later computes the loss per stored
+              window via compute_srl_actor_loss_for_transition() with the then-current
+              weights. None (default) keeps the original per-window actor update
+              completely unchanged.
             - critic: optional CriticGNN (SRL Phase 2). Passed in from outside (like
               `model`) so its weights persist and keep learning across episodes,
               instead of being rebuilt from scratch every time a COAMLPipeline is
@@ -258,6 +268,8 @@ class COAMLPipeline():
         self.record_driver_runs_snapshots = record_driver_runs_snapshots
         self.driver_runs_snapshots: dict[float, list] = {}
         self.replay_buffer = replay_buffer
+        # 2026-10-06: see __init__ docstring - None = old inline per-window actor loss.
+        self.actor_transition_buffer = actor_transition_buffer
         self.replay_batch_size = replay_batch_size
         self.replay_update_group_size = replay_update_group_size
         self.critic_use_route_clique = critic_use_route_clique
@@ -1414,19 +1426,46 @@ class COAMLPipeline():
                 if mode == "srl":
                     if self.critic is None:
                         raise ValueError("mode='srl' requires a critic (COAMLPipeline(..., critic=...)) - there is no Q to build a softmax target action from otherwise.")
-                    self._compute_srl_actor_loss(
-                        theta=feature_scores_with_reject,
-                        trip_costs=trip_costs,
-                        vehicles=vehicle_handler.vehicles,
-                        active_requests=active_requests,
-                        requests=trip_handler.requests,
-                        current_time=payload_object.current_time,
-                        single_trip_map=single_trip_map,
-                        trip_list=trip_list,
-                        vehicle_to_trips_cost_map=vehicle_to_trips_cost_map,
-                        trip_to_vehicle_cost_map=trip_to_vehicle_cost_map,
-                        reject_vehicle_ids=reject_vehicle_ids,
-                    )
+                    if self.actor_transition_buffer is not None:
+                        # 2026-10-06: "collect, then update" - store a snapshot of this
+                        # window instead of computing the loss now (see __init__ docstring).
+                        # One deepcopy call over all structural objects so shared references
+                        # (trip_costs <-> requests ...) stay shared; needed because vehicles/
+                        # trips are mutated by apply_trip_insertion further down in this method.
+                        (snap_trip_costs, snap_trip_list, snap_single_trip_map, snap_v2t, snap_t2v,
+                         snap_requests, snap_vehicles, snap_active) = copy.deepcopy((
+                            trip_costs, trip_list, single_trip_map, vehicle_to_trips_cost_map,
+                            trip_to_vehicle_cost_map, trip_handler.requests,
+                            vehicle_handler.vehicles, active_requests,
+                        ))
+                        self.actor_transition_buffer.add(ActorTransition(
+                            pipeline=self,
+                            feature_tensor=feature_tensor_with_reject.detach().clone(),
+                            reject_vehicle_ids=list(reject_vehicle_ids),
+                            trip_costs=snap_trip_costs,
+                            trip_list=snap_trip_list,
+                            single_trip_map=snap_single_trip_map,
+                            vehicle_to_trips_cost_map=snap_v2t,
+                            trip_to_vehicle_cost_map=snap_t2v,
+                            requests=snap_requests,
+                            vehicles=snap_vehicles,
+                            active_requests=snap_active,
+                            current_time=payload_object.current_time,
+                        ))
+                    else:
+                        self._compute_srl_actor_loss(
+                            theta=feature_scores_with_reject,
+                            trip_costs=trip_costs,
+                            vehicles=vehicle_handler.vehicles,
+                            active_requests=active_requests,
+                            requests=trip_handler.requests,
+                            current_time=payload_object.current_time,
+                            single_trip_map=single_trip_map,
+                            trip_list=trip_list,
+                            vehicle_to_trips_cost_map=vehicle_to_trips_cost_map,
+                            trip_to_vehicle_cost_map=trip_to_vehicle_cost_map,
+                            reject_vehicle_ids=reject_vehicle_ids,
+                        )
                 else:
                     # 2026-07-16: pass trip_handler.requests separately from request_batch -
                     # see _compute_fy_loss_from_optimal_solution's docstring for why it needs
@@ -1444,7 +1483,9 @@ class COAMLPipeline():
                         active_requests,
                         reject_vehicle_ids,
                     )
-                loss_tracked = True
+                # 2026-10-06: collect-only windows (actor_transition_buffer set) have no loss
+                # yet -> loss_tracked stays False so last_loss=None and no actor step happens.
+                loss_tracked = not (mode == "srl" and self.actor_transition_buffer is not None)
 
             if self.config.REBALANCING:
                 rebalancing_optimizer = CO_RebalancingCoverage(self.config)
@@ -1783,6 +1824,34 @@ class COAMLPipeline():
         )
         self.last_loss = self.fy_loss(theta, target_action, actor_update_oracle)
         console_logger.info(f"SRL actor FY loss computed: {self.last_loss.item():.4f}")
+
+    def compute_srl_actor_loss_for_transition(self, transition: "ActorTransition") -> torch.Tensor:
+        """
+        2026-10-06: update-phase counterpart of the collect branch in solve_iteration()
+        ("collect, then update", see chat). Recomputes theta with the CURRENT actor weights
+        (self.model is the same shared object across all instance pipelines of a run) and
+        then calls the unchanged _compute_srl_actor_loss(), so the loss math (m perturbed
+        candidates -> target-critic Q -> softmax target action -> Fenchel-Young loss) is
+        identical to the old inline path - only WHEN it runs differs. Must be called on
+        the pipeline that collected the transition (transition.pipeline), because that
+        pipeline owns the per-instance feature/match builders and config.
+        Returns the scalar loss (also stored in self.last_loss); caller does backward().
+        """
+        theta = self._score(transition.feature_tensor, transition.trip_costs, transition.reject_vehicle_ids)
+        self._compute_srl_actor_loss(
+            theta=theta,
+            trip_costs=transition.trip_costs,
+            vehicles=transition.vehicles,
+            active_requests=transition.active_requests,
+            requests=transition.requests,
+            current_time=transition.current_time,
+            single_trip_map=transition.single_trip_map,
+            trip_list=transition.trip_list,
+            vehicle_to_trips_cost_map=transition.vehicle_to_trips_cost_map,
+            trip_to_vehicle_cost_map=transition.trip_to_vehicle_cost_map,
+            reject_vehicle_ids=transition.reject_vehicle_ids,
+        )
+        return self.last_loss
 
     def _log_assignment_status(self, result: AssignmentResult, unserved_requests: set[int], current_time: float):
         assignment_status = {PayloadKeys.STATS_ASSIGNED: result.request_assignment, 
