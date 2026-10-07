@@ -21,7 +21,7 @@ import time
 
 from rtv_solver.coaml_pipeline import COAMLPipeline
 from rtv_solver.handlers.payload_parser import PayloadParser
-from rtv_solver.pipeline.srl_train_val_test_split import VAL_INSTANCES
+from rtv_solver.pipeline.srl_train_val_test_split import TRAIN_INSTANCES, VAL_INSTANCES
 from rtv_solver.pipeline.srl_training_loop import REPO_ROOT, MANIFEST_DIR, _instance_service_rate
 from rtv_solver.structure.config import Config
 from rtv_solver.util.helper import set_seed
@@ -36,13 +36,19 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--keep_active", type=lambda s: s.lower() == "true", default=True)
     ap.add_argument("--runs", type=int, nargs="+", default=[1], help="run indices, e.g. 2 3 4 5")
+    # 2026-10-07: --split train runs the 38 TRAIN_INSTANCES to check whether the horizon pattern seen on the
+    # 9 VAL_INSTANCES also holds there; default "val" keeps earlier calls and output paths unchanged.
+    ap.add_argument("--split", choices=["val", "train"], default="val")
     a = ap.parse_args()
     cfg_name = f"bi{a.batch_interval}_ss{a.step_size}_card{a.cardinality}_keepactive{a.keep_active}_seed{a.seed}"
+    instances = TRAIN_INSTANCES if a.split == "train" else VAL_INSTANCES  # 2026-10-07: see --split
+    if a.split == "train":
+        cfg_name += "_train"
     tag = f"[rho bi={a.batch_interval} ss={a.step_size} card={a.cardinality} seed={a.seed}"
     for run in a.runs:
         run_dir = REPO_ROOT / "outputs" / "rho_val_runs" / cfg_name / f"run{run}"
         rates, failed, times, t_run = {}, {}, {}, time.time()
-        for instance in VAL_INSTANCES:
+        for instance in instances:
             t0 = time.time()
             input_path = MANIFEST_DIR / f"{instance}.json"
             cleared = PayloadParser.clear_vehicle_manifests(PayloadParser.load_input_data(input_path))
@@ -61,7 +67,7 @@ def main() -> None:
                 failed[instance] = f"{type(e).__name__}: {e}"
                 print(f"{tag} run={run}] {instance}: FAILED {failed[instance]}", flush=True)
         mean = sum(rates.values()) / max(len(rates), 1)
-        print(f"{tag} run={run}] MEAN over {len(rates)} VAL_INSTANCES = {mean:.4f} (total {time.time() - t_run:.1f}s)", flush=True)
+        print(f"{tag} run={run}] MEAN over {len(rates)} {a.split.upper()}_INSTANCES = {mean:.4f} (total {time.time() - t_run:.1f}s)", flush=True)
         run_dir.mkdir(parents=True, exist_ok=True)
         with open(run_dir / "summary.json", "w") as f:
             json.dump(dict(config=vars(a), run=run, rates=rates, failed=failed, seconds=times, mean=mean), f, indent=1)
