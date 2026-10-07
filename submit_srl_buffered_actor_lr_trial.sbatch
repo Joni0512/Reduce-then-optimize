@@ -19,4 +19,4 @@
 cd "$SLURM_SUBMIT_DIR" || exit 1
 export GRB_LICENSE_FILE="$HOME/.gurobi/gurobi.lic"
 
-./venv/bin/python3 -u -m rtv_solver.pipeline.srl_buffered_actor_lr_trial "$ACTOR_LR" "${SEED:-42}" "${EPOCHS:-20}"
+./venv/bin/python3 -u -m rtv_solver.pipeline.srl_buffered_actor_lr_trial "$ACTOR_LR" "${SEED:-42}" "${EPOCHS:-20}" ${CRITIC_LR:+"$CRITIC_LR"}  # 2026-10-07: optional CRITIC_LR (wandb sweep)

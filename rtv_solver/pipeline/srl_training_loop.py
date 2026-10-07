@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import copy
 import csv
+import json
 import random
 import time
 from dataclasses import dataclass
@@ -438,6 +439,16 @@ def run_srl_training_loop(
                 best_val_service_rate = val_rate
                 best_epoch = epoch_num
                 torch.save({"model_state_dict": model.state_dict()}, best_checkpoint_path)
+
+            # 2026-10-07: partial results after EVERY validation (see chat, wandb sweep) - result.json is only
+            # written by the trial scripts after the whole run, so a crash/24h timeout at epoch 18 used to lose
+            # the already measured val curve. Extra file only, no influence on training.
+            with open(output_dir / "partial_val_curve.json", "w") as f:
+                json.dump({
+                    "last_epoch": epoch_num, "epochs": epochs,
+                    "best_epoch": best_epoch, "best_val_service_rate": best_val_service_rate,
+                    "val_curve": val_curve, "overfit_curve": overfit_curve,
+                }, f, indent=2)
 
     # 2026-09-13: reload the best-val checkpoint into the live model before
     # returning - training_loop.py's SIL loop was found to skip this (code

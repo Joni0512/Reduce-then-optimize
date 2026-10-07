@@ -13,6 +13,7 @@ epochs/actor_lr/seed. Usage (local or cluster):
 ./venv/bin/python3 -m rtv_solver.pipeline.srl_buffered_actor_lr_trial <actor_lr> <seed> [epochs=20] [critic_lr=baseline]
 """
 import json
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -60,6 +61,9 @@ def main() -> None:
     run_id = f"buf_ep{epochs}_ps_alr{actor_lr_tag}_s{seed}"
     if critic_lr != CRITIC_LR:
         run_id += f"_clr{str(critic_lr).replace('.', 'p')}"
+    # 2026-10-07: SRL_RUN_ID env var (set by the wandb sweep coordinator, see srl_buffered_sweep_coordinator.py)
+    # overrides the derived run_id so the coordinator knows the output dir; unset = unchanged behavior.
+    run_id = os.environ.get("SRL_RUN_ID") or run_id
     output_dir = REPO_ROOT / "outputs" / "srl_training_sweep" / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"=== srl_buffered_actor_lr_trial {run_id}: actor_lr={actor_lr} critic_lr={critic_lr} actor_update_mode={ACTOR_UPDATE_MODE} actor_batch_size={ACTOR_BATCH_SIZE} seed={seed} epochs={epochs} (+{CRITIC_PRETRAIN_EPOCHS} critic pretrain) batch_interval={BATCH_INTERVAL} step_size={STEP_SIZE} pickup_slack=True feature_size={_feat_builder_module.FeatureBuilder.FEATURE_SIZE} ===")
