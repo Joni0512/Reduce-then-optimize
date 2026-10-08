@@ -39,11 +39,16 @@ def main() -> None:
     # 2026-10-07: --split train runs the 38 TRAIN_INSTANCES to check whether the horizon pattern seen on the
     # 9 VAL_INSTANCES also holds there; default "val" keeps earlier calls and output paths unchanged.
     ap.add_argument("--split", choices=["val", "train"], default="val")
+    # 2026-10-07: urgency test - rejection penalty x factor for requests expiring before the next step
+    # (Config.URGENT_PENALTY_FACTOR); default 1 keeps earlier calls and output paths unchanged.
+    ap.add_argument("--urgent_penalty_factor", type=int, default=1)
     a = ap.parse_args()
     cfg_name = f"bi{a.batch_interval}_ss{a.step_size}_card{a.cardinality}_keepactive{a.keep_active}_seed{a.seed}"
     instances = TRAIN_INSTANCES if a.split == "train" else VAL_INSTANCES  # 2026-10-07: see --split
     if a.split == "train":
         cfg_name += "_train"
+    if a.urgent_penalty_factor != 1:
+        cfg_name += f"_urgent{a.urgent_penalty_factor}"
     tag = f"[rho bi={a.batch_interval} ss={a.step_size} card={a.cardinality} seed={a.seed}"
     for run in a.runs:
         run_dir = REPO_ROOT / "outputs" / "rho_val_runs" / cfg_name / f"run{run}"
@@ -55,7 +60,8 @@ def main() -> None:
             out_dir = run_dir / instance
             out_dir.mkdir(parents=True, exist_ok=True)
             config = Config(OUTPUT_DIR=out_dir, MODE="coaml", BATCH_INTERVAL=a.batch_interval, STEP_SIZE=a.step_size,
-                            SEED=a.seed, MAX_CARDINALITY=a.cardinality, KEEP_ACTIVE=a.keep_active)
+                            SEED=a.seed, MAX_CARDINALITY=a.cardinality, KEEP_ACTIVE=a.keep_active,
+                            URGENT_PENALTY_FACTOR=a.urgent_penalty_factor)
             setup_loggers(config.OUTPUT_DIR)
             set_seed(config.SEED, config.DEBUG)
             try:

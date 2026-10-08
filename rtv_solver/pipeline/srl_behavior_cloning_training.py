@@ -51,7 +51,15 @@ ACTOR_STEP_SIZE = int(os.environ.get("ACTOR_SS", 100))
 RHO_BATCH_INTERVAL = int(os.environ.get("RHO_BI", 400))
 RHO_STEP_SIZE = int(os.environ.get("RHO_SS", 100))
 SEED = int(os.environ.get("SEED", 42))
-CONFIG_OVERRIDDEN = any(k in os.environ for k in ("ACTOR_BI", "ACTOR_SS", "RHO_BI", "RHO_SS", "SEED"))
+# 2026-10-08 (see chat): teacher variant from the urgency-penalty study - RHO with KEEP_ACTIVE=False and/or
+# URGENT_PENALTY_FACTOR (rejection penalty x factor for requests expiring before the next step); the actor's
+# TRAINING keep_active is separately settable (False avoids conflicting targets when the teacher revokes
+# commitments that are still active in its per-step snapshot). Validation stays keep_active=True. Defaults = previous.
+RHO_KEEP_ACTIVE = os.environ.get("RHO_KEEP_ACTIVE", "True").lower() == "true"
+RHO_URGENT_FACTOR = int(os.environ.get("RHO_URGENT_FACTOR", 1))
+ACTOR_KEEP_ACTIVE = os.environ.get("ACTOR_KEEP_ACTIVE", "True").lower() == "true"
+TEACHER_VARIANT = not RHO_KEEP_ACTIVE or RHO_URGENT_FACTOR != 1 or not ACTOR_KEEP_ACTIVE
+CONFIG_OVERRIDDEN = any(k in os.environ for k in ("ACTOR_BI", "ACTOR_SS", "RHO_BI", "RHO_SS", "SEED")) or TEACHER_VARIANT
 ACTOR_LR = 1e-4
 EPOCHS = 20
 VAL_EVERY_N_EPOCHS = 5
@@ -84,7 +92,8 @@ def _run_live_rho_and_cache_manifest(instance: str, output_dir: Path) -> tuple[P
     cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
     rho_out_dir = output_dir / "rho_baseline" / instance
     rho_out_dir.mkdir(parents=True, exist_ok=True)
-    config = Config(OUTPUT_DIR=rho_out_dir, MODE="coaml", BATCH_INTERVAL=RHO_BATCH_INTERVAL, STEP_SIZE=RHO_STEP_SIZE, SEED=SEED)
+    config = Config(OUTPUT_DIR=rho_out_dir, MODE="coaml", BATCH_INTERVAL=RHO_BATCH_INTERVAL, STEP_SIZE=RHO_STEP_SIZE, SEED=SEED,
+                    KEEP_ACTIVE=RHO_KEEP_ACTIVE, URGENT_PENALTY_FACTOR=RHO_URGENT_FACTOR)  # 2026-10-08: teacher variant
     setup_loggers(config.OUTPUT_DIR)
     set_seed(config.SEED, config.DEBUG)
     # mode="offline" = the plain rolling-horizon solver (no ML) - this IS RHO.
@@ -123,7 +132,8 @@ def _train_one_instance(
     cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
     train_out_dir = output_dir / "train" / f"epoch_{epoch}" / instance
     train_out_dir.mkdir(parents=True, exist_ok=True)
-    config = Config(OUTPUT_DIR=train_out_dir, MODE="coaml", BATCH_INTERVAL=ACTOR_BATCH_INTERVAL, STEP_SIZE=ACTOR_STEP_SIZE, SEED=SEED, IMITATION_SCORING_RULE="exponential_prefix")
+    config = Config(OUTPUT_DIR=train_out_dir, MODE="coaml", BATCH_INTERVAL=ACTOR_BATCH_INTERVAL, STEP_SIZE=ACTOR_STEP_SIZE, SEED=SEED, IMITATION_SCORING_RULE="exponential_prefix",
+                    KEEP_ACTIVE=ACTOR_KEEP_ACTIVE)  # 2026-10-08: actor training keep_active (see top)
     setup_loggers(config.OUTPUT_DIR)
     set_seed(config.SEED, config.DEBUG)
 
@@ -257,6 +267,8 @@ if __name__ == "__main__":
     out_name = "srl_behavior_cloning_state_sync_loop" if INIT_FROM_SIL_CHECKPOINT else "srl_behavior_cloning_state_sync_scratch"
     if CONFIG_OVERRIDDEN:  # 2026-10-01: config in the dir name so parallel cluster jobs never share an output dir
         out_name += f"_actor_bi{ACTOR_BATCH_INTERVAL}_ss{ACTOR_STEP_SIZE}_rho_bi{RHO_BATCH_INTERVAL}_ss{RHO_STEP_SIZE}_seed{SEED}"
-    print(f"=== config: actor bi{ACTOR_BATCH_INTERVAL}/ss{ACTOR_STEP_SIZE}, RHO bi{RHO_BATCH_INTERVAL}/ss{RHO_STEP_SIZE}, seed {SEED}, out={out_name} ===")
+    if TEACHER_VARIANT:  # 2026-10-08: teacher/actor keep_active and urgency factor in the dir name
+        out_name += f"_rhoKA{RHO_KEEP_ACTIVE}_rhoF{RHO_URGENT_FACTOR}_actorKA{ACTOR_KEEP_ACTIVE}"
+    print(f"=== config: actor bi{ACTOR_BATCH_INTERVAL}/ss{ACTOR_STEP_SIZE}, RHO bi{RHO_BATCH_INTERVAL}/ss{RHO_STEP_SIZE}, seed {SEED}, RHO keep_active={RHO_KEEP_ACTIVE} urgent_factor={RHO_URGENT_FACTOR}, actor train keep_active={ACTOR_KEEP_ACTIVE}, out={out_name} ===")
     result = run(REPO_ROOT / "outputs" / out_name)
     print(f"=== DONE: best_epoch={result.best_epoch} best_val_service_rate={result.best_val_service_rate:.4f} ===")

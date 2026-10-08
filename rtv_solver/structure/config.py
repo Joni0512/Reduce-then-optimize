@@ -50,6 +50,10 @@ class Config:
     RTV_TIMEOUT: int = 120
     ILP_TIMEOUT: int = 120
     ILP_PENALTY: int = 1_000_000
+    # 2026-10-07: urgency test for the RHO horizon effect - a request whose latest pickup is before
+    # current_time + STEP_SIZE (expires before the next decision) gets priority = this factor, i.e. its
+    # rejection penalty in CO_TripCostMinimization is multiplied by it. 1 = previous behaviour.
+    URGENT_PENALTY_FACTOR: int = 1
     # experiment parameters
     MODE: str = 'offline'
     MAX_CARDINALITY: int = 2

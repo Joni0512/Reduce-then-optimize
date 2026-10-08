@@ -1053,7 +1053,14 @@ class COAMLPipeline():
         payload_object = PayloadParser.get_payload_object(subset_payload, dwell_pickup_default=self.config.DWELL_PICKUP, dwell_alight_default=self.config.DWELL_ALIGHT, online=False)
         request_handler = RequestHandler(payload_object.requests, config=self.config)
         request_batch, active_requests, boarded_requests = request_handler.get_request_batches(payload_object)
-        vehicle_handler = VehicleHandler(payload_object.depot, 
+        # 2026-10-07: urgency test (see Config.URGENT_PENALTY_FACTOR) - requests that expire before the next
+        # decision get a higher rejection penalty via Request.priority (used only in solve_ilp's penalties).
+        # Request objects are rebuilt every iteration, so the mark does not carry over to later steps.
+        if self.config.URGENT_PENALTY_FACTOR != 1:
+            for request in request_batch:
+                if request.latest_pickup_time < payload_object.current_time + self.config.STEP_SIZE:
+                    request.priority = self.config.URGENT_PENALTY_FACTOR
+        vehicle_handler = VehicleHandler(payload_object.depot,
                                          payload_object.driver_runs,
                                          self.config)
         

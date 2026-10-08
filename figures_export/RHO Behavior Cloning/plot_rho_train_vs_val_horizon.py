@@ -46,3 +46,28 @@ fig.text(0.01, 0.005, "* = one train instance failed (infeasible ILP), mean over
 fig.tight_layout(rect=(0, 0.04, 1, 0.9))
 for ext in ("png", "pdf"):
     fig.savefig(here / f"rho_train_vs_val_horizon.{ext}", dpi=200)
+
+# 2026-10-07: 2x2 variant for the SRL meeting deck (the 1x4 figure is too wide for the slide's chart box)
+fig, axes = plt.subplots(2, 2, figsize=(8.2, 4.4), sharey=True)
+for ax, (ss, bis) in zip(axes.flat, cfgs.items()):
+    x = np.arange(len(bis))
+    tv = [train[(ss, b)][0] for b in bis]; vv = [val[ss][b][0] for b in bis]
+    ax.bar(x - w / 2, vv, w, color="#9db8d9", label="val (9 inst., mean of runs)", zorder=2)
+    ax.bar(x + w / 2, tv, w, color="#2a78d6", label="train (38 inst., 1 run)", zorder=2)
+    for xi, b, t in zip(x, bis, tv):
+        ax.text(xi + w / 2, t + 0.004, f"{t:.3f}", ha="center", va="bottom", fontsize=6.5, color=INK,
+                fontweight="bold" if t == max(tv) else None)
+    ax.set_xticks(x, [str(b) for b in bis], fontsize=8)
+    ax.set_title(f"step_size={ss}", loc="left", fontsize=9)
+    ax.yaxis.grid(True, color=GRID, zorder=0); ax.set_axisbelow(True); ax.tick_params(labelsize=8)
+    for sp in ("top", "right"):
+        ax.spines[sp].set_visible(False)
+axes[0, 0].set_ylim(0.55, 0.93)
+for ax in axes[1]:
+    ax.set_xlabel("batch_interval", fontsize=8)
+for ax in axes[:, 0]:
+    ax.set_ylabel("Service rate", fontsize=8)
+axes[1, 1].legend(fontsize=7, loc="upper right")
+fig.tight_layout()
+for ext in ("png", "pdf"):
+    fig.savefig(here / f"rho_train_vs_val_horizon_2x2.{ext}", dpi=220)
