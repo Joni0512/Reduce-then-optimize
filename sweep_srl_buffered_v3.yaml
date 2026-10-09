@@ -1,0 +1,33 @@
+# 2026-10-09 (v3): critic_lr range 0.0008-0.01 (v2: 0.0006-0.003). Reason: the best runs so far used critic_lr 0.0015-0.002, and the SRL paper's tables 6-8
+# use critic lr = actor lr or 2 x actor lr; with actor_lr 0.0015-0.0128 that makes up to ~0.01 plausible (see chat). Below 0.0008 eight finished runs
+# already exist. Independent ranges, so critic_lr > actor_lr happens in ~1/3 of the draws (simulated). actor_lr range, seed, fixed settings, metric
+# identical to sweep_srl_buffered.yaml; a wandb sweep's ranges cannot be edited after creation, hence a new sweep. run_cap 40 incl. failed trials.
+# 2026-10-07: wandb sweep for the buffered ("collect, then update") SRL actor scheme, shared between a local
+# agent (srl_buffered_sweep_local_trial.py) and cluster coordinators (srl_buffered_sweep_coordinator.py).
+# run_cap = trials in total INCLUDING failed ones (wandb stops handing out configs after that).
+# Ranges from the actor_lr scan (x1..x4 of 0.0032 fine, x8 collapsed) and the critic_lr runs (0.001-0.0015 ok).
+# Fixed (in srl_buffered_actor_lr_trial.py): batch 16, buffer = 1 epoch, 10 pretrain + 20 main epochs, gamma 0.99,
+# Polyak tau 0.005, twin critic, no warmstart, pickup_slack, bi200/ss100.
+program: rtv_solver/pipeline/srl_buffered_sweep_local_trial.py
+project: srl-buffered-sweep
+method: random
+run_cap: 40
+metric:
+  name: best_val_service_rate
+  goal: maximize
+parameters:
+  actor_lr:
+    distribution: log_uniform_values
+    min: 0.0015
+    max: 0.0128
+  critic_lr:
+    distribution: log_uniform_values
+    min: 0.0008
+    max: 0.01
+  seed:
+    distribution: int_uniform
+    min: 1
+    max: 10000
+command:
+  - ./venv/bin/python3
+  - ${program}
