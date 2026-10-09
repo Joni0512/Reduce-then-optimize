@@ -1,0 +1,32 @@
+# 2026-10-09 (v2): critic_lr range extended to 0.0006-0.003 (was 0.0006-0.002) because the best runs so far (critic_lr 0.0015-0.002) sit at the
+# upper edge of the old range - see chat. A wandb sweep's parameter ranges cannot be edited after creation, so this is a NEW sweep; actor_lr range,
+# fixed settings and everything else are identical to sweep_srl_buffered.yaml. run_cap 40 so that old sweep (11 trials started) + v2 reach ~50.
+# 2026-10-07: wandb sweep for the buffered ("collect, then update") SRL actor scheme, shared between a local
+# agent (srl_buffered_sweep_local_trial.py) and cluster coordinators (srl_buffered_sweep_coordinator.py).
+# run_cap = trials in total INCLUDING failed ones (wandb stops handing out configs after that).
+# Ranges from the actor_lr scan (x1..x4 of 0.0032 fine, x8 collapsed) and the critic_lr runs (0.001-0.0015 ok).
+# Fixed (in srl_buffered_actor_lr_trial.py): batch 16, buffer = 1 epoch, 10 pretrain + 20 main epochs, gamma 0.99,
+# Polyak tau 0.005, twin critic, no warmstart, pickup_slack, bi200/ss100.
+program: rtv_solver/pipeline/srl_buffered_sweep_local_trial.py
+project: srl-buffered-sweep
+method: random
+run_cap: 40
+metric:
+  name: best_val_service_rate
+  goal: maximize
+parameters:
+  actor_lr:
+    distribution: log_uniform_values
+    min: 0.0015
+    max: 0.0128
+  critic_lr:
+    distribution: log_uniform_values
+    min: 0.0006
+    max: 0.003
+  seed:
+    distribution: int_uniform
+    min: 1
+    max: 10000
+command:
+  - ./venv/bin/python3
+  - ${program}

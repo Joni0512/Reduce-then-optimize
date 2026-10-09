@@ -6,9 +6,11 @@
 # Usage: ./run_srl_buffered_sweep_local.sh
 set -e
 cd "$(dirname "$0")"
-ID_FILE="sweep_srl_buffered_id.txt"
+# 2026-10-09: SWEEP_YAML / SWEEP_ID_FILE env vars select another sweep (v2); defaults keep the original sweep.
+SWEEP_YAML="${SWEEP_YAML:-sweep_srl_buffered.yaml}"
+ID_FILE="${SWEEP_ID_FILE:-sweep_srl_buffered_id.txt}"
 if [ ! -f "$ID_FILE" ]; then
-    ./venv/bin/wandb sweep sweep_srl_buffered.yaml 2>&1 | tee /tmp/sweep_srl_buffered_create.log
+    ./venv/bin/wandb sweep "$SWEEP_YAML" 2>&1 | tee /tmp/sweep_srl_buffered_create.log
     SWEEP_ID=$(grep -oE "[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/[a-z0-9]+$" /tmp/sweep_srl_buffered_create.log | tail -1)
     [ -n "$SWEEP_ID" ] || { echo "could not parse sweep ID, see /tmp/sweep_srl_buffered_create.log" >&2; exit 1; }
     echo "$SWEEP_ID" > "$ID_FILE"
