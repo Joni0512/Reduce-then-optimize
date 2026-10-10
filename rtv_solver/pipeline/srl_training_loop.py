@@ -30,6 +30,7 @@ from __future__ import annotations
 import copy
 import csv
 import json
+import os
 import random
 import time
 from dataclasses import dataclass
@@ -71,6 +72,10 @@ from rtv_solver.pipeline.candidate_scoring_gnn import build_scoring_model
 from rtv_solver.pipeline import select_feature_builder_class
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+# 2026-10-10: multiprocessing pool size of the trip generation (Config.MAX_THREAD_CNT). Default 16 = unchanged behavior. The CPU-scaling benchmark
+# (scripts/benchmark_cpu_scaling.py, serial_std, see chat) showed the pool should match the allocated CPUs: 4 CPUs + pool 4 was ~8 % faster than
+# 16 CPUs + pool 16, while pool 16 on 4 CPUs was ~28 % slower. Set SRL_MAX_THREAD_CNT=4 together with --cpus-per-task=4.
+_MAX_THREAD_CNT = int(os.environ.get("SRL_MAX_THREAD_CNT", "16"))
 MANIFEST_DIR = REPO_ROOT / "solutions" / "li_lim" / "manifests"
 
 
@@ -114,7 +119,7 @@ def _per_instance_service_rates(
         inst_out_dir = output_dir / tag / f"epoch_{epoch_num}" / instance
         inst_out_dir.mkdir(parents=True, exist_ok=True)
         config = Config(
-            OUTPUT_DIR=inst_out_dir, MODE="coaml",
+            MAX_THREAD_CNT=_MAX_THREAD_CNT, OUTPUT_DIR=inst_out_dir, MODE="coaml",
             BATCH_INTERVAL=config_template.BATCH_INTERVAL, STEP_SIZE=config_template.STEP_SIZE,
             SEED=config_template.SEED,
             # 2026-09-30: KEEP_ACTIVE only feeds _check_consistency_of_manifests' post-hoc
@@ -293,7 +298,7 @@ def run_srl_training_loop(
     # random init).
     pretrain_actor_model = None
     if not use_actor_warmstart:
-        config_template = Config(OUTPUT_DIR=output_dir, BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed, KEEP_ACTIVE=False)
+        config_template = Config(MAX_THREAD_CNT=_MAX_THREAD_CNT, OUTPUT_DIR=output_dir, BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed, KEEP_ACTIVE=False)
         active_feature_builder = select_feature_builder_class(config_template)
         pretrain_actor_model = build_scoring_model("mlp", feature_dim=active_feature_builder.FEATURE_SIZE, hidden_dim=64)
 
@@ -305,7 +310,7 @@ def run_srl_training_loop(
             inst_out_dir.mkdir(parents=True, exist_ok=True)
             # KEEP_ACTIVE=False: see the KEEP_ACTIVE comment in _per_instance_service_rates
             # above - only disables a post-hoc assertion, does not affect results.
-            config = Config(OUTPUT_DIR=inst_out_dir, MODE="coaml", BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed, KEEP_ACTIVE=False)
+            config = Config(MAX_THREAD_CNT=_MAX_THREAD_CNT, OUTPUT_DIR=inst_out_dir, MODE="coaml", BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed, KEEP_ACTIVE=False)
             payload = PayloadParser.load_input_data(input_path)
             cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
             pipeline = COAMLPipeline(config, cleared_payload, imitation_solution_path=input_path, critic=critic, critic_optimizer=critic_optimizer, model=pretrain_actor_model)
@@ -316,7 +321,7 @@ def run_srl_training_loop(
             if use_twin_critic:
                 inst_out_dir2 = pretrain_dir / f"{instance}_critic2"
                 inst_out_dir2.mkdir(parents=True, exist_ok=True)
-                config2 = Config(OUTPUT_DIR=inst_out_dir2, MODE="coaml", BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed, KEEP_ACTIVE=False)
+                config2 = Config(MAX_THREAD_CNT=_MAX_THREAD_CNT, OUTPUT_DIR=inst_out_dir2, MODE="coaml", BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed, KEEP_ACTIVE=False)
                 pipeline2 = COAMLPipeline(config2, cleared_payload, imitation_solution_path=input_path, critic=critic2, critic_optimizer=critic_optimizer2, model=pretrain_actor_model)
                 if use_actor_warmstart:
                     pipeline2.load_model_weights(actor_checkpoint)
@@ -353,7 +358,7 @@ def run_srl_training_loop(
             input_path = MANIFEST_DIR / f"{instance}.json"
             inst_out_dir = output_dir / "train" / f"epoch_{epoch_num}" / instance
             inst_out_dir.mkdir(parents=True, exist_ok=True)
-            config = Config(OUTPUT_DIR=inst_out_dir, MODE="coaml", BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed, MAX_CARDINALITY=max_cardinality, KEEP_ACTIVE=False)
+            config = Config(MAX_THREAD_CNT=_MAX_THREAD_CNT, OUTPUT_DIR=inst_out_dir, MODE="coaml", BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed, MAX_CARDINALITY=max_cardinality, KEEP_ACTIVE=False)
             payload = PayloadParser.load_input_data(input_path)
             cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
 
@@ -423,7 +428,7 @@ def run_srl_training_loop(
         print(f"[srl_training_loop reward_mode={reward_mode}] epoch {epoch_num}/{epochs} training done")
 
         if epoch_num % val_every_n_epochs == 0 or epoch_num == epochs:
-            config_template = Config(OUTPUT_DIR=output_dir, BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed, KEEP_ACTIVE=False)
+            config_template = Config(MAX_THREAD_CNT=_MAX_THREAD_CNT, OUTPUT_DIR=output_dir, BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed, KEEP_ACTIVE=False)
             val_rates = _per_instance_service_rates(VAL_INSTANCES, model, config_template, output_dir, epoch_num, tag="val")
             overfit_rates = _per_instance_service_rates(OVERFIT_CHECK_INSTANCES, model, config_template, output_dir, epoch_num, tag="overfit_check")
             # max(..., 1) guards against every instance in a round hitting
