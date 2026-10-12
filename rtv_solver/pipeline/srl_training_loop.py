@@ -226,6 +226,11 @@ def run_srl_training_loop(
     actor_update_mode: str = "per_window",
     actor_batch_size: int = 16,
     actor_buffer_capacity: int | None = None,
+    # 2026-10-12: actor architecture switch (user request: test a GNN actor in the buffered scheme, no SIL warmstart).
+    # Defaults reproduce the old behavior exactly (MLP, hidden 64); only used when use_actor_warmstart=False.
+    actor_model_type: str = "mlp",
+    actor_gnn_layers: int = 2,
+    actor_gnn_aggregator: str = "gcn",
 ) -> SRLTrainingLoopResult:
     """
     2026-10-06: added `actor_update_mode` (see chat, "collect, then update"):
@@ -300,7 +305,10 @@ def run_srl_training_loop(
     if not use_actor_warmstart:
         config_template = Config(MAX_THREAD_CNT=_MAX_THREAD_CNT, OUTPUT_DIR=output_dir, BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed, KEEP_ACTIVE=False)
         active_feature_builder = select_feature_builder_class(config_template)
-        pretrain_actor_model = build_scoring_model("mlp", feature_dim=active_feature_builder.FEATURE_SIZE, hidden_dim=64)
+        # 2026-10-12: model type/layers/aggregator now parameters (defaults = old "mlp", hidden 64); "gnn" gets the candidate
+        # conflict graph automatically via COAMLPipeline._score (model.requires_graph), also in the buffered update phase.
+        pretrain_actor_model = build_scoring_model(actor_model_type, feature_dim=active_feature_builder.FEATURE_SIZE, hidden_dim=64,
+                                                   num_message_passing_layers=actor_gnn_layers, aggregator=actor_gnn_aggregator)
 
     pretrain_dir = output_dir / "critic_pretrain"
     for epoch in range(critic_pretrain_epochs):

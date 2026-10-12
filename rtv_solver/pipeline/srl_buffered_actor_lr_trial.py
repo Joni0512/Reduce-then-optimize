@@ -48,6 +48,10 @@ REWARD_MODE = "local_positive"
 CRITIC_LR = 0.0010833586558285635  # baseline critic_lr of the old-architecture protocol, unchanged
 ACTOR_UPDATE_MODE = "buffered"
 ACTOR_BATCH_SIZE = 16
+# 2026-10-12: optional GNN actor (env vars, defaults = old MLP behavior unchanged); SIL GNN reference was gcn, 2 layers.
+ACTOR_MODEL_TYPE = os.environ.get("SRL_ACTOR_MODEL_TYPE", "mlp")
+ACTOR_GNN_LAYERS = int(os.environ.get("SRL_ACTOR_GNN_LAYERS", "2"))
+ACTOR_GNN_AGGREGATOR = os.environ.get("SRL_ACTOR_GNN_AGGREGATOR", "gcn")
 
 
 def main() -> None:
@@ -66,7 +70,7 @@ def main() -> None:
     run_id = os.environ.get("SRL_RUN_ID") or run_id
     output_dir = REPO_ROOT / "outputs" / "srl_training_sweep" / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
-    print(f"=== srl_buffered_actor_lr_trial {run_id}: actor_lr={actor_lr} critic_lr={critic_lr} actor_update_mode={ACTOR_UPDATE_MODE} actor_batch_size={ACTOR_BATCH_SIZE} seed={seed} epochs={epochs} (+{CRITIC_PRETRAIN_EPOCHS} critic pretrain) batch_interval={BATCH_INTERVAL} step_size={STEP_SIZE} pickup_slack=True feature_size={_feat_builder_module.FeatureBuilder.FEATURE_SIZE} ===")
+    print(f"=== srl_buffered_actor_lr_trial {run_id}: actor_lr={actor_lr} critic_lr={critic_lr} actor_model={ACTOR_MODEL_TYPE}/{ACTOR_GNN_LAYERS}L/{ACTOR_GNN_AGGREGATOR} actor_update_mode={ACTOR_UPDATE_MODE} actor_batch_size={ACTOR_BATCH_SIZE} seed={seed} epochs={epochs} (+{CRITIC_PRETRAIN_EPOCHS} critic pretrain) batch_interval={BATCH_INTERVAL} step_size={STEP_SIZE} pickup_slack=True feature_size={_feat_builder_module.FeatureBuilder.FEATURE_SIZE} ===")
     try:
         _run(run_id, actor_lr, critic_lr, seed, epochs, output_dir)
     except Exception:
@@ -86,11 +90,13 @@ def _run(run_id: str, actor_lr: float, critic_lr: float, seed: int, epochs: int,
         batch_interval=BATCH_INTERVAL, step_size=STEP_SIZE, seed=seed,
         use_twin_critic=True, use_actor_warmstart=False,
         actor_update_mode=ACTOR_UPDATE_MODE, actor_batch_size=ACTOR_BATCH_SIZE,
+        actor_model_type=ACTOR_MODEL_TYPE, actor_gnn_layers=ACTOR_GNN_LAYERS, actor_gnn_aggregator=ACTOR_GNN_AGGREGATOR,
     )
 
     config_template = Config(OUTPUT_DIR=output_dir, BATCH_INTERVAL=BATCH_INTERVAL, STEP_SIZE=STEP_SIZE, SEED=seed)
     active_feature_builder = select_feature_builder_class(config_template)
-    model = build_scoring_model("mlp", feature_dim=active_feature_builder.FEATURE_SIZE, hidden_dim=64)
+    model = build_scoring_model(ACTOR_MODEL_TYPE, feature_dim=active_feature_builder.FEATURE_SIZE, hidden_dim=64,
+                                num_message_passing_layers=ACTOR_GNN_LAYERS, aggregator=ACTOR_GNN_AGGREGATOR)  # 2026-10-12: was hard-coded "mlp"
     checkpoint = torch.load(result.best_checkpoint_path, map_location="cpu")
     model.load_state_dict(checkpoint["model_state_dict"])
 
@@ -101,6 +107,7 @@ def _run(run_id: str, actor_lr: float, critic_lr: float, seed: int, epochs: int,
         json.dump({
             "run_id": run_id, "actor_lr": actor_lr, "critic_lr": critic_lr, "seed": seed,
             "actor_update_mode": ACTOR_UPDATE_MODE, "actor_batch_size": ACTOR_BATCH_SIZE,
+            "actor_model_type": ACTOR_MODEL_TYPE, "actor_gnn_layers": ACTOR_GNN_LAYERS, "actor_gnn_aggregator": ACTOR_GNN_AGGREGATOR,
             "epochs": epochs, "critic_pretrain_epochs": CRITIC_PRETRAIN_EPOCHS,
             "batch_interval": BATCH_INTERVAL, "step_size": STEP_SIZE, "pickup_slack": True,
             "best_epoch": result.best_epoch,
