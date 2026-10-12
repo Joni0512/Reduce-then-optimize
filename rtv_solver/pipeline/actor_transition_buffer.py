@@ -27,8 +27,10 @@ see the post-decision state instead of the state the old inline loss saw.
 """
 from __future__ import annotations
 
+import pickle
 import random
-from dataclasses import dataclass, field
+import zlib
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import torch
@@ -58,16 +60,28 @@ class ActorTransitionBuffer:
     phase, so it holds exactly one epoch of windows ("collect, then update").
     capacity=int: ring buffer, oldest transitions are evicted first (for later
     experiments that keep more than one epoch).
+
+    2026-10-12 (joint buffer, see chat): compress=True stores every transition as zlib-compressed pickle bytes
+    (the live snapshot objects of one epoch are ~3 GB, ten epochs would not fit into memory) and keeps only the
+    COAMLPipeline reference live; items are tagged with `current_epoch` (set by the training loop) so whole epochs can be dropped via
+    drop_epochs_before(). sample_with_replacement() draws independent random windows (decompressed on access).
+    compress=False keeps the original behavior byte for byte.
     """
 
-    def __init__(self, capacity: int | None = None) -> None:
+    def __init__(self, capacity: int | None = None, compress: bool = False) -> None:
         if capacity is not None and capacity < 1:
             raise ValueError(f"capacity must be None or >= 1, got {capacity}")
         self.capacity = capacity
-        self._items: list[ActorTransition] = []
+        self.compress = compress
+        self.current_epoch = 0
+        self._items: list = []  # ActorTransition, or (pipeline, epoch, bytes) tuples when compress=True
 
     def add(self, transition: ActorTransition) -> None:
-        self._items.append(transition)
+        if self.compress:
+            blob = zlib.compress(pickle.dumps(replace(transition, pipeline=None), protocol=pickle.HIGHEST_PROTOCOL), level=1)
+            self._items.append((transition.pipeline, self.current_epoch, blob))
+        else:
+            self._items.append(transition)
         if self.capacity is not None and len(self._items) > self.capacity:
             self._items.pop(0)
 
@@ -76,6 +90,24 @@ class ActorTransitionBuffer:
 
     def __len__(self) -> int:
         return len(self._items)
+
+    def _unpack(self, item) -> ActorTransition:
+        if not self.compress:
+            return item
+        pipeline, _epoch, blob = item
+        return replace(pickle.loads(zlib.decompress(blob)), pipeline=pipeline)
+
+    def drop_epochs_before(self, first_kept_epoch: int) -> int:
+        """compress=True only: remove all windows collected in an epoch < first_kept_epoch. Returns how many were removed."""
+        before = len(self._items)
+        self._items = [it for it in self._items if it[1] >= first_kept_epoch]
+        return before - len(self._items)
+
+    def sample_with_replacement(self, batch_size: int, rng: random.Random) -> list[ActorTransition]:
+        """batch_size independent uniform draws from all stored windows (the same window may appear twice)."""
+        if not self._items:
+            raise ValueError("cannot sample from an empty buffer")
+        return [self._unpack(self._items[rng.randrange(len(self._items))]) for _ in range(batch_size)]
 
     def epoch_batches(self, batch_size: int, rng: random.Random) -> list[list[ActorTransition]]:
         """
@@ -89,6 +121,6 @@ class ActorTransitionBuffer:
         order = list(range(len(self._items)))
         rng.shuffle(order)
         return [
-            [self._items[i] for i in order[start:start + batch_size]]
+            [self._unpack(self._items[i]) for i in order[start:start + batch_size]]
             for start in range(0, len(order), batch_size)
         ]

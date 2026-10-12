@@ -101,6 +101,7 @@ class COAMLPipeline():
             rho_state_sync_manifest: "dict[float, list] | None" = None,
             record_driver_runs_snapshots: bool = False,
             actor_transition_buffer: "ActorTransitionBuffer | None" = None,
+            defer_critic_updates: bool = False,
         ):
         """
         Initialize the COAML pipeline solver.
@@ -270,6 +271,9 @@ class COAMLPipeline():
         self.replay_buffer = replay_buffer
         # 2026-10-06: see __init__ docstring - None = old inline per-window actor loss.
         self.actor_transition_buffer = actor_transition_buffer
+        # 2026-10-12: joint buffer scheme (see srl_training_loop.py, actor_update_mode="buffered_joint"): True = fill the replay buffer at
+        # episode end but skip the inline critic updates (the loop trains the critic later, from the shared buffer). False = unchanged.
+        self.defer_critic_updates = defer_critic_updates
         self.replay_batch_size = replay_batch_size
         self.replay_update_group_size = replay_update_group_size
         self.critic_use_route_clique = critic_use_route_clique
@@ -539,7 +543,7 @@ class COAMLPipeline():
                         self.replay_buffer.add_fixed_target(step, r_t)
 
                 num_new_steps = len(step_return_pairs)
-                num_updates = max(1, -(-num_new_steps // self.replay_update_group_size))  # ceil div
+                num_updates = 0 if self.defer_critic_updates else max(1, -(-num_new_steps // self.replay_update_group_size))  # ceil div; 2026-10-12: 0 when deferred (joint buffer)
 
                 batch_losses = []
                 for _ in range(num_updates):
@@ -593,7 +597,7 @@ class COAMLPipeline():
                             torch.nn.utils.clip_grad_norm_(self.critic2.parameters(), max_norm=1.0)
                             self.critic_optimizer2.step()
 
-                self.last_episode_loss: float = sum(batch_losses) / len(batch_losses)
+                self.last_episode_loss: float = sum(batch_losses) / len(batch_losses) if batch_losses else float("nan")  # 2026-10-12: empty when deferred
             else:
                 # 2026-09-10: td_bootstrap's episode-level build_td_targets()
                 # call moved here (was previously computed unconditionally

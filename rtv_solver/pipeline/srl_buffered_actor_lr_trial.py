@@ -46,7 +46,11 @@ BATCH_INTERVAL = 200
 STEP_SIZE = 100
 REWARD_MODE = "local_positive"
 CRITIC_LR = 0.0010833586558285635  # baseline critic_lr of the old-architecture protocol, unchanged
-ACTOR_UPDATE_MODE = "buffered"
+ACTOR_UPDATE_MODE = os.environ.get("SRL_ACTOR_UPDATE_MODE", "buffered")  # 2026-10-12: "buffered_joint" = shared multi-epoch buffer (see srl_training_loop.py)
+JOINT_BUFFER_EPOCHS = int(os.environ.get("SRL_JOINT_BUFFER_EPOCHS", "10"))
+JOINT_CRITIC_STEPS = int(os.environ.get("SRL_JOINT_CRITIC_STEPS", "7"))
+JOINT_CRITIC_BATCH = int(os.environ.get("SRL_JOINT_CRITIC_BATCH", "12"))
+JOINT_TAU_PER_STEP = float(os.environ.get("SRL_JOINT_TAU", "0.0083"))
 ACTOR_BATCH_SIZE = 16
 # 2026-10-12: optional GNN actor (env vars, defaults = old MLP behavior unchanged); SIL GNN reference was gcn, 2 layers.
 ACTOR_MODEL_TYPE = os.environ.get("SRL_ACTOR_MODEL_TYPE", "mlp")
@@ -90,6 +94,8 @@ def _run(run_id: str, actor_lr: float, critic_lr: float, seed: int, epochs: int,
         batch_interval=BATCH_INTERVAL, step_size=STEP_SIZE, seed=seed,
         use_twin_critic=True, use_actor_warmstart=False,
         actor_update_mode=ACTOR_UPDATE_MODE, actor_batch_size=ACTOR_BATCH_SIZE,
+        joint_buffer_epochs=JOINT_BUFFER_EPOCHS, joint_critic_steps_per_actor_step=JOINT_CRITIC_STEPS,
+        joint_critic_batch_size=JOINT_CRITIC_BATCH, joint_tau_per_step=JOINT_TAU_PER_STEP,
         actor_model_type=ACTOR_MODEL_TYPE, actor_gnn_layers=ACTOR_GNN_LAYERS, actor_gnn_aggregator=ACTOR_GNN_AGGREGATOR,
     )
 
@@ -107,6 +113,8 @@ def _run(run_id: str, actor_lr: float, critic_lr: float, seed: int, epochs: int,
         json.dump({
             "run_id": run_id, "actor_lr": actor_lr, "critic_lr": critic_lr, "seed": seed,
             "actor_update_mode": ACTOR_UPDATE_MODE, "actor_batch_size": ACTOR_BATCH_SIZE,
+            "joint_buffer_epochs": JOINT_BUFFER_EPOCHS, "joint_critic_steps_per_actor_step": JOINT_CRITIC_STEPS,
+            "joint_critic_batch_size": JOINT_CRITIC_BATCH, "joint_tau_per_step": JOINT_TAU_PER_STEP,
             "actor_model_type": ACTOR_MODEL_TYPE, "actor_gnn_layers": ACTOR_GNN_LAYERS, "actor_gnn_aggregator": ACTOR_GNN_AGGREGATOR,
             "epochs": epochs, "critic_pretrain_epochs": CRITIC_PRETRAIN_EPOCHS,
             "batch_interval": BATCH_INTERVAL, "step_size": STEP_SIZE, "pickup_slack": True,

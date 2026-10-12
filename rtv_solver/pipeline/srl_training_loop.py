@@ -60,6 +60,7 @@ from rtv_solver.handlers.stats_parser import StatsParser
 from rtv_solver.handlers.request_handler import RequestHandler
 from rtv_solver.pipeline.critic_gnn import CriticGNN
 from rtv_solver.pipeline.replay_buffer import ReplayBuffer
+from rtv_solver.pipeline.critic_update import critic_td_update_step  # 2026-10-12 (joint buffer)
 from rtv_solver.pipeline.actor_transition_buffer import ActorTransitionBuffer  # 2026-10-06
 from rtv_solver.pipeline.srl_train_val_test_split import (
     TRAIN_INSTANCES, VAL_INSTANCES, OVERFIT_CHECK_INSTANCES,
@@ -196,6 +197,65 @@ def _run_actor_update_phase(
     return batch_losses, weight_norms
 
 
+def _polyak_update(target: torch.nn.Module, live: torch.nn.Module, tau: float) -> None:
+    with torch.no_grad():
+        for target_param, live_param in zip(target.parameters(), live.parameters()):
+            target_param.data.copy_(tau * live_param.data + (1 - tau) * target_param.data)
+
+
+def _run_joint_update_phase(
+    actor_buffer: ActorTransitionBuffer,
+    replay_buffer: ReplayBuffer,
+    model: torch.nn.Module,
+    actor_optimizer: torch.optim.Optimizer,
+    critic, critic_optimizer, target_critic,
+    critic2, critic_optimizer2, target_critic2,
+    num_steps: int,
+    actor_batch_size: int,
+    critic_steps_per_actor_step: int,
+    critic_batch_size: int,
+    tau_per_step: float,
+    gamma: float,
+    rng: random.Random,
+) -> tuple[list[float], list[float], list[float]]:
+    """
+    2026-10-12: update phase of the "buffered_joint" scheme (see chat). num_steps times: (1) draw actor_batch_size windows WITH replacement
+    from the shared multi-epoch actor buffer -> one actor step exactly like _run_actor_update_phase (loss per window recomputed with the
+    CURRENT actor + target critics, mean over the batch, clip 1.0, Adam; critics read-only); (2) critic_steps_per_actor_step critic TD updates
+    (critic_td_update_step) on batches of critic_batch_size entries from the replay buffer; (3) one Polyak step of the target critics with
+    tau_per_step. Returns (actor batch losses, actor weight norms, critic batch losses).
+    """
+    actor_losses: list[float] = []
+    weight_norms: list[float] = []
+    critic_losses: list[float] = []
+    for _ in range(num_steps):
+        batch = actor_buffer.sample_with_replacement(actor_batch_size, rng)
+        actor_optimizer.zero_grad(set_to_none=True)
+        batch_loss = 0.0
+        for transition in batch:
+            transition.pipeline.model = model
+            loss = transition.pipeline.compute_srl_actor_loss_for_transition(transition)
+            (loss / len(batch)).backward()
+            batch_loss += loss.item() / len(batch)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        actor_optimizer.step()
+        with torch.no_grad():
+            weight_norms.append(torch.sqrt(sum(p.pow(2).sum() for p in model.parameters())).item())
+        actor_losses.append(batch_loss)
+
+        for _ in range(critic_steps_per_actor_step):
+            entries = replay_buffer.sample(critic_batch_size)
+            critic_losses.append(critic_td_update_step(
+                entries, critic, critic_optimizer, target_critic, gamma,
+                critic2=critic2, critic_optimizer2=critic_optimizer2, target_critic2=target_critic2,
+            ))
+
+        _polyak_update(target_critic, critic, tau_per_step)
+        if target_critic2 is not None:
+            _polyak_update(target_critic2, critic2, tau_per_step)
+    return actor_losses, weight_norms, critic_losses
+
+
 def run_srl_training_loop(
     reward_mode: str,
     actor_lr: float,
@@ -231,6 +291,12 @@ def run_srl_training_loop(
     actor_model_type: str = "mlp",
     actor_gnn_layers: int = 2,
     actor_gnn_aggregator: str = "gcn",
+    # 2026-10-12: parameters of actor_update_mode="buffered_joint" (ignored in the other modes): shared buffer over joint_buffer_epochs epochs,
+    # actor AND critic update from it after every collection phase - see _run_joint_update_phase.
+    joint_buffer_epochs: int = 10,
+    joint_critic_steps_per_actor_step: int = 7,
+    joint_critic_batch_size: int = 12,
+    joint_tau_per_step: float = 0.0083,
 ) -> SRLTrainingLoopResult:
     """
     2026-10-06: added `actor_update_mode` (see chat, "collect, then update"):
@@ -273,9 +339,10 @@ def run_srl_training_loop(
     """
     if reward_mode not in ("local", "local_positive"):
         raise ValueError(f"Expected reward_mode in ('local', 'local_positive'), got {reward_mode!r}")
-    if actor_update_mode not in ("per_window", "buffered"):
-        raise ValueError(f"Expected actor_update_mode in ('per_window', 'buffered'), got {actor_update_mode!r}")
-    buffered = actor_update_mode == "buffered"
+    if actor_update_mode not in ("per_window", "buffered", "buffered_joint"):
+        raise ValueError(f"Expected actor_update_mode in ('per_window', 'buffered', 'buffered_joint'), got {actor_update_mode!r}")
+    buffered = actor_update_mode in ("buffered", "buffered_joint")  # 2026-10-12: joint also collects with a frozen actor
+    joint = actor_update_mode == "buffered_joint"
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -347,8 +414,9 @@ def run_srl_training_loop(
     # 2026-09-24: twin critic (see chat) - target_critic2 mirrors target_critic,
     # copied from the now-pretrained critic2.
     target_critic2 = copy.deepcopy(critic2) if use_twin_critic else None
-    replay_buffer = ReplayBuffer(capacity=replay_capacity)
-    actor_buffer = ActorTransitionBuffer(capacity=actor_buffer_capacity) if buffered else None  # 2026-10-06
+    # 2026-10-12: joint mode keeps ~joint_buffer_epochs epochs of critic transitions (~370 windows per epoch -> 400 as upper estimate)
+    replay_buffer = ReplayBuffer(capacity=joint_buffer_epochs * 400 if joint else replay_capacity)
+    actor_buffer = ActorTransitionBuffer(capacity=actor_buffer_capacity, compress=joint) if buffered else None  # 2026-10-06; compress: 2026-10-12
 
     best_val_service_rate = -1.0
     best_epoch = -1
@@ -359,6 +427,8 @@ def run_srl_training_loop(
     for epoch in range(epochs):
         epoch_num = epoch + 1
         shuffled_train_instances = TRAIN_INSTANCES.copy()
+        if joint:
+            actor_buffer.current_epoch = epoch_num  # 2026-10-12: tag for drop_epochs_before
         rng.shuffle(shuffled_train_instances)
         collect_start = time.perf_counter()
 
@@ -372,13 +442,15 @@ def run_srl_training_loop(
 
             # 2026-09-10 Polyak target_critic blend (tau fixed, see srl deck) -
             # every instance step, same formula as train_srl_single_instance.py.
+            # 2026-10-12: joint mode does its Polyak steps inside _run_joint_update_phase instead (tau per update step).
             with torch.no_grad():
                 for target_param, live_param in zip(target_critic.parameters(), critic.parameters()):
-                    target_param.data.copy_(tau * live_param.data + (1 - tau) * target_param.data)
+                    if not joint:
+                        target_param.data.copy_(tau * live_param.data + (1 - tau) * target_param.data)
 
             # 2026-09-24: twin critic (see chat) - target_critic2 blended on the
             # exact same schedule/tau as target_critic above.
-            if use_twin_critic:
+            if use_twin_critic and not joint:
                 with torch.no_grad():
                     for target_param, live_param in zip(target_critic2.parameters(), critic2.parameters()):
                         target_param.data.copy_(tau * live_param.data + (1 - tau) * target_param.data)
@@ -392,6 +464,7 @@ def run_srl_training_loop(
                 replay_update_group_size=replay_update_group_size,
                 critic_target_mode="td_bootstrap", gamma=gamma,
                 actor_transition_buffer=actor_buffer,  # 2026-10-06: None in per_window mode = old behavior
+                defer_critic_updates=joint,  # 2026-10-12: joint mode trains the critic in the update phase
             )
             if model is None:
                 pipeline.load_model_weights(actor_checkpoint)
@@ -420,7 +493,27 @@ def run_srl_training_loop(
             collect_s = time.perf_counter() - collect_start
             update_start = time.perf_counter()
             num_windows = len(actor_buffer)
-            if num_windows > 0 and model is not None:
+            if joint and num_windows > 0 and model is not None:
+                # 2026-10-12: joint scheme - same number of actor steps per epoch as "buffered" (windows of THIS epoch / batch size), but
+                # sampled with replacement from the multi-epoch buffer, plus critic updates and Polyak per step.
+                epoch_windows = sum(1 for it in actor_buffer._items if it[1] == epoch_num)
+                num_steps = max(1, -(-epoch_windows // actor_batch_size))
+                batch_losses, weight_norms, critic_losses = _run_joint_update_phase(
+                    actor_buffer, replay_buffer, model, actor_optimizer,
+                    critic, critic_optimizer, target_critic, critic2, critic_optimizer2, target_critic2,
+                    num_steps, actor_batch_size, joint_critic_steps_per_actor_step, joint_critic_batch_size,
+                    joint_tau_per_step, gamma, rng,
+                )
+                if weight_norm_trace is not None:
+                    weight_norm_trace.append({"epoch": epoch_num, "instance": "joint_update_phase", "norms": weight_norms})
+                print(
+                    f"[srl_training_loop reward_mode={reward_mode}] epoch {epoch_num}: joint update phase - "
+                    f"buffer {num_windows} windows (this epoch {epoch_windows}), {num_steps} steps x (1 actor batch of {actor_batch_size} + "
+                    f"{joint_critic_steps_per_actor_step} critic batches of {joint_critic_batch_size}), "
+                    f"mean actor loss {sum(batch_losses) / len(batch_losses):.4f}, mean critic loss {sum(critic_losses) / max(len(critic_losses), 1):.4f}, "
+                    f"collect {collect_s:.0f}s, update {time.perf_counter() - update_start:.0f}s"
+                )
+            elif num_windows > 0 and model is not None:
                 batch_losses, weight_norms = _run_actor_update_phase(actor_buffer, model, actor_optimizer, actor_batch_size, rng)
                 if weight_norm_trace is not None:
                     weight_norm_trace.append({"epoch": epoch_num, "instance": "actor_update_phase", "norms": weight_norms})
@@ -430,7 +523,11 @@ def run_srl_training_loop(
                     f"mean batch loss {sum(batch_losses) / len(batch_losses):.4f}, "
                     f"collect {collect_s:.0f}s, update {time.perf_counter() - update_start:.0f}s"
                 )
-            if actor_buffer_capacity is None:
+            if joint:
+                dropped = actor_buffer.drop_epochs_before(epoch_num - joint_buffer_epochs + 1)  # 2026-10-12: keep the newest joint_buffer_epochs epochs
+                if dropped:
+                    print(f"[srl_training_loop reward_mode={reward_mode}] epoch {epoch_num}: dropped {dropped} windows older than {joint_buffer_epochs} epochs")
+            elif actor_buffer_capacity is None:
                 actor_buffer.clear()  # exactly one epoch of windows, see run_srl_training_loop's docstring
 
         print(f"[srl_training_loop reward_mode={reward_mode}] epoch {epoch_num}/{epochs} training done")
