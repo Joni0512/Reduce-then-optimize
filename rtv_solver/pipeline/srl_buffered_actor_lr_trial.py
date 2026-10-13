@@ -40,8 +40,11 @@ ACTOR_CHECKPOINT = str(list((REPO_ROOT / "outputs/outputs/sil_training_bi200_ss1
 
 VAL_EVERY_N_EPOCHS = 5
 CRITIC_PRETRAIN_EPOCHS = 10
-GAMMA = 0.99
-TAU = 0.005
+# 2026-10-13: ablation sweep - env vars override the fixed values (defaults unchanged): discount gamma, Polyak rate, Perturb-and-MAP sigma, number of candidates.
+GAMMA = float(os.environ.get("SRL_GAMMA", "0.99"))
+TAU = float(os.environ.get("SRL_POLYAK_TAU", "0.005"))
+SIGMA = float(os.environ.get("SRL_SIGMA", "0.2"))
+NUM_SAMPLES = int(os.environ.get("SRL_NUM_SAMPLES", "20"))
 BATCH_INTERVAL = 200
 STEP_SIZE = 100
 REWARD_MODE = "local_positive"
@@ -74,7 +77,7 @@ def main() -> None:
     run_id = os.environ.get("SRL_RUN_ID") or run_id
     output_dir = REPO_ROOT / "outputs" / "srl_training_sweep" / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
-    print(f"=== srl_buffered_actor_lr_trial {run_id}: actor_lr={actor_lr} critic_lr={critic_lr} actor_model={ACTOR_MODEL_TYPE}/{ACTOR_GNN_LAYERS}L/{ACTOR_GNN_AGGREGATOR} actor_update_mode={ACTOR_UPDATE_MODE} actor_batch_size={ACTOR_BATCH_SIZE} seed={seed} epochs={epochs} (+{CRITIC_PRETRAIN_EPOCHS} critic pretrain) batch_interval={BATCH_INTERVAL} step_size={STEP_SIZE} pickup_slack=True feature_size={_feat_builder_module.FeatureBuilder.FEATURE_SIZE} ===")
+    print(f"=== srl_buffered_actor_lr_trial {run_id}: actor_lr={actor_lr} critic_lr={critic_lr} gamma={GAMMA} polyak_tau={TAU} sigma={SIGMA} num_samples={NUM_SAMPLES} actor_model={ACTOR_MODEL_TYPE}/{ACTOR_GNN_LAYERS}L/{ACTOR_GNN_AGGREGATOR} actor_update_mode={ACTOR_UPDATE_MODE} actor_batch_size={ACTOR_BATCH_SIZE} seed={seed} epochs={epochs} (+{CRITIC_PRETRAIN_EPOCHS} critic pretrain) batch_interval={BATCH_INTERVAL} step_size={STEP_SIZE} pickup_slack=True feature_size={_feat_builder_module.FeatureBuilder.FEATURE_SIZE} ===")
     try:
         _run(run_id, actor_lr, critic_lr, seed, epochs, output_dir)
     except Exception:
@@ -89,7 +92,7 @@ def _run(run_id: str, actor_lr: float, critic_lr: float, seed: int, epochs: int,
     result = run_srl_training_loop(
         reward_mode=REWARD_MODE, actor_lr=actor_lr, critic_lr=critic_lr,
         output_dir=output_dir, actor_checkpoint=ACTOR_CHECKPOINT,
-        gamma=GAMMA, tau=TAU, epochs=epochs, val_every_n_epochs=VAL_EVERY_N_EPOCHS,
+        gamma=GAMMA, tau=TAU, sigma=SIGMA, num_samples=NUM_SAMPLES, epochs=epochs, val_every_n_epochs=VAL_EVERY_N_EPOCHS,
         critic_pretrain_epochs=CRITIC_PRETRAIN_EPOCHS,
         batch_interval=BATCH_INTERVAL, step_size=STEP_SIZE, seed=seed,
         use_twin_critic=True, use_actor_warmstart=False,
@@ -115,6 +118,7 @@ def _run(run_id: str, actor_lr: float, critic_lr: float, seed: int, epochs: int,
             "actor_update_mode": ACTOR_UPDATE_MODE, "actor_batch_size": ACTOR_BATCH_SIZE,
             "joint_buffer_epochs": JOINT_BUFFER_EPOCHS, "joint_critic_steps_per_actor_step": JOINT_CRITIC_STEPS,
             "joint_critic_batch_size": JOINT_CRITIC_BATCH, "joint_tau_per_step": JOINT_TAU_PER_STEP,
+            "gamma": GAMMA, "polyak_tau": TAU, "sigma": SIGMA, "num_samples": NUM_SAMPLES,
             "actor_model_type": ACTOR_MODEL_TYPE, "actor_gnn_layers": ACTOR_GNN_LAYERS, "actor_gnn_aggregator": ACTOR_GNN_AGGREGATOR,
             "epochs": epochs, "critic_pretrain_epochs": CRITIC_PRETRAIN_EPOCHS,
             "batch_interval": BATCH_INTERVAL, "step_size": STEP_SIZE, "pickup_slack": True,

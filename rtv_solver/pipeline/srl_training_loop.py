@@ -297,6 +297,10 @@ def run_srl_training_loop(
     joint_critic_steps_per_actor_step: int = 7,
     joint_critic_batch_size: int = 12,
     joint_tau_per_step: float = 0.0083,
+    # 2026-10-13: Perturb-and-MAP noise sigma and number of candidates for the SRL actor loss (ablation sweep, see chat). Defaults = Config's own
+    # defaults (SIGMA 0.2, NUM_SAMPLES 20), so all earlier runs are unchanged. Only the training Config of the main epoch loop needs them (pretrain/validation never sample).
+    sigma: float = 0.2,
+    num_samples: int = 20,
 ) -> SRLTrainingLoopResult:
     """
     2026-10-06: added `actor_update_mode` (see chat, "collect, then update"):
@@ -436,7 +440,7 @@ def run_srl_training_loop(
             input_path = MANIFEST_DIR / f"{instance}.json"
             inst_out_dir = output_dir / "train" / f"epoch_{epoch_num}" / instance
             inst_out_dir.mkdir(parents=True, exist_ok=True)
-            config = Config(MAX_THREAD_CNT=_MAX_THREAD_CNT, OUTPUT_DIR=inst_out_dir, MODE="coaml", BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed, MAX_CARDINALITY=max_cardinality, KEEP_ACTIVE=False)
+            config = Config(MAX_THREAD_CNT=_MAX_THREAD_CNT, OUTPUT_DIR=inst_out_dir, MODE="coaml", BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed, MAX_CARDINALITY=max_cardinality, KEEP_ACTIVE=False, SIGMA=sigma, NUM_SAMPLES=num_samples)  # 2026-10-13: sigma/num_samples (ablation)
             payload = PayloadParser.load_input_data(input_path)
             cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
 
