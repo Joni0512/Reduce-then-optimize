@@ -102,6 +102,8 @@ class COAMLPipeline():
             record_driver_runs_snapshots: bool = False,
             actor_transition_buffer: "ActorTransitionBuffer | None" = None,
             defer_critic_updates: bool = False,
+            actor_clip_norm: float = 1.0,
+            critic_clip_norm: float = 1.0,
         ):
         """
         Initialize the COAML pipeline solver.
@@ -274,6 +276,9 @@ class COAMLPipeline():
         # 2026-10-12: joint buffer scheme (see srl_training_loop.py, actor_update_mode="buffered_joint"): True = fill the replay buffer at
         # episode end but skip the inline critic updates (the loop trains the critic later, from the shared buffer). False = unchanged.
         self.defer_critic_updates = defer_critic_updates
+        # 2026-10-15: gradient-clipping thresholds (clip_grad_norm_ max_norm) of the inline actor (per_window mode) and critic updates; defaults 1.0 = the original hard-coded value (ablation, see chat).
+        self.actor_clip_norm = actor_clip_norm
+        self.critic_clip_norm = critic_clip_norm
         self.replay_batch_size = replay_batch_size
         self.replay_update_group_size = replay_update_group_size
         self.critic_use_route_clique = critic_use_route_clique
@@ -416,7 +421,7 @@ class COAMLPipeline():
                     # value-clip threshold - their network scale (Dense(14=>1))
                     # differs from ours, so 1e-3 isn't directly transferable;
                     # 1.0 is a common general-purpose default, not re-tuned yet.
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.actor_clip_norm)
                     optimizer.step()
                     # 2026-10-01: see weight_norm_history's docstring in __init__ - logged right
                     # after step() so it reflects the post-update weights.
@@ -577,7 +582,7 @@ class COAMLPipeline():
                     if train_critic:
                         self.critic_optimizer.zero_grad(set_to_none=True)
                         batch_loss.backward()
-                        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
+                        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=self.critic_clip_norm)
                         self.critic_optimizer.step()
 
                     # 2026-09-24: twin critic (see chat/__init__ docstring) - critic2
@@ -594,7 +599,7 @@ class COAMLPipeline():
                         if train_critic:
                             self.critic_optimizer2.zero_grad(set_to_none=True)
                             batch_loss2.backward()
-                            torch.nn.utils.clip_grad_norm_(self.critic2.parameters(), max_norm=1.0)
+                            torch.nn.utils.clip_grad_norm_(self.critic2.parameters(), max_norm=self.critic_clip_norm)
                             self.critic_optimizer2.step()
 
                 self.last_episode_loss: float = sum(batch_losses) / len(batch_losses) if batch_losses else float("nan")  # 2026-10-12: empty when deferred
@@ -648,7 +653,7 @@ class COAMLPipeline():
                     # 2026-08-25: gradient clipping, same reasoning as the actor's
                     # clip_grad_norm_ above (see chat) - reference SRL
                     # implementation clips both actor and critic gradients.
-                    torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
+                    torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=self.critic_clip_norm)
                     self.critic_optimizer.step()
 
                 # 2026-09-24: twin critic (see chat/__init__ docstring) - critic2
@@ -664,7 +669,7 @@ class COAMLPipeline():
                     if train_critic:
                         self.critic_optimizer2.zero_grad(set_to_none=True)
                         total_loss2.backward()
-                        torch.nn.utils.clip_grad_norm_(self.critic2.parameters(), max_norm=1.0)
+                        torch.nn.utils.clip_grad_norm_(self.critic2.parameters(), max_norm=self.critic_clip_norm)
                         self.critic_optimizer2.step()
 
                 # Option B (not used, left as reference): one optimizer step per

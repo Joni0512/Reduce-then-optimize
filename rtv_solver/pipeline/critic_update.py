@@ -23,6 +23,7 @@ def critic_td_update_step(
     critic2: torch.nn.Module | None = None,
     critic_optimizer2: torch.optim.Optimizer | None = None,
     target_critic2: torch.nn.Module | None = None,
+    max_norm: float = 1.0,  # 2026-10-15: gradient-clipping threshold (default = original 1.0)
 ) -> float:
     """One critic update on `entries` (ReplayEntry list, td_bootstrap mode). Returns the batch loss of critic 1."""
     batch_q_preds = [
@@ -39,7 +40,7 @@ def critic_td_update_step(
     batch_loss = torch.stack([F.mse_loss(q, t) for q, t in zip(batch_q_preds, batch_targets)]).mean()
     critic_optimizer.zero_grad(set_to_none=True)
     batch_loss.backward()
-    torch.nn.utils.clip_grad_norm_(critic.parameters(), max_norm=1.0)
+    torch.nn.utils.clip_grad_norm_(critic.parameters(), max_norm=max_norm)
     critic_optimizer.step()
 
     if critic2 is not None:
@@ -50,6 +51,6 @@ def critic_td_update_step(
         batch_loss2 = torch.stack([F.mse_loss(q, t) for q, t in zip(batch_q_preds2, batch_targets)]).mean()
         critic_optimizer2.zero_grad(set_to_none=True)
         batch_loss2.backward()
-        torch.nn.utils.clip_grad_norm_(critic2.parameters(), max_norm=1.0)
+        torch.nn.utils.clip_grad_norm_(critic2.parameters(), max_norm=max_norm)
         critic_optimizer2.step()
     return batch_loss.item()

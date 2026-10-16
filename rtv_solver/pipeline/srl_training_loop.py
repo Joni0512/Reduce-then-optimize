@@ -166,8 +166,11 @@ def _run_actor_update_phase(
     actor_optimizer: torch.optim.Optimizer,
     batch_size: int,
     rng: random.Random,
+    grad_norms: list[float] | None = None,
+    max_norm: float = 1.0,  # 2026-10-15: actor clipping threshold (default = original 1.0)
 ) -> tuple[list[float], list[float]]:
     """
+    2026-10-14: optional `grad_norms` list collects the actor gradient norm BEFORE clipping of every step (clip_grad_norm_ returns it) - pure logging, no effect on training.
     2026-10-06: update phase of the "collect, then update" actor scheme (see chat,
     project_srl_minibatch_update_plan). Random permutation of all buffered windows
     (each exactly once), batches of batch_size; per batch: loss per window recomputed
@@ -189,12 +192,31 @@ def _run_actor_update_phase(
             loss = transition.pipeline.compute_srl_actor_loss_for_transition(transition)
             (loss / len(batch)).backward()
             batch_loss += loss.item() / len(batch)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        gn = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
+        if grad_norms is not None:
+            grad_norms.append(float(gn))  # 2026-10-14: pre-clip norm (logging only)
         actor_optimizer.step()
         with torch.no_grad():
             weight_norms.append(torch.sqrt(sum(p.pow(2).sum() for p in model.parameters())).item())
         batch_losses.append(batch_loss)
     return batch_losses, weight_norms
+
+
+def _log_grad_norms(epoch_num: int, grad_norms: list[float], log: list[dict], output_dir, reward_mode: str, clip: float = 1.0) -> None:
+    """2026-10-14: per-epoch statistics of the actor gradient norm before clipping (max_norm=1.0): how often the clip is active. Printed and written to grad_norm_log.json."""
+    if not grad_norms:
+        return
+    ordered = sorted(grad_norms)
+    entry = {
+        "epoch": epoch_num, "steps": len(ordered), "mean": sum(ordered) / len(ordered), "median": ordered[len(ordered) // 2],
+        "p90": ordered[min(len(ordered) - 1, int(0.9 * len(ordered)))], "max": ordered[-1],
+        "share_above_1": sum(g > 1.0 for g in ordered) / len(ordered), "clip_norm": clip, "share_above_clip": sum(g > clip for g in ordered) / len(ordered),
+    }
+    log.append(entry)
+    print(f"[srl_training_loop reward_mode={reward_mode}] epoch {epoch_num}: actor grad norm before clipping (n={entry['steps']}) "
+          f"mean {entry['mean']:.3f} median {entry['median']:.3f} p90 {entry['p90']:.3f} max {entry['max']:.3f}, norm above the clip threshold {clip:g} in {entry['share_above_clip'] * 100:.0f}% of steps")
+    with open(output_dir / "grad_norm_log.json", "w") as f:
+        json.dump(log, f, indent=1)
 
 
 def _polyak_update(target: torch.nn.Module, live: torch.nn.Module, tau: float) -> None:
@@ -217,6 +239,9 @@ def _run_joint_update_phase(
     tau_per_step: float,
     gamma: float,
     rng: random.Random,
+    grad_norms: list[float] | None = None,
+    actor_clip_norm: float = 1.0,
+    critic_clip_norm: float = 1.0,  # 2026-10-15: clipping thresholds (defaults = original 1.0)
 ) -> tuple[list[float], list[float], list[float]]:
     """
     2026-10-12: update phase of the "buffered_joint" scheme (see chat). num_steps times: (1) draw actor_batch_size windows WITH replacement
@@ -237,7 +262,9 @@ def _run_joint_update_phase(
             loss = transition.pipeline.compute_srl_actor_loss_for_transition(transition)
             (loss / len(batch)).backward()
             batch_loss += loss.item() / len(batch)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        gn = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=actor_clip_norm)
+        if grad_norms is not None:
+            grad_norms.append(float(gn))  # 2026-10-14: pre-clip norm (logging only)
         actor_optimizer.step()
         with torch.no_grad():
             weight_norms.append(torch.sqrt(sum(p.pow(2).sum() for p in model.parameters())).item())
@@ -247,7 +274,7 @@ def _run_joint_update_phase(
             entries = replay_buffer.sample(critic_batch_size)
             critic_losses.append(critic_td_update_step(
                 entries, critic, critic_optimizer, target_critic, gamma,
-                critic2=critic2, critic_optimizer2=critic_optimizer2, target_critic2=target_critic2,
+                critic2=critic2, critic_optimizer2=critic_optimizer2, target_critic2=target_critic2, max_norm=critic_clip_norm,
             ))
 
         _polyak_update(target_critic, critic, tau_per_step)
@@ -301,6 +328,9 @@ def run_srl_training_loop(
     # defaults (SIGMA 0.2, NUM_SAMPLES 20), so all earlier runs are unchanged. Only the training Config of the main epoch loop needs them (pretrain/validation never sample).
     sigma: float = 0.2,
     num_samples: int = 20,
+    # 2026-10-15: gradient-clipping thresholds of actor and critic updates (clip_grad_norm_ max_norm); defaults 1.0 = the original hard-coded value, so earlier runs are unchanged.
+    actor_clip_norm: float = 1.0,
+    critic_clip_norm: float = 1.0,
 ) -> SRLTrainingLoopResult:
     """
     2026-10-06: added `actor_update_mode` (see chat, "collect, then update"):
@@ -392,7 +422,7 @@ def run_srl_training_loop(
             config = Config(MAX_THREAD_CNT=_MAX_THREAD_CNT, OUTPUT_DIR=inst_out_dir, MODE="coaml", BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed, KEEP_ACTIVE=False)
             payload = PayloadParser.load_input_data(input_path)
             cleared_payload = PayloadParser.clear_vehicle_manifests(payload)
-            pipeline = COAMLPipeline(config, cleared_payload, imitation_solution_path=input_path, critic=critic, critic_optimizer=critic_optimizer, model=pretrain_actor_model)
+            pipeline = COAMLPipeline(config, cleared_payload, imitation_solution_path=input_path, critic=critic, critic_optimizer=critic_optimizer, model=pretrain_actor_model, critic_clip_norm=critic_clip_norm)
             if use_actor_warmstart:
                 pipeline.load_model_weights(actor_checkpoint)
             pipeline.solve_pdptw(cleared_payload, mode="eval", train_critic=True, reward_mode=reward_mode)
@@ -401,7 +431,7 @@ def run_srl_training_loop(
                 inst_out_dir2 = pretrain_dir / f"{instance}_critic2"
                 inst_out_dir2.mkdir(parents=True, exist_ok=True)
                 config2 = Config(MAX_THREAD_CNT=_MAX_THREAD_CNT, OUTPUT_DIR=inst_out_dir2, MODE="coaml", BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed, KEEP_ACTIVE=False)
-                pipeline2 = COAMLPipeline(config2, cleared_payload, imitation_solution_path=input_path, critic=critic2, critic_optimizer=critic_optimizer2, model=pretrain_actor_model)
+                pipeline2 = COAMLPipeline(config2, cleared_payload, imitation_solution_path=input_path, critic=critic2, critic_optimizer=critic_optimizer2, model=pretrain_actor_model, critic_clip_norm=critic_clip_norm)
                 if use_actor_warmstart:
                     pipeline2.load_model_weights(actor_checkpoint)
                 pipeline2.solve_pdptw(cleared_payload, mode="eval", train_critic=True, reward_mode=reward_mode)
@@ -419,6 +449,7 @@ def run_srl_training_loop(
     # copied from the now-pretrained critic2.
     target_critic2 = copy.deepcopy(critic2) if use_twin_critic else None
     # 2026-10-12: joint mode keeps ~joint_buffer_epochs epochs of critic transitions (~370 windows per epoch -> 400 as upper estimate)
+    grad_norm_log: list[dict] = []  # 2026-10-14: per-epoch actor gradient-norm statistics (buffered / buffered_joint modes)
     replay_buffer = ReplayBuffer(capacity=joint_buffer_epochs * 400 if joint else replay_capacity)
     actor_buffer = ActorTransitionBuffer(capacity=actor_buffer_capacity, compress=joint) if buffered else None  # 2026-10-06; compress: 2026-10-12
 
@@ -469,6 +500,7 @@ def run_srl_training_loop(
                 critic_target_mode="td_bootstrap", gamma=gamma,
                 actor_transition_buffer=actor_buffer,  # 2026-10-06: None in per_window mode = old behavior
                 defer_critic_updates=joint,  # 2026-10-12: joint mode trains the critic in the update phase
+                actor_clip_norm=actor_clip_norm, critic_clip_norm=critic_clip_norm,  # 2026-10-15
             )
             if model is None:
                 pipeline.load_model_weights(actor_checkpoint)
@@ -502,12 +534,14 @@ def run_srl_training_loop(
                 # sampled with replacement from the multi-epoch buffer, plus critic updates and Polyak per step.
                 epoch_windows = sum(1 for it in actor_buffer._items if it[1] == epoch_num)
                 num_steps = max(1, -(-epoch_windows // actor_batch_size))
+                epoch_grad_norms: list[float] = []
                 batch_losses, weight_norms, critic_losses = _run_joint_update_phase(
                     actor_buffer, replay_buffer, model, actor_optimizer,
                     critic, critic_optimizer, target_critic, critic2, critic_optimizer2, target_critic2,
                     num_steps, actor_batch_size, joint_critic_steps_per_actor_step, joint_critic_batch_size,
-                    joint_tau_per_step, gamma, rng,
+                    joint_tau_per_step, gamma, rng, grad_norms=epoch_grad_norms, actor_clip_norm=actor_clip_norm, critic_clip_norm=critic_clip_norm,
                 )
+                _log_grad_norms(epoch_num, epoch_grad_norms, grad_norm_log, output_dir, reward_mode, actor_clip_norm)
                 if weight_norm_trace is not None:
                     weight_norm_trace.append({"epoch": epoch_num, "instance": "joint_update_phase", "norms": weight_norms})
                 print(
@@ -518,7 +552,9 @@ def run_srl_training_loop(
                     f"collect {collect_s:.0f}s, update {time.perf_counter() - update_start:.0f}s"
                 )
             elif num_windows > 0 and model is not None:
-                batch_losses, weight_norms = _run_actor_update_phase(actor_buffer, model, actor_optimizer, actor_batch_size, rng)
+                epoch_grad_norms = []
+                batch_losses, weight_norms = _run_actor_update_phase(actor_buffer, model, actor_optimizer, actor_batch_size, rng, grad_norms=epoch_grad_norms, max_norm=actor_clip_norm)
+                _log_grad_norms(epoch_num, epoch_grad_norms, grad_norm_log, output_dir, reward_mode, actor_clip_norm)
                 if weight_norm_trace is not None:
                     weight_norm_trace.append({"epoch": epoch_num, "instance": "actor_update_phase", "norms": weight_norms})
                 print(

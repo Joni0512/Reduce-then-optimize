@@ -13,6 +13,7 @@ Only "token server" connection errors are retried - any other GurobiError (e.g. 
 mismatch" on the local WLS license) is raised immediately, retrying it would only waste time.
 """
 import logging
+import os
 import time
 
 import gurobipy as gp
@@ -44,6 +45,11 @@ def start_gurobi_env(
         try:
             env = gp.Env(empty=True)
             env.setParam("OutputFlag", output_flag)
+            # 2026-10-16: optional thread limit via env var GUROBI_THREADS (unset = Gurobi's default, i.e. unchanged behavior). On the LRZ nodes the OS reports 80-112
+            # logical CPUs while Slurm only allows the job's few CPUs, so Gurobi's default thread pool can oversubscribe them (hint from the LRZ servicedesk, incident 269588).
+            _threads = os.environ.get("GUROBI_THREADS")
+            if _threads:
+                env.setParam("Threads", int(_threads))
             env.start()
             return env
         except gp.GurobiError as exc:
