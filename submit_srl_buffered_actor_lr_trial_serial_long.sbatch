@@ -5,6 +5,7 @@
 #SBATCH --qos=cm4_serial_long
 #SBATCH --time=3-00:00:00
 #SBATCH --cpus-per-task=4
+#SBATCH --hint=nomultithread
 #SBATCH --mem=16G
 #SBATCH --output=srl_30ep_%j.log
 #SBATCH --error=srl_30ep_%j.err
@@ -13,6 +14,9 @@
 # 4 CPUs + SRL_MAX_THREAD_CNT=4: the CPU-scaling benchmark (serial_std) showed pool size = CPUs is best and 4 CPUs are enough (see chat).
 # serial_long QOS cm4_serial_long: cpu=192 and mem~99.7 GB per user -> 16 G per job leaves room for ~5-6 such jobs next to other long jobs.
 # ACTOR_LR, SEED, EPOCHS, CRITIC_LR (optional) and SRL_RUN_ID exported by the submitter.
+
+# 2026-10-17: --hint=nomultithread = one hardware thread per core (no sharing of a physical core with another job); in the benchmark (RHO on the 9 val instances, 4 CPUs)
+# it was 21 % faster (329 s vs 416 s, LRZ servicedesk incident 269588). GUROBI_THREADS=1 gave no gain, so it is not set here.
 
 cd "$SLURM_SUBMIT_DIR" || exit 1
 export GRB_LICENSE_FILE="$HOME/.gurobi/gurobi.lic"

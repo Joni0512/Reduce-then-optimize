@@ -4,6 +4,8 @@
 #SBATCH --partition=serial_std
 #SBATCH --qos=cm4_serial
 #SBATCH --time=02:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=8G
 #SBATCH --output=bench_thr_%j.log
@@ -14,6 +16,7 @@
 # outputs/rho_val_runs/..._seed4242 so the RHO reference runs are not touched); the per-instance wall times are printed in the log ("(12.3s)").
 # Submit: sbatch --export=ALL,GUROBI_THREADS=1,TAG=thr1 submit_benchmark_gurobi_threads.sbatch   (no GUROBI_THREADS = default behavior)
 #         sbatch --hint=nomultithread --export=ALL,GUROBI_THREADS=1,TAG=thr1_nomt submit_benchmark_gurobi_threads.sbatch
+# 2026-10-16: --nodes=1 / --ntasks-per-node=1 written out explicitly (LRZ servicedesk suggestion); GUROBI_THREADS=4 (= cpus) is the 4th variant to try.
 # Run each variant on the same kind of node, ideally not at the same time as many other jobs of yours (they share the node).
 
 cd "$SLURM_SUBMIT_DIR" || exit 1

@@ -5,6 +5,7 @@
 #SBATCH --qos=cm4_serial
 #SBATCH --time=1-00:00:00
 #SBATCH --cpus-per-task=4
+#SBATCH --hint=nomultithread
 #SBATCH --mem=16G
 #SBATCH --output=srl_abl_%j.log
 #SBATCH --error=srl_abl_%j.err
@@ -13,6 +14,9 @@
 # benchmark showed pool size = CPUs is best and 4 CPUs are enough, 4/4 about 8 % faster than 16/16). Used for the ablation sweep (submit_srl_ablation_sweep_cluster.sh).
 # 20 epochs + 10 pretrain took 22.7-24 h with 16 CPUs on serial_std (borderline!), so a run can hit the 24 h limit; partial_val_curve.json is written after every
 # validation, so the val curve up to the last validated epoch survives a timeout. ACTOR_LR, CRITIC_LR, SEED, EPOCHS, SRL_RUN_ID and the SRL_* ablation env vars come from the submitter.
+
+# 2026-10-17: --hint=nomultithread = one hardware thread per core (no sharing of a physical core with another job); in the benchmark (RHO on the 9 val instances, 4 CPUs)
+# it was 21 % faster (329 s vs 416 s, LRZ servicedesk incident 269588). GUROBI_THREADS=1 gave no gain, so it is not set here.
 
 cd "$SLURM_SUBMIT_DIR" || exit 1
 export GRB_LICENSE_FILE="$HOME/.gurobi/gurobi.lic"
