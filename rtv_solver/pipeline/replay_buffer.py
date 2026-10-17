@@ -10,11 +10,12 @@ from rtv_solver.pipeline.episode_buffer import EpisodeStep
 class ReplayEntry:
     step: EpisodeStep
     # 2026-09-10: exactly one of the two storage modes below is populated,
-    # never both - see ReplayBuffer's docstring for which mode which
+    # never both, see ReplayBuffer's docstring for which mode which
     # critic_target_mode uses.
     target: float | None = None          # monte_carlo mode: fixed target (G_t/r_t), used as-is
     reward: float | None = None          # td_bootstrap mode: raw r_t
     next_step: EpisodeStep | None = None  # td_bootstrap mode: raw s_{t+1} (None = terminal step)
+    episode: int | None = None            # 2026-10-17: episode counter stamped on insertion (episodic mode: FIFO over the last N episodes); None otherwise
 
 
 class ReplayBuffer:
@@ -49,8 +50,10 @@ class ReplayBuffer:
         self.capacity = capacity
         self.entries: list[ReplayEntry] = []
         self._next_index = 0
+        self.current_episode: int | None = None  # 2026-10-17: set by the training loop before each episode (episodic mode); None = entries are not tagged
 
     def _add(self, entry: ReplayEntry) -> None:
+        entry.episode = self.current_episode
         if len(self.entries) < self.capacity:
             self.entries.append(entry)
         else:
@@ -64,6 +67,13 @@ class ReplayBuffer:
     def add_transition(self, step: EpisodeStep, reward: float, next_step: EpisodeStep | None) -> None:
         """td_bootstrap mode - see class docstring."""
         self._add(ReplayEntry(step, reward=reward, next_step=next_step))
+
+    def drop_episodes_before(self, first_kept_episode: int) -> int:
+        """2026-10-17 (episodic mode): remove all windows stamped with an episode < first_kept_episode. Untagged entries (None) are kept. Returns how many were removed."""
+        before = len(self.entries)
+        self.entries = [e for e in self.entries if e.episode is None or e.episode >= first_kept_episode]
+        self._next_index = 0
+        return before - len(self.entries)
 
     def sample(self, batch_size: int) -> list[ReplayEntry]:
         n = min(batch_size, len(self.entries))

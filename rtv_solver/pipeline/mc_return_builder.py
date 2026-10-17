@@ -136,6 +136,31 @@ class MonteCarloReturnBuilder:
         shifted = cumulative[1:] + [0.0]
         return [g_t - g_next for g_t, g_next in zip(cumulative, shifted)]
 
+    def build_local_served(
+        self,
+        iteration_times: Sequence[float],
+        pickup_times: dict,
+    ) -> list[float]:
+        """
+        2026-10-17: reward_mode="local_served" (see chat) - +1 per SERVED request
+        in the buffered window in which its real pickup happens, i.e. r_k = #{served
+        requests with t_k <= pickup_time < t_(k+1)} (last window open-ended; a pickup
+        before t_0 is credited to step 0). Unlike build_local_positive() (+1 when the
+        pickup DEADLINE passes) this uses the actual pickup time from
+        StatsParser.Stats.pickup_times (fully served pairs only), so sum(r) == #served.
+        iteration_times must be ascending (they are: rolling-horizon order).
+        """
+        n = len(iteration_times)
+        rewards = [0.0] * n
+        if n == 0:
+            return rewards
+        for pickup_time in pickup_times.values():
+            k = 0
+            while k + 1 < n and pickup_time >= iteration_times[k + 1]:
+                k += 1
+            rewards[k] += 1.0
+        return rewards
+
     def build_local_positive(
         self,
         iteration_times: Sequence[float],

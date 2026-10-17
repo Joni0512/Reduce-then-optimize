@@ -72,6 +72,8 @@ class Stats:
     total_vehicles: int = 0       # total vehicles that were part of original payload
     total_requests: int = 0       # total requests that were part of original payload
     serviced_requests: list[float] = field(default_factory=list)  # list of serviced requests 
+    # 2026-10-17: pickup service start time per serviced request (booking_id -> time), only fully served pairs - used by reward_mode="local_served" (+1 in the window of the real pickup)
+    pickup_times: dict = field(default_factory=dict)
     
     depot_movements: int = 0        # must be equal to number of vehicles if config.return_depot = True
     depot_vmt: float = 0.0          # tracked to counterweigh vmt
@@ -524,6 +526,7 @@ class StatsParser:
             # count as serviced if it has a full pair
             self.stats.serviced += 1
             self.stats.serviced_requests.append(booking_id)
+            self.stats.pickup_times[booking_id] = pickup_time  # 2026-10-17: for reward_mode="local_served"
 
     @staticmethod
     def _compute_detour_time(

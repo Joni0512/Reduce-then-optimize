@@ -219,6 +219,20 @@ def _log_grad_norms(epoch_num: int, grad_norms: list[float], log: list[dict], ou
         json.dump(log, f, indent=1)
 
 
+def _record_critic_stats(log: list[dict], output_dir, phase: str, epoch: int, instance: str, pipeline, pipeline2=None) -> None:
+    """2026-10-17: one record per episode (= one instance rollout) of the critic MSE (critic 1 / 2), mean live-critic prediction and mean TD target,
+    read from COAMLPipeline.last_episode_critic_stats; written to critic_loss_log.json after every episode. pipeline2 (critic pretrain with a twin
+    critic: the second critic runs in its own pipeline) supplies critic2_loss / q2_mean. Logging only."""
+    stats = dict(getattr(pipeline, "last_episode_critic_stats", {}))
+    if pipeline2 is not None:
+        stats2 = getattr(pipeline2, "last_episode_critic_stats", {})
+        stats["critic2_loss"] = stats2.get("critic_loss", float("nan"))
+        stats["q2_mean"] = stats2.get("q_mean", float("nan"))
+    log.append({"phase": phase, "epoch": epoch, "instance": instance, **stats})
+    with open(output_dir / "critic_loss_log.json", "w") as f:
+        json.dump(log, f, indent=1)
+
+
 def _polyak_update(target: torch.nn.Module, live: torch.nn.Module, tau: float) -> None:
     with torch.no_grad():
         for target_param, live_param in zip(target.parameters(), live.parameters()):
@@ -331,6 +345,19 @@ def run_srl_training_loop(
     # 2026-10-15: gradient-clipping thresholds of actor and critic updates (clip_grad_norm_ max_norm); defaults 1.0 = the original hard-coded value, so earlier runs are unchanged.
     actor_clip_norm: float = 1.0,
     critic_clip_norm: float = 1.0,
+    # 2026-10-17: buffer-based critic pretraining (pretrain_mode="buffer", see srl_buffer_pretrain.py) and the per-episode scheme actor_update_mode="episodic"
+    # (user request, see chat: "Do one episode, store in buffer. Drop oldest episode from buffer; repeat a few times: sample batch - train actor - train critic").
+    # Defaults reproduce the old behavior exactly.
+    pretrain_mode: str = "per_episode",
+    pretrain_instances: list[str] | None = None,
+    pretrain_steps: int = 150,
+    pretrain_batch: int = 20,
+    episodic_buffer_episodes: int = 10,
+    episodic_actor_steps: int = 1,
+    episodic_actor_batch: int = 20,
+    episodic_critic_steps: int = 1,
+    episodic_critic_batch: int = 20,
+    episodic_tau: float = 0.005,
 ) -> SRLTrainingLoopResult:
     """
     2026-10-06: added `actor_update_mode` (see chat, "collect, then update"):
@@ -371,12 +398,16 @@ def run_srl_training_loop(
     actor moves per step (e.g. comparing a stable vs. a collapsing critic_lr run). None
     (default) skips this - no behavior change for existing callers.
     """
-    if reward_mode not in ("local", "local_positive"):
-        raise ValueError(f"Expected reward_mode in ('local', 'local_positive'), got {reward_mode!r}")
-    if actor_update_mode not in ("per_window", "buffered", "buffered_joint"):
-        raise ValueError(f"Expected actor_update_mode in ('per_window', 'buffered', 'buffered_joint'), got {actor_update_mode!r}")
-    buffered = actor_update_mode in ("buffered", "buffered_joint")  # 2026-10-12: joint also collects with a frozen actor
+    if reward_mode not in ("local", "local_positive", "local_served"):  # 2026-10-17: + local_served
+        raise ValueError(f"Expected reward_mode in ('local', 'local_positive', 'local_served'), got {reward_mode!r}")
+    if actor_update_mode not in ("per_window", "buffered", "buffered_joint", "episodic"):
+        raise ValueError(f"Expected actor_update_mode in ('per_window', 'buffered', 'buffered_joint', 'episodic'), got {actor_update_mode!r}")
+    if pretrain_mode not in ("per_episode", "buffer"):
+        raise ValueError(f"Expected pretrain_mode in ('per_episode', 'buffer'), got {pretrain_mode!r}")
+    buffered = actor_update_mode in ("buffered", "buffered_joint", "episodic")  # 2026-10-12: joint also collects with a frozen actor; 2026-10-17: so does episodic (per episode)
     joint = actor_update_mode == "buffered_joint"
+    episodic = actor_update_mode == "episodic"  # 2026-10-17: windows of the last episodic_buffer_episodes episodes, update after EVERY episode
+    defer_critic = joint or episodic  # critic is trained in the update step, not inside the rollout
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -412,7 +443,17 @@ def run_srl_training_loop(
                                                    num_message_passing_layers=actor_gnn_layers, aggregator=actor_gnn_aggregator)
 
     pretrain_dir = output_dir / "critic_pretrain"
-    for epoch in range(critic_pretrain_epochs):
+    critic_loss_log: list[dict] = []  # 2026-10-17: per-episode critic loss / Q / target statistics (pretrain + main phase), see _record_critic_stats
+    if pretrain_mode == "buffer":
+        # 2026-10-17: collect the pretrain instances once into a buffer, then pretrain the critics from it (see srl_buffer_pretrain.py); replaces the per-episode pretrain
+        if use_actor_warmstart:
+            raise ValueError("pretrain_mode='buffer' is only implemented for use_actor_warmstart=False (random-init actor)")
+        from rtv_solver.pipeline.srl_buffer_pretrain import run_buffer_pretrain
+        run_buffer_pretrain(
+            critic, critic_optimizer, critic2, critic_optimizer2, pretrain_actor_model, list(pretrain_instances or []), pretrain_steps, pretrain_batch, reward_mode,
+            batch_interval, step_size, seed, output_dir, MANIFEST_DIR, _MAX_THREAD_CNT, critic_clip_norm=critic_clip_norm,
+        )
+    for epoch in range(critic_pretrain_epochs if pretrain_mode == "per_episode" else 0):
         for instance in TRAIN_INSTANCES:
             input_path = MANIFEST_DIR / f"{instance}.json"
             inst_out_dir = pretrain_dir / instance
@@ -435,7 +476,9 @@ def run_srl_training_loop(
                 if use_actor_warmstart:
                     pipeline2.load_model_weights(actor_checkpoint)
                 pipeline2.solve_pdptw(cleared_payload, mode="eval", train_critic=True, reward_mode=reward_mode)
-        print(f"[srl_training_loop reward_mode={reward_mode}] critic pretrain epoch {epoch} done")
+            _record_critic_stats(critic_loss_log, output_dir, "pretrain", epoch, instance, pipeline, pipeline2 if use_twin_critic else None)  # 2026-10-17
+        _pre = [r["critic_loss"] for r in critic_loss_log if r["phase"] == "pretrain" and r["epoch"] == epoch]
+        print(f"[srl_training_loop reward_mode={reward_mode}] critic pretrain epoch {epoch} done, mean critic MSE per episode {sum(_pre) / max(len(_pre), 1):.4f}")
 
     # --- shared actor/critic/replay-buffer state, persists across epochs and instances ---
     # model=None (default): first pipeline() call below loads actor_checkpoint and creates a
@@ -450,8 +493,9 @@ def run_srl_training_loop(
     target_critic2 = copy.deepcopy(critic2) if use_twin_critic else None
     # 2026-10-12: joint mode keeps ~joint_buffer_epochs epochs of critic transitions (~370 windows per epoch -> 400 as upper estimate)
     grad_norm_log: list[dict] = []  # 2026-10-14: per-epoch actor gradient-norm statistics (buffered / buffered_joint modes)
-    replay_buffer = ReplayBuffer(capacity=joint_buffer_epochs * 400 if joint else replay_capacity)
-    actor_buffer = ActorTransitionBuffer(capacity=actor_buffer_capacity, compress=joint) if buffered else None  # 2026-10-06; compress: 2026-10-12
+    replay_buffer = ReplayBuffer(capacity=2000 if episodic else (joint_buffer_epochs * 400 if joint else replay_capacity))  # 2026-10-17: episodic never evicts by capacity (episodes are dropped explicitly)
+    actor_buffer = ActorTransitionBuffer(capacity=actor_buffer_capacity, compress=joint or episodic) if buffered else None  # 2026-10-06; compress: 2026-10-12 (+ episodic 2026-10-17: needs the episode tag)
+    episode_counter = 0  # 2026-10-17: episodic mode - global episode index (1, 2, ... over all epochs), used as the FIFO tag of both buffers
 
     best_val_service_rate = -1.0
     best_epoch = -1
@@ -464,6 +508,7 @@ def run_srl_training_loop(
         shuffled_train_instances = TRAIN_INSTANCES.copy()
         if joint:
             actor_buffer.current_epoch = epoch_num  # 2026-10-12: tag for drop_epochs_before
+        episodic_epoch_grad_norms: list[float] = []  # 2026-10-17
         rng.shuffle(shuffled_train_instances)
         collect_start = time.perf_counter()
 
@@ -480,16 +525,20 @@ def run_srl_training_loop(
             # 2026-10-12: joint mode does its Polyak steps inside _run_joint_update_phase instead (tau per update step).
             with torch.no_grad():
                 for target_param, live_param in zip(target_critic.parameters(), critic.parameters()):
-                    if not joint:
+                    if not (joint or episodic):  # 2026-10-17: episodic does its Polyak steps inside the update step
                         target_param.data.copy_(tau * live_param.data + (1 - tau) * target_param.data)
 
             # 2026-09-24: twin critic (see chat) - target_critic2 blended on the
             # exact same schedule/tau as target_critic above.
-            if use_twin_critic and not joint:
+            if use_twin_critic and not (joint or episodic):
                 with torch.no_grad():
                     for target_param, live_param in zip(target_critic2.parameters(), critic2.parameters()):
                         target_param.data.copy_(tau * live_param.data + (1 - tau) * target_param.data)
 
+            if episodic:
+                episode_counter += 1
+                actor_buffer.current_epoch = episode_counter  # 2026-10-17: episode tag (drop_epochs_before is used with episode indices here)
+                replay_buffer.current_episode = episode_counter
             pipeline = COAMLPipeline(
                 config, cleared_payload, imitation_solution_path=input_path,
                 model=model, critic=critic, critic_optimizer=critic_optimizer,
@@ -499,7 +548,7 @@ def run_srl_training_loop(
                 replay_update_group_size=replay_update_group_size,
                 critic_target_mode="td_bootstrap", gamma=gamma,
                 actor_transition_buffer=actor_buffer,  # 2026-10-06: None in per_window mode = old behavior
-                defer_critic_updates=joint,  # 2026-10-12: joint mode trains the critic in the update phase
+                defer_critic_updates=defer_critic,  # 2026-10-12: joint mode trains the critic in the update phase; 2026-10-17: also episodic
                 actor_clip_norm=actor_clip_norm, critic_clip_norm=critic_clip_norm,  # 2026-10-15
             )
             if model is None:
@@ -520,10 +569,30 @@ def run_srl_training_loop(
                 print(f"[srl_training_loop reward_mode={reward_mode}] epoch {epoch_num}: SKIPPING {instance} - {e}")
                 continue
             model = pipeline.model  # carry actor weights forward
+            _record_critic_stats(critic_loss_log, output_dir, "train", epoch_num, instance, pipeline)  # 2026-10-17
+            if episodic:
+                # 2026-10-17: Do one episode, store in buffer; drop the oldest episode; then episodic_actor_steps x (actor step + critic steps + Polyak) from the buffers
+                first_kept = episode_counter - episodic_buffer_episodes + 1
+                actor_buffer.drop_epochs_before(first_kept)
+                replay_buffer.drop_episodes_before(first_kept)
+                if len(actor_buffer) > 0 and len(replay_buffer) > 0:
+                    ep_actor_losses, _ep_norms, ep_critic_losses = _run_joint_update_phase(
+                        actor_buffer, replay_buffer, model, actor_optimizer,
+                        critic, critic_optimizer, target_critic, critic2, critic_optimizer2, target_critic2,
+                        episodic_actor_steps, episodic_actor_batch, episodic_critic_steps, episodic_critic_batch,
+                        episodic_tau, gamma, rng, grad_norms=episodic_epoch_grad_norms, actor_clip_norm=actor_clip_norm, critic_clip_norm=critic_clip_norm,
+                    )
+                    critic_loss_log[-1]["critic_loss"] = sum(ep_critic_losses) / len(ep_critic_losses)  # the rollout itself did no critic update (deferred): record the update-step loss
+                    critic_loss_log[-1]["actor_loss"] = sum(ep_actor_losses) / len(ep_actor_losses)
+                    critic_loss_log[-1]["buffer_windows"] = len(actor_buffer)
+                    with open(output_dir / "critic_loss_log.json", "w") as f:
+                        json.dump(critic_loss_log, f, indent=1)
             if weight_norm_trace is not None:
                 weight_norm_trace.append({"epoch": epoch_num, "instance": instance, "norms": pipeline.weight_norm_history})
 
-        if buffered:
+        if episodic:
+            _log_grad_norms(epoch_num, episodic_epoch_grad_norms, grad_norm_log, output_dir, reward_mode, actor_clip_norm)  # 2026-10-17: per-epoch actor gradient statistics
+        if buffered and not episodic:
             # 2026-10-06: phase B of "collect, then update". Partial instances (skipped after an
             # InfeasibleAssignmentError) keep the windows stored before the failure.
             collect_s = time.perf_counter() - collect_start
@@ -570,7 +639,8 @@ def run_srl_training_loop(
             elif actor_buffer_capacity is None:
                 actor_buffer.clear()  # exactly one epoch of windows, see run_srl_training_loop's docstring
 
-        print(f"[srl_training_loop reward_mode={reward_mode}] epoch {epoch_num}/{epochs} training done")
+        _tr = [r["critic_loss"] for r in critic_loss_log if r["phase"] == "train" and r["epoch"] == epoch_num and r["critic_loss"] == r["critic_loss"]]  # NaN-free (joint mode defers)
+        print(f"[srl_training_loop reward_mode={reward_mode}] epoch {epoch_num}/{epochs} training done, mean critic MSE per episode {sum(_tr) / max(len(_tr), 1):.4f} (n={len(_tr)})")
 
         if epoch_num % val_every_n_epochs == 0 or epoch_num == epochs:
             config_template = Config(MAX_THREAD_CNT=_MAX_THREAD_CNT, OUTPUT_DIR=output_dir, BATCH_INTERVAL=batch_interval, STEP_SIZE=step_size, SEED=seed, KEEP_ACTIVE=False)

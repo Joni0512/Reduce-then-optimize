@@ -493,7 +493,7 @@ class COAMLPipeline():
             _, episode_stats, _ = StatsParser(self.config, payload=stats_payload).evaluate(stats_payload)
 
             step_return_pairs = self.episode_buffer.with_returns(
-                all_requests, episode_stats.serviced_requests, reward_mode=reward_mode
+                all_requests, episode_stats.serviced_requests, reward_mode=reward_mode, pickup_times=episode_stats.pickup_times  # 2026-10-17: pickup_times for local_served
             )
             # 2026-08-14: diagnostic hook - lets a caller inspect the G_t values
             # of the episode that just finished (e.g. a test script checking
@@ -525,6 +525,8 @@ class COAMLPipeline():
                 # (not just falling back to critic).
                 self.last_episode_target_critic_predictions = []
                 log_target_critic = self.target_critic is not self.critic
+                episode_q2_preds: list[float] = []  # 2026-10-17: critic 2's prediction and the TD target on the SAME steps as critic 1's q (logging only)
+                episode_step_targets: list[float] = []
                 for i, (step, r_t) in enumerate(step_return_pairs):
                     with torch.no_grad():
                         q_pred = self.critic(step.request_features, step.vehicle_features, step.edge_index)
@@ -532,8 +534,13 @@ class COAMLPipeline():
                             tc_pred = self.target_critic(step.request_features, step.vehicle_features, step.edge_index)
                             self.last_episode_target_critic_predictions.append(tc_pred.item())
                     self.last_episode_predictions.append(q_pred.item())
+                    if self.critic2 is not None:
+                        with torch.no_grad():
+                            episode_q2_preds.append(self.critic2(step.request_features, step.vehicle_features, step.edge_index).item())
                     if self.critic_target_mode == "td_bootstrap":
                         next_step = step_return_pairs[i + 1][0] if i + 1 < len(step_return_pairs) else None
+                        with torch.no_grad():
+                            episode_step_targets.append(float(td_target_for_step(r_t, next_step, self.target_critic, self.gamma, target_critic2=self.target_critic2)))
                         if self.use_stale_td_target:
                             # 2026-09-11: deliberately reproduces the pre-fix
                             # staleness bug (see __init__ docstring) - target
@@ -551,6 +558,8 @@ class COAMLPipeline():
                 num_updates = 0 if self.defer_critic_updates else max(1, -(-num_new_steps // self.replay_update_group_size))  # ceil div; 2026-10-12: 0 when deferred (joint buffer)
 
                 batch_losses = []
+                batch_losses2 = []  # 2026-10-17: critic-2 batch losses + targets of this episode (logging only, see last_episode_critic_stats)
+                episode_targets = []
                 for _ in range(num_updates):
                     batch = self.replay_buffer.sample(self.replay_batch_size)
                     batch_q_preds = [
@@ -578,6 +587,7 @@ class COAMLPipeline():
                         F.mse_loss(q_pred, target) for q_pred, target in zip(batch_q_preds, batch_targets)
                     ]).mean()
                     batch_losses.append(batch_loss.item())
+                    episode_targets.extend(float(t) for t in batch_targets)
 
                     if train_critic:
                         self.critic_optimizer.zero_grad(set_to_none=True)
@@ -596,6 +606,7 @@ class COAMLPipeline():
                         batch_loss2 = torch.stack([
                             F.mse_loss(q_pred, target) for q_pred, target in zip(batch_q_preds2, batch_targets)
                         ]).mean()
+                        batch_losses2.append(batch_loss2.item())
                         if train_critic:
                             self.critic_optimizer2.zero_grad(set_to_none=True)
                             batch_loss2.backward()
@@ -603,6 +614,19 @@ class COAMLPipeline():
                             self.critic_optimizer2.step()
 
                 self.last_episode_loss: float = sum(batch_losses) / len(batch_losses) if batch_losses else float("nan")  # 2026-10-12: empty when deferred
+                # 2026-10-17: per-episode critic statistics for the training log (reading only, no effect on training): mean MSE of critic 1 / 2 over this
+                # episode's updates, mean live-critic prediction on the episode's own steps, mean TD target of the sampled batches (NaN if deferred)
+                _nan = float("nan")
+                self.last_episode_critic_stats = {
+                    "critic_loss": self.last_episode_loss,
+                    "critic2_loss": sum(batch_losses2) / len(batch_losses2) if batch_losses2 else _nan,
+                    "q_mean": sum(self.last_episode_predictions) / len(self.last_episode_predictions) if self.last_episode_predictions else _nan,
+                    "target_mean": sum(episode_targets) / len(episode_targets) if episode_targets else _nan,
+                    "num_updates": len(batch_losses),
+                    # same steps for all three: critic 2's mean prediction and the mean TD target of the episode's own steps (before this episode's updates)
+                    "q2_mean": sum(episode_q2_preds) / len(episode_q2_preds) if episode_q2_preds else _nan,
+                    "step_target_mean": sum(episode_step_targets) / len(episode_step_targets) if episode_step_targets else _nan,
+                }
             else:
                 # 2026-09-10: td_bootstrap's episode-level build_td_targets()
                 # call moved here (was previously computed unconditionally
@@ -641,6 +665,13 @@ class COAMLPipeline():
                 # validation loss without re-deriving it from the raw lists.
                 total_loss = torch.stack(losses).mean()
                 self.last_episode_loss: float = total_loss.item()
+                # 2026-10-17: same statistics for the monte_carlo path (= critic pretrain: target is the immediate reward r_t); critic 2's loss is
+                # computed below in the twin block, so it is filled in there
+                self.last_episode_critic_stats = {
+                    "critic_loss": self.last_episode_loss, "critic2_loss": float("nan"),
+                    "q_mean": sum(self.last_episode_predictions) / len(self.last_episode_predictions),
+                    "target_mean": sum(g for _, g in step_return_pairs) / len(step_return_pairs), "num_updates": 1,
+                }
 
                 # 2026-08-18: train_critic=False (validation episodes) stops here -
                 # q_pred/loss above are still computed so last_episode_predictions
@@ -666,6 +697,7 @@ class COAMLPipeline():
                         target2 = torch.tensor(g_t, dtype=torch.float32)
                         losses2.append(F.mse_loss(q_pred2, target2))
                     total_loss2 = torch.stack(losses2).mean()
+                    self.last_episode_critic_stats["critic2_loss"] = total_loss2.item()  # 2026-10-17
                     if train_critic:
                         self.critic_optimizer2.zero_grad(set_to_none=True)
                         total_loss2.backward()

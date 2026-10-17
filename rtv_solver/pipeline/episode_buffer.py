@@ -63,6 +63,7 @@ class EpisodeBuffer:
         requests: Sequence[Request],
         serviced_request_ids: Sequence[int],
         reward_mode: str = "cumulative",
+        pickup_times: dict | None = None,
     ) -> list[tuple[EpisodeStep, float]]:
         """
         Call once, right after the rolling-horizon loop for this episode
@@ -90,8 +91,14 @@ class EpisodeBuffer:
             returns = builder.build_local(iteration_times, serviced_request_ids)
         elif reward_mode == "local_positive":
             returns = builder.build_local_positive(iteration_times, serviced_request_ids)
+        elif reward_mode == "local_served":
+            # 2026-10-17: +1 in the window of the real pickup (needs Stats.pickup_times)
+            if pickup_times is None:
+                raise ValueError("reward_mode='local_served' needs pickup_times (StatsParser Stats.pickup_times).")
+            returns = builder.build_local_served(iteration_times, pickup_times)
+            assert not returns or abs(sum(returns) - len(pickup_times)) < 1e-9, "local_served: sum of rewards must equal #served requests"  # 2026-10-17 sanity check
         else:
-            raise ValueError(f"Unknown reward_mode '{reward_mode}', expected 'cumulative', 'local', or 'local_positive'.")
+            raise ValueError(f"Unknown reward_mode '{reward_mode}', expected 'cumulative', 'local', 'local_positive', or 'local_served'.")
         return list(zip(self.steps, returns))
 
     def clear(self) -> None:
