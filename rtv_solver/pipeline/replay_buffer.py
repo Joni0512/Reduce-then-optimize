@@ -15,6 +15,8 @@ class ReplayEntry:
     target: float | None = None          # monte_carlo mode: fixed target (G_t/r_t), used as-is
     reward: float | None = None          # td_bootstrap mode: raw r_t
     next_step: EpisodeStep | None = None  # td_bootstrap mode: raw s_{t+1} (None = terminal step)
+    reward2: float | None = None          # 2026-10-18: r_{t+1} (td_steps=2 only, None otherwise)
+    next_next_step: EpisodeStep | None = None  # 2026-10-18: s_{t+2} (td_steps=2 only; None = no such step)
     episode: int | None = None            # 2026-10-17: episode counter stamped on insertion (episodic mode: FIFO over the last N episodes); None otherwise
 
 
@@ -64,9 +66,9 @@ class ReplayBuffer:
         """monte_carlo mode - see class docstring."""
         self._add(ReplayEntry(step, target=target))
 
-    def add_transition(self, step: EpisodeStep, reward: float, next_step: EpisodeStep | None) -> None:
-        """td_bootstrap mode - see class docstring."""
-        self._add(ReplayEntry(step, reward=reward, next_step=next_step))
+    def add_transition(self, step: EpisodeStep, reward: float, next_step: EpisodeStep | None, reward2: float | None = None, next_next_step: EpisodeStep | None = None) -> None:
+        """td_bootstrap mode - see class docstring. 2026-10-18: reward2/next_next_step only for the two-step target (td_steps=2)."""
+        self._add(ReplayEntry(step, reward=reward, next_step=next_step, reward2=reward2, next_next_step=next_next_step))
 
     def drop_episodes_before(self, first_kept_episode: int) -> int:
         """2026-10-17 (episodic mode): remove all windows stamped with an episode < first_kept_episode. Untagged entries (None) are kept. Returns how many were removed."""

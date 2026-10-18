@@ -5,14 +5,29 @@ import torch
 from rtv_solver.pipeline.episode_buffer import EpisodeStep
 
 
+def _q_target(step: EpisodeStep, target_critic: torch.nn.Module, target_critic2: torch.nn.Module | None) -> float:
+    """2026-10-18: bootstrap value Q'(s) (min over both target critics when twin) - extracted unchanged from td_target_for_step. Fixed target, no gradient."""
+    with torch.no_grad():
+        q = target_critic(step.request_features, step.vehicle_features, step.edge_index).item()
+        if target_critic2 is not None:
+            q = min(q, target_critic2(step.request_features, step.vehicle_features, step.edge_index).item())
+    return q
+
+
 def td_target_for_step(
     r_t: float,
     next_step: EpisodeStep | None,
     target_critic: torch.nn.Module,
     gamma: float,
     target_critic2: torch.nn.Module | None = None,
+    reward2: float | None = None,
+    next_next_step: EpisodeStep | None = None,
+    n_steps: int = 1,
 ) -> float:
     """
+    2026-10-18: n_steps=2 (see chat, SRL_TD_STEPS) - y = r_t + gamma*(1-d1)*[ r_{t+1} + gamma*(1-d2)*Q'(s_{t+2}) ], d1 = 1 without s_{t+1} (y = r_t), d2 = 1 without s_{t+2}
+    (y = r_t + gamma*r_{t+1}); Q' = min over the target critics as below. n_steps=1 (default) is the original single-step target, unchanged.
+
     2026-09-10: single-step TD target (see chat) - y = r_t + gamma*(1-done)*
     Q_target(s_{t+1}), extracted out of build_td_targets() so the SAME
     formula can be evaluated either once per episode (build_td_targets(),
@@ -33,21 +48,15 @@ def td_target_for_step(
     bootstrap target (fights Q-value overestimation drift). None (default)
     keeps single-critic behavior unchanged.
     """
+    if n_steps == 2 and next_step is not None:
+        # 2026-10-18: two-step target, see docstring (reward2 = r_{t+1}, next_next_step = s_{t+2} or None)
+        q2 = 0.0 if next_next_step is None else _q_target(next_next_step, target_critic, target_critic2)
+        return r_t + gamma * (reward2 + gamma * q2)
     done = 1.0 if next_step is None else 0.0
     if done == 1.0:
         q_next = 0.0
     else:
-        # Bootstrap value is a fixed target, not something target_critic
-        # should receive a gradient through here.
-        with torch.no_grad():
-            q_next = target_critic(
-                next_step.request_features, next_step.vehicle_features, next_step.edge_index
-            ).item()
-            if target_critic2 is not None:
-                q_next2 = target_critic2(
-                    next_step.request_features, next_step.vehicle_features, next_step.edge_index
-                ).item()
-                q_next = min(q_next, q_next2)
+        q_next = _q_target(next_step, target_critic, target_critic2)
     return r_t + gamma * (1.0 - done) * q_next
 
 

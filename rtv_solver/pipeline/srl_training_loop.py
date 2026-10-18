@@ -256,6 +256,7 @@ def _run_joint_update_phase(
     grad_norms: list[float] | None = None,
     actor_clip_norm: float = 1.0,
     critic_clip_norm: float = 1.0,  # 2026-10-15: clipping thresholds (defaults = original 1.0)
+    td_steps: int = 1,  # 2026-10-18: n of the n-step TD target of the critic steps
 ) -> tuple[list[float], list[float], list[float]]:
     """
     2026-10-12: update phase of the "buffered_joint" scheme (see chat). num_steps times: (1) draw actor_batch_size windows WITH replacement
@@ -288,7 +289,7 @@ def _run_joint_update_phase(
             entries = replay_buffer.sample(critic_batch_size)
             critic_losses.append(critic_td_update_step(
                 entries, critic, critic_optimizer, target_critic, gamma,
-                critic2=critic2, critic_optimizer2=critic_optimizer2, target_critic2=target_critic2, max_norm=critic_clip_norm,
+                critic2=critic2, critic_optimizer2=critic_optimizer2, target_critic2=target_critic2, max_norm=critic_clip_norm, n_steps=td_steps,
             ))
 
         _polyak_update(target_critic, critic, tau_per_step)
@@ -358,6 +359,7 @@ def run_srl_training_loop(
     episodic_critic_steps: int = 1,
     episodic_critic_batch: int = 20,
     episodic_tau: float = 0.005,
+    td_steps: int = 1,  # 2026-10-18: 1 = single-step TD target (default), 2 = two-step target (see td_target_builder.py)
 ) -> SRLTrainingLoopResult:
     """
     2026-10-06: added `actor_update_mode` (see chat, "collect, then update"):
@@ -550,6 +552,7 @@ def run_srl_training_loop(
                 actor_transition_buffer=actor_buffer,  # 2026-10-06: None in per_window mode = old behavior
                 defer_critic_updates=defer_critic,  # 2026-10-12: joint mode trains the critic in the update phase; 2026-10-17: also episodic
                 actor_clip_norm=actor_clip_norm, critic_clip_norm=critic_clip_norm,  # 2026-10-15
+                td_steps=td_steps,  # 2026-10-18
             )
             if model is None:
                 pipeline.load_model_weights(actor_checkpoint)
@@ -580,7 +583,7 @@ def run_srl_training_loop(
                         actor_buffer, replay_buffer, model, actor_optimizer,
                         critic, critic_optimizer, target_critic, critic2, critic_optimizer2, target_critic2,
                         episodic_actor_steps, episodic_actor_batch, episodic_critic_steps, episodic_critic_batch,
-                        episodic_tau, gamma, rng, grad_norms=episodic_epoch_grad_norms, actor_clip_norm=actor_clip_norm, critic_clip_norm=critic_clip_norm,
+                        episodic_tau, gamma, rng, grad_norms=episodic_epoch_grad_norms, actor_clip_norm=actor_clip_norm, critic_clip_norm=critic_clip_norm, td_steps=td_steps,
                     )
                     critic_loss_log[-1]["critic_loss"] = sum(ep_critic_losses) / len(ep_critic_losses)  # the rollout itself did no critic update (deferred): record the update-step loss
                     critic_loss_log[-1]["actor_loss"] = sum(ep_actor_losses) / len(ep_actor_losses)
@@ -608,7 +611,7 @@ def run_srl_training_loop(
                     actor_buffer, replay_buffer, model, actor_optimizer,
                     critic, critic_optimizer, target_critic, critic2, critic_optimizer2, target_critic2,
                     num_steps, actor_batch_size, joint_critic_steps_per_actor_step, joint_critic_batch_size,
-                    joint_tau_per_step, gamma, rng, grad_norms=epoch_grad_norms, actor_clip_norm=actor_clip_norm, critic_clip_norm=critic_clip_norm,
+                    joint_tau_per_step, gamma, rng, grad_norms=epoch_grad_norms, actor_clip_norm=actor_clip_norm, critic_clip_norm=critic_clip_norm, td_steps=td_steps,
                 )
                 _log_grad_norms(epoch_num, epoch_grad_norms, grad_norm_log, output_dir, reward_mode, actor_clip_norm)
                 if weight_norm_trace is not None:

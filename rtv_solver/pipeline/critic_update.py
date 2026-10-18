@@ -24,6 +24,7 @@ def critic_td_update_step(
     critic_optimizer2: torch.optim.Optimizer | None = None,
     target_critic2: torch.nn.Module | None = None,
     max_norm: float = 1.0,  # 2026-10-15: gradient-clipping threshold (default = original 1.0)
+    n_steps: int = 1,  # 2026-10-18: 2 = two-step TD target (entries then carry reward2/next_next_step), see td_target_builder.py
 ) -> float:
     """One critic update on `entries` (ReplayEntry list, td_bootstrap mode). Returns the batch loss of critic 1."""
     batch_q_preds = [
@@ -32,7 +33,8 @@ def critic_td_update_step(
     ]
     batch_targets = [
         torch.tensor(
-            td_target_for_step(entry.reward, entry.next_step, target_critic, gamma, target_critic2=target_critic2),
+            td_target_for_step(entry.reward, entry.next_step, target_critic, gamma, target_critic2=target_critic2,
+                               reward2=entry.reward2, next_next_step=entry.next_next_step, n_steps=n_steps),
             dtype=torch.float32,
         )
         for entry in entries

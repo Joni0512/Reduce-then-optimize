@@ -104,6 +104,7 @@ class COAMLPipeline():
             defer_critic_updates: bool = False,
             actor_clip_norm: float = 1.0,
             critic_clip_norm: float = 1.0,
+            td_steps: int = 1,  # 2026-10-18: 1 = single-step TD target (default), 2 = two-step target r_t + g*r_{t+1} + g^2*Q'(s_{t+2}), see td_target_builder.py
         ):
         """
         Initialize the COAML pipeline solver.
@@ -285,6 +286,7 @@ class COAMLPipeline():
         self.critic_target_mode = critic_target_mode
         self.gamma = gamma
         self.use_stale_td_target = use_stale_td_target
+        self.td_steps = td_steps  # 2026-10-18
         # 2026-09-14: RHO-outcome-advantage method (see chat/srl deck's
         # "Training Signal Design" slide, Option 2) - when set, solve_iteration()
         # appends the raw (gradient-attached, NOT detached) score of every
@@ -539,8 +541,12 @@ class COAMLPipeline():
                             episode_q2_preds.append(self.critic2(step.request_features, step.vehicle_features, step.edge_index).item())
                     if self.critic_target_mode == "td_bootstrap":
                         next_step = step_return_pairs[i + 1][0] if i + 1 < len(step_return_pairs) else None
+                        # 2026-10-18: r_{t+1} and s_{t+2} for the two-step target (None at the end of the episode; unused when td_steps=1)
+                        reward2 = step_return_pairs[i + 1][1] if i + 1 < len(step_return_pairs) else None
+                        next_next_step = step_return_pairs[i + 2][0] if i + 2 < len(step_return_pairs) else None
                         with torch.no_grad():
-                            episode_step_targets.append(float(td_target_for_step(r_t, next_step, self.target_critic, self.gamma, target_critic2=self.target_critic2)))
+                            episode_step_targets.append(float(td_target_for_step(r_t, next_step, self.target_critic, self.gamma, target_critic2=self.target_critic2,
+                                                                                 reward2=reward2, next_next_step=next_next_step, n_steps=self.td_steps)))
                         if self.use_stale_td_target:
                             # 2026-09-11: deliberately reproduces the pre-fix
                             # staleness bug (see __init__ docstring) - target
@@ -550,7 +556,7 @@ class COAMLPipeline():
                             stale_target = td_target_for_step(r_t, next_step, self.target_critic, self.gamma)
                             self.replay_buffer.add_fixed_target(step, stale_target)
                         else:
-                            self.replay_buffer.add_transition(step, r_t, next_step)
+                            self.replay_buffer.add_transition(step, r_t, next_step, reward2, next_next_step)
                     else:
                         self.replay_buffer.add_fixed_target(step, r_t)
 
@@ -578,6 +584,7 @@ class COAMLPipeline():
                             else td_target_for_step(
                                 entry.reward, entry.next_step, self.target_critic, self.gamma,
                                 target_critic2=self.target_critic2,
+                                reward2=entry.reward2, next_next_step=entry.next_next_step, n_steps=self.td_steps,  # 2026-10-18
                             ),
                             dtype=torch.float32,
                         )
