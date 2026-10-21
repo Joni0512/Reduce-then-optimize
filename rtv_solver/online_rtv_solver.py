@@ -71,6 +71,22 @@ class OnlineRTVSolver:
 
         return feasible_time_slots
 
+    @staticmethod
+    def requests_already_served_or_boarded(driver_runs) -> dict:
+        """
+        2026-10-21: per vehicle (state run_id) the number of requests that are already completed or on board, i.e. pickup stops whose
+        order <= locations_already_serviced. Same rule as PayloadParser.get_payload_object uses for boarded requests (completed
+        requests are boarded ones that have been dropped off, they stay counted here). Basis for MAX_REQUESTS_PER_VEHICLE.
+        """
+        counts = {}
+        for driver_run in driver_runs:
+            state = driver_run[PayloadKeys.DRIVER_STATE]
+            serviced = state[PayloadKeys.DRIVER_STATE_LOC_SERV]
+            counts[state[PayloadKeys.DRIVER_STATE_RUN_ID]] = sum(
+                1 for stop in driver_run.get(PayloadKeys.DRIVER_MANIFEST, [])
+                if stop[PayloadKeys.MANIFEST_ACTION] == VehicleStop.ACT_PICKUP and stop[PayloadKeys.MANIFEST_ORDER] <= serviced)
+        return counts
+
     def solve_pdptw_rtv(self, payload, iteration = 0, current_time = None): # 2026-07-14: current_time added (was a TODO) - needed by RequestPruner for its urgency force-keep rule, see TripHandler
         """
         Solver for the entire payload.
@@ -163,7 +179,10 @@ class OnlineRTVSolver:
             # request and crash with a KeyError. When the pruner is off,
             # trip_handler.requests is unchanged from request_batch, so this
             # is a no-op for existing behavior.
-            result = optimizer.run(trip_handler.requests, active_requests)
+            # 2026-10-21: per-vehicle base counts only when MAX_REQUESTS_PER_VEHICLE is set (None keeps the previous call unchanged)
+            vehicle_request_base = (OnlineRTVSolver.requests_already_served_or_boarded(payload_object.driver_runs)
+                                    if self.config.MAX_REQUESTS_PER_VEHICLE is not None else None)
+            result = optimizer.run(trip_handler.requests, active_requests, vehicle_request_base=vehicle_request_base)
 
             # TODO add rebalancing handling including the assignment itself and validate its correct behavior
             # if self.config.REBALANCING:

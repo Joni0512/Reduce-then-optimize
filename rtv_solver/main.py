@@ -69,6 +69,8 @@ if __name__ == "__main__":
     # RTV generation and rolling horizon parameters (large influence)
     parser.add_argument('--mode', '-m', type=str, choices=['online', 'offline', 'coaml', 'optimal_solution'], default='coaml', help='Mode on how the programme should solve the PDPTW') # TODO fix hexaly "optimal" solution calculator
     parser.add_argument('--max_cardinality', type=int,      default=3, help='Maximum trips to be shared when creating trips in one batch_interval')
+    # 2026-10-21: total cap of requests per vehicle over the whole run (None = off); see Config.MAX_REQUESTS_PER_VEHICLE
+    parser.add_argument('--max_requests_per_vehicle', type=int, default=None, help='Maximum number of requests one vehicle may serve in total (completed + on board + newly assigned); default: no limit')
     parser.add_argument('--largest_tsp', type=int,          default=16, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
     parser.add_argument('--step_size', type=int,            default=100, help='Step size in seconds for rolling horizon')
     parser.add_argument('--batch_interval', type=int,       default=400, help='Batch interval in seconds - NOTE if batch_interval value is too small, we might miss requests if the vehicle_trip to the pickup is longer than the batch interval size') # (TODO fix this so this does not have as much impact)
@@ -144,6 +146,9 @@ if __name__ == "__main__":
     # --extra_training_files/--extra_validation_files are also passed
     # explicitly (those win, see the merge logic below).
     parser.add_argument('--use_class2_extra', type=str, default='False', choices=['True', 'False'], help='If True, automatically extend TRAINING_FILES/VALIDATION_FILES with training_loop.CLASS2_EXTRA_TRAINING_FILES/CLASS2_EXTRA_VALIDATION_FILES (the standard class-2 mixed-class instance set), instead of passing --extra_training_files/--extra_validation_files by hand. Default False = class-1-only (unchanged behavior).')
+
+    # 2026-10-17: see Config.SKIP_OPTIMAL_VAL - skips the optimal_val pre-pass (reference results only, not needed for training/best-val).
+    parser.add_argument('--skip_optimal_val', type=str, default='False', choices=['True', 'False'], help='If True, skip the optimal_val pre-pass over the val files before epoch 1 (saves hours; only reference results are lost). Default False.')
 
     # Request graph pruning parameters
     parser.add_argument(

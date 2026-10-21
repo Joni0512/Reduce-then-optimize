@@ -21,7 +21,7 @@ import time
 
 from rtv_solver.coaml_pipeline import COAMLPipeline
 from rtv_solver.handlers.payload_parser import PayloadParser
-from rtv_solver.pipeline.srl_train_val_test_split import TRAIN_INSTANCES, VAL_INSTANCES
+from rtv_solver.pipeline.srl_train_val_test_split import TRAIN_INSTANCES, VAL_INSTANCES, TEST_INSTANCES
 from rtv_solver.pipeline.srl_training_loop import REPO_ROOT, MANIFEST_DIR, _instance_service_rate
 from rtv_solver.structure.config import Config
 from rtv_solver.util.helper import set_seed
@@ -38,15 +38,16 @@ def main() -> None:
     ap.add_argument("--runs", type=int, nargs="+", default=[1], help="run indices, e.g. 2 3 4 5")
     # 2026-10-07: --split train runs the 38 TRAIN_INSTANCES to check whether the horizon pattern seen on the
     # 9 VAL_INSTANCES also holds there; default "val" keeps earlier calls and output paths unchanged.
-    ap.add_argument("--split", choices=["val", "train"], default="val")
+    # 2026-10-09: "test" added (the 9 TEST_INSTANCES) to get a RHO reference for the SRL test rates; default "val" unchanged.
+    ap.add_argument("--split", choices=["val", "train", "test"], default="val")
     # 2026-10-07: urgency test - rejection penalty x factor for requests expiring before the next step
     # (Config.URGENT_PENALTY_FACTOR); default 1 keeps earlier calls and output paths unchanged.
     ap.add_argument("--urgent_penalty_factor", type=int, default=1)
     a = ap.parse_args()
     cfg_name = f"bi{a.batch_interval}_ss{a.step_size}_card{a.cardinality}_keepactive{a.keep_active}_seed{a.seed}"
-    instances = TRAIN_INSTANCES if a.split == "train" else VAL_INSTANCES  # 2026-10-07: see --split
-    if a.split == "train":
-        cfg_name += "_train"
+    instances = TRAIN_INSTANCES if a.split == "train" else TEST_INSTANCES if a.split == "test" else VAL_INSTANCES  # 2026-10-07/09: see --split
+    if a.split in ("train", "test"):
+        cfg_name += "_" + a.split
     if a.urgent_penalty_factor != 1:
         cfg_name += f"_urgent{a.urgent_penalty_factor}"
     tag = f"[rho bi={a.batch_interval} ss={a.step_size} card={a.cardinality} seed={a.seed}"

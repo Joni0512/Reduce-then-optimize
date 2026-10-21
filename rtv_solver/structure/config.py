@@ -57,6 +57,12 @@ class Config:
     # experiment parameters
     MODE: str = 'offline'
     MAX_CARDINALITY: int = 2
+    # 2026-10-21: optional cap on the TOTAL number of requests one vehicle may serve over the whole run (completed + on board +
+    # newly assigned in this step). None = off (previous behaviour). Reason: capacity experiment "vehicle holds C requests at the
+    # same time (am_capacity with unit demand) but serves at most L in total"; there was no such parameter before. Enforced in
+    # CO_TripCostMinimization.solve_ilp (offline/online RTV path); the COAML pipeline's own solve_ilp calls do not pass the
+    # per-vehicle base counts and therefore ignore it.
+    MAX_REQUESTS_PER_VEHICLE: Optional[int] = None
     USE_REQUEST_GRAPH_PRUNER: bool = False #new
     # 2026-07-07: default now points at the best v2 GNN checkpoint (pos_weight=10,
     # threshold=0.5 chosen by val F3 - see outputs/models_v2_gnnv2/best_config_by_model_val_f3.csv).
@@ -183,6 +189,11 @@ class Config:
     # every mixed-class run script retyping the same instance-stem string.
     # Default False so existing class-1-only runs are unaffected.
     USE_CLASS2_EXTRA: bool = False
+    # 2026-10-17: opt-in switch - skip the "optimal_val" pre-pass of training_loop._run_train_val_dirs (one rolling-horizon
+    # run in mode="optimal" over all val files before epoch 1). It only writes reference results to optimal_val/, never
+    # touches the model/optimizer and is not read by the training or the best-val logic, but costs 7.6 h (c3 mixedclass
+    # bi200/ss100 baseline) to ~18 h (bi400/ss80 baseline) per run. Default False = unchanged behaviour.
+    SKIP_OPTIMAL_VAL: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -291,11 +302,13 @@ class Config:
             OVERRIDE_TRAINING_FILES=getattr(args, "override_training_files", "") or "",
             OVERRIDE_VALIDATION_FILES=getattr(args, "override_validation_files", "") or "",
             USE_CLASS2_EXTRA=cls.str_to_bool(getattr(args, "use_class2_extra", "False") or "False"),
+            SKIP_OPTIMAL_VAL=cls.str_to_bool(getattr(args, "skip_optimal_val", "False") or "False"),
             MAX_THREAD_CNT = args.max_thread_cnt,
             RTV_TIMEOUT = args.rtv_timeout,
             ILP_TIMEOUT = args.ilp_timeout, 
             ILP_PENALTY = args.ilp_penalty,
             MAX_CARDINALITY = args.max_cardinality,
+            MAX_REQUESTS_PER_VEHICLE = getattr(args, "max_requests_per_vehicle", None),  # 2026-10-21: see field comment
             LARGEST_TSP = args.largest_tsp,
             SHARE_COST_FACTOR = args.share_cost_factor,
             REBALANCING = cls.str_to_bool(args.rebalancing),

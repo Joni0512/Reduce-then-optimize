@@ -220,7 +220,8 @@ class COAMLTrainingLoop:
         best_epoch = -1
 
         #validate files to see what rolling horizon can even do on the optimal path
-        for v_path in val_files:
+        # 2026-10-17: --skip_optimal_val True skips this pre-pass (reference results only, see Config.SKIP_OPTIMAL_VAL)
+        for v_path in ([] if self.config.SKIP_OPTIMAL_VAL else val_files):
                 v_cleared = _load_and_clear_payload(v_path)
                 out_dir = self.config.OUTPUT_DIR / "optimal_val" / v_path.stem
                 out_dir.mkdir(parents=True, exist_ok=True)

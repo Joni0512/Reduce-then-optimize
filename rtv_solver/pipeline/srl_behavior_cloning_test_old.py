@@ -1,5 +1,5 @@
 """
-2026-09-14: single-instance smoke test of Option 1 (Behavior Cloning) - see
+2026-09-14: single-instancetest of Option 1 (Behavior Cloning) - see
 chat/srl deck's "Training Signal Design" slide. Direct comparison point for
 srl_rho_outcome_advantage.py's Option 2 smoke test, same instance/setup.
 

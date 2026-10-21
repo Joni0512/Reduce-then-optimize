@@ -24,10 +24,10 @@ class CO_TripCostMinimization(CO):
     def __init__(self, config: Config):
         super().__init__(config)
 
-    def run(self, requests: list[Request], active_requests: dict[int, Request]):
+    def run(self, requests: list[Request], active_requests: dict[int, Request], vehicle_request_base: dict[int, int] | None = None):
         # define trip variables with related costs
         trip_obj_scores = np.fromiter((tc.cost for tc in self.trip_costs), dtype=float, count=len(self.trip_costs))
-        model, x_t, x_r = self.solve_ilp(trip_obj_scores, requests, active_requests, penalty=self.config.ILP_PENALTY, keep_active=self.config.KEEP_ACTIVE)
+        model, x_t, x_r = self.solve_ilp(trip_obj_scores, requests, active_requests, penalty=self.config.ILP_PENALTY, keep_active=self.config.KEEP_ACTIVE, vehicle_request_base=vehicle_request_base)
         assignment_result = self.transform_solution_to_assignment(
             model,
             x_t,
@@ -38,7 +38,7 @@ class CO_TripCostMinimization(CO):
         )
         return assignment_result
 
-    def solve_ilp(self, trip_objective_scores: np.ndarray, requests: list[Request], active_requests: dict[int, Request], penalty: int = 100_000, keep_active: bool = True):
+    def solve_ilp(self, trip_objective_scores: np.ndarray, requests: list[Request], active_requests: dict[int, Request], penalty: int = 100_000, keep_active: bool = True, vehicle_request_base: dict[int, int] | None = None):
         """
         Build and immediatelty solves ILP of trip_costs for associated requests and vehicles
 
@@ -80,6 +80,18 @@ class CO_TripCostMinimization(CO):
 
             # constraint: each vehicle has at most on trip
             model.addConstrs((gp.quicksum(x_t[i] for i in self.vehicle_to_trips_cost_map[vehicle_id]) <= 1 for vehicle_id in list(self.vehicle_to_trips_cost_map.keys())), "veh")
+
+            # 2026-10-21: optional total cap per vehicle (Config.MAX_REQUESTS_PER_VEHICLE = L): requests already completed or on board
+            # (vehicle_request_base) + requests of the newly chosen trip <= L. Skipped when the cap or the base counts are not given, so
+            # the previous behaviour is unchanged. RHS clipped at 0: a vehicle already at/over L simply gets no new trip (no infeasible model).
+            max_total = self.config.MAX_REQUESTS_PER_VEHICLE
+            if max_total is not None and vehicle_request_base is not None:
+                for vehicle_id, cost_indices in self.vehicle_to_trips_cost_map.items():
+                    if len(cost_indices) == 0:
+                        continue
+                    n_new = [getattr(self.trips[self.trip_costs[i].trip_no], "cardinality", 1) for i in cost_indices]
+                    model.addConstr(gp.quicksum(n * x_t[i] for n, i in zip(n_new, cost_indices))
+                                    <= max(max_total - vehicle_request_base.get(vehicle_id, 0), 0), "veh_total_{0}".format(vehicle_id))
 
             # constraint: each request is either rejected or served by a single trip 
             # active requests are handled with extra care

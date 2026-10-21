@@ -25,6 +25,7 @@ def critic_td_update_step(
     target_critic2: torch.nn.Module | None = None,
     max_norm: float = 1.0,  # 2026-10-15: gradient-clipping threshold (default = original 1.0)
     n_steps: int = 1,  # 2026-10-18: 2 = two-step TD target (entries then carry reward2/next_next_step), see td_target_builder.py
+    loss2_out: list | None = None,  # 2026-10-18: if given (and critic2 is set), critic 2's batch loss is appended to it (the return value stays critic 1's loss)
 ) -> float:
     """One critic update on `entries` (ReplayEntry list, td_bootstrap mode). Returns the batch loss of critic 1."""
     batch_q_preds = [
@@ -55,4 +56,6 @@ def critic_td_update_step(
         batch_loss2.backward()
         torch.nn.utils.clip_grad_norm_(critic2.parameters(), max_norm=max_norm)
         critic_optimizer2.step()
+        if loss2_out is not None:
+            loss2_out.append(batch_loss2.item())
     return batch_loss.item()

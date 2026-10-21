@@ -62,6 +62,8 @@ EPISODIC_ACTOR_BATCH = int(os.environ.get("SRL_EPISODIC_ACTOR_BATCH", "20"))
 EPISODIC_CRITIC_STEPS = int(os.environ.get("SRL_EPISODIC_CRITIC_STEPS", "1"))
 EPISODIC_CRITIC_BATCH = int(os.environ.get("SRL_EPISODIC_CRITIC_BATCH", "20"))
 EPISODIC_TAU = float(os.environ.get("SRL_EPISODIC_TAU", "0.005"))
+LR_SCHEDULE = os.environ.get("SRL_LR_SCHEDULE", "none")  # 2026-10-20: learning-rate annealing of actor and critics ("none" = constant = default, "cosine", "linear")
+LR_FINAL_FACTOR = float(os.environ.get("SRL_LR_FINAL_FACTOR", "0.1"))
 TD_STEPS = int(os.environ.get("SRL_TD_STEPS", "1"))  # 2026-10-18: 1 = single-step TD target (default), 2 = two-step target r_t + g*r_{t+1} + g^2*Q'(s_t+2)
 ACTOR_UPDATE_MODE = os.environ.get("SRL_ACTOR_UPDATE_MODE", "buffered")  # 2026-10-12: "buffered_joint" = shared multi-epoch buffer (see srl_training_loop.py)
 JOINT_BUFFER_EPOCHS = int(os.environ.get("SRL_JOINT_BUFFER_EPOCHS", "10"))
@@ -91,7 +93,7 @@ def main() -> None:
     run_id = os.environ.get("SRL_RUN_ID") or run_id
     output_dir = REPO_ROOT / "outputs" / "srl_training_sweep" / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
-    print(f"=== srl_buffered_actor_lr_trial {run_id}: actor_lr={actor_lr} critic_lr={critic_lr} gamma={GAMMA} polyak_tau={TAU} actor_clip={ACTOR_CLIP} critic_clip={CRITIC_CLIP} sigma={SIGMA} num_samples={NUM_SAMPLES} reward_mode={REWARD_MODE} td_steps={TD_STEPS} pretrain_mode={PRETRAIN_MODE}({PRETRAIN_STEPS}x{PRETRAIN_BATCH}) episodic(buffer {EPISODIC_BUFFER_EPISODES} ep, actor {EPISODIC_ACTOR_STEPS}x{EPISODIC_ACTOR_BATCH}, critic {EPISODIC_CRITIC_STEPS}x{EPISODIC_CRITIC_BATCH}, tau {EPISODIC_TAU}) actor_model={ACTOR_MODEL_TYPE}/{ACTOR_GNN_LAYERS}L/{ACTOR_GNN_AGGREGATOR} actor_update_mode={ACTOR_UPDATE_MODE} actor_batch_size={ACTOR_BATCH_SIZE} seed={seed} epochs={epochs} (+{CRITIC_PRETRAIN_EPOCHS} critic pretrain) batch_interval={BATCH_INTERVAL} step_size={STEP_SIZE} pickup_slack=True feature_size={_feat_builder_module.FeatureBuilder.FEATURE_SIZE} ===")
+    print(f"=== srl_buffered_actor_lr_trial {run_id}: actor_lr={actor_lr} critic_lr={critic_lr} gamma={GAMMA} polyak_tau={TAU} actor_clip={ACTOR_CLIP} critic_clip={CRITIC_CLIP} sigma={SIGMA} num_samples={NUM_SAMPLES} reward_mode={REWARD_MODE} td_steps={TD_STEPS} lr_schedule={LR_SCHEDULE}(final x{LR_FINAL_FACTOR}) pretrain_mode={PRETRAIN_MODE}({PRETRAIN_STEPS}x{PRETRAIN_BATCH}) episodic(buffer {EPISODIC_BUFFER_EPISODES} ep, actor {EPISODIC_ACTOR_STEPS}x{EPISODIC_ACTOR_BATCH}, critic {EPISODIC_CRITIC_STEPS}x{EPISODIC_CRITIC_BATCH}, tau {EPISODIC_TAU}) actor_model={ACTOR_MODEL_TYPE}/{ACTOR_GNN_LAYERS}L/{ACTOR_GNN_AGGREGATOR} actor_update_mode={ACTOR_UPDATE_MODE} actor_batch_size={ACTOR_BATCH_SIZE} seed={seed} epochs={epochs} (+{CRITIC_PRETRAIN_EPOCHS} critic pretrain) batch_interval={BATCH_INTERVAL} step_size={STEP_SIZE} pickup_slack=True feature_size={_feat_builder_module.FeatureBuilder.FEATURE_SIZE} ===")
     try:
         _run(run_id, actor_lr, critic_lr, seed, epochs, output_dir)
     except Exception:
@@ -118,6 +120,7 @@ def _run(run_id: str, actor_lr: float, critic_lr: float, seed: int, epochs: int,
         episodic_buffer_episodes=EPISODIC_BUFFER_EPISODES, episodic_actor_steps=EPISODIC_ACTOR_STEPS, episodic_actor_batch=EPISODIC_ACTOR_BATCH,
         episodic_critic_steps=EPISODIC_CRITIC_STEPS, episodic_critic_batch=EPISODIC_CRITIC_BATCH, episodic_tau=EPISODIC_TAU,
         td_steps=TD_STEPS,
+        lr_schedule=LR_SCHEDULE, lr_final_factor=LR_FINAL_FACTOR,
     )
 
     config_template = Config(OUTPUT_DIR=output_dir, BATCH_INTERVAL=BATCH_INTERVAL, STEP_SIZE=STEP_SIZE, SEED=seed)
@@ -137,7 +140,7 @@ def _run(run_id: str, actor_lr: float, critic_lr: float, seed: int, epochs: int,
             "joint_buffer_epochs": JOINT_BUFFER_EPOCHS, "joint_critic_steps_per_actor_step": JOINT_CRITIC_STEPS,
             "joint_critic_batch_size": JOINT_CRITIC_BATCH, "joint_tau_per_step": JOINT_TAU_PER_STEP,
             "gamma": GAMMA, "polyak_tau": TAU, "actor_clip": ACTOR_CLIP, "critic_clip": CRITIC_CLIP, "sigma": SIGMA, "num_samples": NUM_SAMPLES, "reward_mode": REWARD_MODE,
-            "td_steps": TD_STEPS, "pretrain_mode": PRETRAIN_MODE, "pretrain_steps": PRETRAIN_STEPS, "pretrain_batch": PRETRAIN_BATCH, "pretrain_instances": PRETRAIN_INSTANCES,
+            "td_steps": TD_STEPS, "lr_schedule": LR_SCHEDULE, "lr_final_factor": LR_FINAL_FACTOR, "pretrain_mode": PRETRAIN_MODE, "pretrain_steps": PRETRAIN_STEPS, "pretrain_batch": PRETRAIN_BATCH, "pretrain_instances": PRETRAIN_INSTANCES,
             "episodic_buffer_episodes": EPISODIC_BUFFER_EPISODES, "episodic_actor_steps": EPISODIC_ACTOR_STEPS, "episodic_actor_batch": EPISODIC_ACTOR_BATCH,
             "episodic_critic_steps": EPISODIC_CRITIC_STEPS, "episodic_critic_batch": EPISODIC_CRITIC_BATCH, "episodic_tau": EPISODIC_TAU,
             "actor_model_type": ACTOR_MODEL_TYPE, "actor_gnn_layers": ACTOR_GNN_LAYERS, "actor_gnn_aggregator": ACTOR_GNN_AGGREGATOR,

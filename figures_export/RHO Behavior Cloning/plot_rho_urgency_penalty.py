@@ -8,7 +8,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from pathlib import Path
 here = Path(__file__).resolve().parent; root = here.parent.parent
-BIS, FACTORS, KAS = [100, 200, 400, 600, 800], [1, 2, 4], [True, False]  # 2026-10-08: batch_interval=100 added
+BIS, FACTORS, KAS = [100, 200, 400, 600, 800, 1200], [1, 2, 4], [True, False]  # 2026-10-08: batch_interval=100 added; 2026-10-15: 1200 (no x4 there)
 res = {}
 print("keep_active factor batch_interval n_runs mean std min max failed")
 for ka in KAS:
@@ -18,11 +18,13 @@ for ka in KAS:
             # 2026-10-08: all available runs (baseline batch_interval=100/KEEP_ACTIVE=True has 5, everything else 3)
             runs = [json.load(open(p)) for p in sorted((root / "outputs/rho_val_runs" / name).glob("run*/summary.json"))]
             m = [r["mean"] for r in runs]; fl = sum(len(r["failed"]) for r in runs)
+            if not m:  # 2026-10-15: config not run (factor 4 at batch_interval=1200) -> no bar
+                res[(ka, f, bi)] = (float("nan"), 0.0); continue
             res[(ka, f, bi)] = (float(np.mean(m)), float(np.std(m)))
             print(ka, f, bi, len(m), round(np.mean(m), 4), round(np.std(m), 4), round(min(m), 4), round(max(m), 4), fl)
 INK, INK2, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 COL = {1: "#8a8984", 2: "#2a78d6", 4: "#1baf7a"}
-fig, axes = plt.subplots(1, 2, figsize=(12.5, 4.4), sharey=True)
+fig, axes = plt.subplots(1, 2, figsize=(13.5, 4.4), sharey=True)
 w = 0.27; x = np.arange(len(BIS))
 for ax, ka in zip(axes, KAS):
     for k, f in enumerate(FACTORS):
@@ -30,7 +32,7 @@ for ax, ka in zip(axes, KAS):
         ax.bar(x + (k - 1) * w, mv, w, yerr=sv, capsize=2, color=COL[f], zorder=2,
                label="factor 1 (baseline)" if f == 1 else f"urgent rejection x{f}")
         for xi, v in zip(x + (k - 1) * w, mv):
-            ax.text(xi, v + 0.006, f"{v:.3f}", ha="center", va="bottom", fontsize=5.8, rotation=90, color=INK)
+            if v == v: ax.text(xi, v + 0.006, f"{v:.3f}", ha="center", va="bottom", fontsize=5.8, rotation=90, color=INK)
     ax.set_xticks(x, [str(b) for b in BIS]); ax.set_xlabel("batch_interval (step_size=100)", fontsize=9)
     ax.set_title(f"KEEP_ACTIVE={ka}", loc="left", fontsize=10)
     ax.yaxis.grid(True, color=GRID, zorder=0); ax.set_axisbelow(True)
@@ -39,7 +41,7 @@ for ax, ka in zip(axes, KAS):
 axes[0].set_ylim(0.55, 0.88); axes[0].set_ylabel("Service rate (mean over 9 val instances)", fontsize=9)
 h, l = axes[0].get_legend_handles_labels(); fig.legend(h, l, fontsize=8, loc="upper right", ncol=3, bbox_to_anchor=(0.99, 0.9))
 fig.suptitle("Urgency-weighted rejection penalty vs RHO horizon", x=0.01, y=0.985, ha="left", fontsize=12)
-fig.text(0.01, 0.925, "urgent = latest pickup before t + step_size; card 2, seed 42, 9 val instances, 3 runs per bar (baseline batch_interval=100 / KEEP_ACTIVE=True: 5), error bar = std of run means; no failed instances",
+fig.text(0.01, 0.925, "urgent = latest pickup before t + step_size; card 2, seed 42, 9 val instances, 3 runs per bar (baseline batch_interval=100 / KEEP_ACTIVE=True: 5), error bar = std of run means; x4 not run at 1200",
          fontsize=8, color=INK2)
 fig.text(0.01, 0.005, "Sources: outputs/rho_val_runs/bi*_ss100_card2_keepactive*_seed42[_urgent2|_urgent4]/run{1,2,3}/summary.json", fontsize=7, color=INK2)
 fig.tight_layout(rect=(0, 0.04, 1, 0.84))
@@ -53,7 +55,7 @@ for ax, ka in zip(axes, KAS):
         mv = [res[(ka, f, b)][0] for b in BIS]
         ax.bar(x + (k - 1) * w, mv, w, color=COL[f], zorder=2, label="factor 1 (baseline)" if f == 1 else f"urgent rejection x{f}")
         for xi, v in zip(x + (k - 1) * w, mv):
-            ax.text(xi, v + 0.005, f"{v:.2f}", ha="center", va="bottom", fontsize=6.5, color=INK)
+            if v == v: ax.text(xi, v + 0.005, f"{v:.2f}", ha="center", va="bottom", fontsize=6.5, color=INK)
     ax.set_title(f"KEEP_ACTIVE={ka}", loc="left", fontsize=9); ax.set_ylim(0.55, 0.87); ax.tick_params(labelsize=8)
     ax.yaxis.grid(True, color=GRID, zorder=0); ax.set_axisbelow(True); ax.set_ylabel("service rate", fontsize=8)
     for sp in ("top", "right"):
