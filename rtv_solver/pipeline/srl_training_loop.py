@@ -470,7 +470,9 @@ def run_srl_training_loop(
             raise ValueError("pretrain_mode='buffer' is only implemented for use_actor_warmstart=False (random-init actor)")
         from rtv_solver.pipeline.srl_buffer_pretrain import run_buffer_pretrain
         run_buffer_pretrain(
-            critic, critic_optimizer, critic2, critic_optimizer2, pretrain_actor_model, list(pretrain_instances or []), pretrain_steps, pretrain_batch, reward_mode,
+            critic, critic_optimizer, critic2, critic_optimizer2, pretrain_actor_model,
+            list(TRAIN_INSTANCES) if pretrain_instances == ["all"] else list(pretrain_instances or []),  # 2026-10-22: ["all"] = every training instance once
+            pretrain_steps, pretrain_batch, reward_mode,
             batch_interval, step_size, seed, output_dir, MANIFEST_DIR, _MAX_THREAD_CNT, critic_clip_norm=critic_clip_norm,
         )
     for epoch in range(critic_pretrain_epochs if pretrain_mode == "per_episode" else 0):
@@ -513,7 +515,7 @@ def run_srl_training_loop(
     target_critic2 = copy.deepcopy(critic2) if use_twin_critic else None
     # 2026-10-12: joint mode keeps ~joint_buffer_epochs epochs of critic transitions (~370 windows per epoch -> 400 as upper estimate)
     grad_norm_log: list[dict] = []  # 2026-10-14: per-epoch actor gradient-norm statistics (buffered / buffered_joint modes)
-    replay_buffer = ReplayBuffer(capacity=2000 if episodic else (joint_buffer_epochs * 400 if joint else replay_capacity))  # 2026-10-17: episodic never evicts by capacity (episodes are dropped explicitly)
+    replay_buffer = ReplayBuffer(capacity=max(2000, 15 * episodic_buffer_episodes) if episodic else (joint_buffer_epochs * 400 if joint else replay_capacity))  # 2026-10-17: episodic never evicts by capacity (episodes are dropped explicitly)
     actor_buffer = ActorTransitionBuffer(capacity=actor_buffer_capacity, compress=joint or episodic) if buffered else None  # 2026-10-06; compress: 2026-10-12 (+ episodic 2026-10-17: needs the episode tag)
     episode_counter = 0  # 2026-10-17: episodic mode - global episode index (1, 2, ... over all epochs), used as the FIFO tag of both buffers
 
