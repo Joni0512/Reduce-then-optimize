@@ -87,3 +87,15 @@ def test_compressed_buffer_roundtrip_sampling_and_epoch_drop():
     assert buf.drop_epochs_before(3) == 8 and len(buf) == 4
     assert all(t.current_time >= 30 for t in buf.sample_with_replacement(20, random.Random(1)))
     assert sum(len(b) for b in buf.epoch_batches(3, random.Random(2))) == 4  # old path works on compressed items too
+
+
+def test_loss2_out_collects_critic2_loss():
+    # 2026-10-18: critic 2's batch loss is returned via the optional list, the return value stays critic 1's loss
+    torch.manual_seed(0)
+    entries = _entries(4)
+    c1, c2 = CriticGNN(), CriticGNN()
+    t1, t2 = copy.deepcopy(c1), copy.deepcopy(c2)
+    out: list[float] = []
+    loss1 = critic_td_update_step(entries, c1, torch.optim.Adam(c1.parameters(), lr=1e-3), t1, 0.9, critic2=c2, critic_optimizer2=torch.optim.Adam(c2.parameters(), lr=1e-3),
+                                  target_critic2=t2, loss2_out=out)
+    assert isinstance(loss1, float) and len(out) == 1 and out[0] >= 0.0

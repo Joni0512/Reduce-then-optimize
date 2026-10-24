@@ -30,6 +30,7 @@ from __future__ import annotations
 import copy
 import csv
 import json
+import math
 import os
 import random
 import time
@@ -219,6 +220,20 @@ def _log_grad_norms(epoch_num: int, grad_norms: list[float], log: list[dict], ou
         json.dump(log, f, indent=1)
 
 
+def lr_factor(schedule: str, epoch_index: int, epochs: int, final_factor: float) -> float:
+    """2026-10-20 (user request, learning-rate annealing): multiplier of the base learning rate in epoch `epoch_index` (0-based) of `epochs`. "none" = 1.0 always (default, old behavior);
+    "cosine": final_factor + (1 - final_factor) * 0.5 * (1 + cos(pi * t)), "linear": 1 + (final_factor - 1) * t, with t = epoch_index / (epochs - 1), so epoch 1 uses the base rate and
+    the last epoch exactly base * final_factor."""
+    if schedule == "none":
+        return 1.0
+    t = epoch_index / max(epochs - 1, 1)
+    if schedule == "cosine":
+        return final_factor + (1.0 - final_factor) * 0.5 * (1.0 + math.cos(math.pi * t))
+    if schedule == "linear":
+        return 1.0 + (final_factor - 1.0) * t
+    raise ValueError(f"Expected lr schedule in ('none', 'cosine', 'linear'), got {schedule!r}")
+
+
 def _record_critic_stats(log: list[dict], output_dir, phase: str, epoch: int, instance: str, pipeline, pipeline2=None) -> None:
     """2026-10-17: one record per episode (= one instance rollout) of the critic MSE (critic 1 / 2), mean live-critic prediction and mean TD target,
     read from COAMLPipeline.last_episode_critic_stats; written to critic_loss_log.json after every episode. pipeline2 (critic pretrain with a twin
@@ -257,6 +272,7 @@ def _run_joint_update_phase(
     actor_clip_norm: float = 1.0,
     critic_clip_norm: float = 1.0,  # 2026-10-15: clipping thresholds (defaults = original 1.0)
     td_steps: int = 1,  # 2026-10-18: n of the n-step TD target of the critic steps
+    critic2_losses: list[float] | None = None,  # 2026-10-18: if given, critic 2's batch losses of the critic steps are appended (logging only)
 ) -> tuple[list[float], list[float], list[float]]:
     """
     2026-10-12: update phase of the "buffered_joint" scheme (see chat). num_steps times: (1) draw actor_batch_size windows WITH replacement
@@ -289,7 +305,7 @@ def _run_joint_update_phase(
             entries = replay_buffer.sample(critic_batch_size)
             critic_losses.append(critic_td_update_step(
                 entries, critic, critic_optimizer, target_critic, gamma,
-                critic2=critic2, critic_optimizer2=critic_optimizer2, target_critic2=target_critic2, max_norm=critic_clip_norm, n_steps=td_steps,
+                critic2=critic2, critic_optimizer2=critic_optimizer2, target_critic2=target_critic2, max_norm=critic_clip_norm, n_steps=td_steps, loss2_out=critic2_losses,
             ))
 
         _polyak_update(target_critic, critic, tau_per_step)
@@ -360,6 +376,8 @@ def run_srl_training_loop(
     episodic_critic_batch: int = 20,
     episodic_tau: float = 0.005,
     td_steps: int = 1,  # 2026-10-18: 1 = single-step TD target (default), 2 = two-step target (see td_target_builder.py)
+    lr_schedule: str = "none",  # 2026-10-20: learning-rate annealing of actor AND both critics over the epochs: "none" (default, constant), "cosine" or "linear" down to base * lr_final_factor
+    lr_final_factor: float = 0.1,
 ) -> SRLTrainingLoopResult:
     """
     2026-10-06: added `actor_update_mode` (see chat, "collect, then update"):
@@ -452,7 +470,9 @@ def run_srl_training_loop(
             raise ValueError("pretrain_mode='buffer' is only implemented for use_actor_warmstart=False (random-init actor)")
         from rtv_solver.pipeline.srl_buffer_pretrain import run_buffer_pretrain
         run_buffer_pretrain(
-            critic, critic_optimizer, critic2, critic_optimizer2, pretrain_actor_model, list(pretrain_instances or []), pretrain_steps, pretrain_batch, reward_mode,
+            critic, critic_optimizer, critic2, critic_optimizer2, pretrain_actor_model,
+            list(TRAIN_INSTANCES) if pretrain_instances == ["all"] else list(pretrain_instances or []),  # 2026-10-22: ["all"] = every training instance once
+            pretrain_steps, pretrain_batch, reward_mode,
             batch_interval, step_size, seed, output_dir, MANIFEST_DIR, _MAX_THREAD_CNT, critic_clip_norm=critic_clip_norm,
         )
     for epoch in range(critic_pretrain_epochs if pretrain_mode == "per_episode" else 0):
@@ -495,7 +515,7 @@ def run_srl_training_loop(
     target_critic2 = copy.deepcopy(critic2) if use_twin_critic else None
     # 2026-10-12: joint mode keeps ~joint_buffer_epochs epochs of critic transitions (~370 windows per epoch -> 400 as upper estimate)
     grad_norm_log: list[dict] = []  # 2026-10-14: per-epoch actor gradient-norm statistics (buffered / buffered_joint modes)
-    replay_buffer = ReplayBuffer(capacity=2000 if episodic else (joint_buffer_epochs * 400 if joint else replay_capacity))  # 2026-10-17: episodic never evicts by capacity (episodes are dropped explicitly)
+    replay_buffer = ReplayBuffer(capacity=max(2000, 15 * episodic_buffer_episodes) if episodic else (joint_buffer_epochs * 400 if joint else replay_capacity))  # 2026-10-17: episodic never evicts by capacity (episodes are dropped explicitly)
     actor_buffer = ActorTransitionBuffer(capacity=actor_buffer_capacity, compress=joint or episodic) if buffered else None  # 2026-10-06; compress: 2026-10-12 (+ episodic 2026-10-17: needs the episode tag)
     episode_counter = 0  # 2026-10-17: episodic mode - global episode index (1, 2, ... over all epochs), used as the FIFO tag of both buffers
 
@@ -507,6 +527,14 @@ def run_srl_training_loop(
 
     for epoch in range(epochs):
         epoch_num = epoch + 1
+        # 2026-10-20: learning-rate annealing (see lr_factor); constant when lr_schedule="none"
+        _fac = lr_factor(lr_schedule, epoch, epochs, lr_final_factor)
+        for _opt, _base in ((actor_optimizer, actor_lr), (critic_optimizer, critic_lr), (critic_optimizer2, critic_lr)):
+            if _opt is not None:
+                for _g in _opt.param_groups:
+                    _g["lr"] = _base * _fac
+        if lr_schedule != "none":
+            print(f"[srl_training_loop reward_mode={reward_mode}] epoch {epoch_num}: lr schedule {lr_schedule}, factor {_fac:.3f} -> actor_lr {actor_lr * _fac:.6f}, critic_lr {critic_lr * _fac:.6f}")
         shuffled_train_instances = TRAIN_INSTANCES.copy()
         if joint:
             actor_buffer.current_epoch = epoch_num  # 2026-10-12: tag for drop_epochs_before
@@ -579,13 +607,16 @@ def run_srl_training_loop(
                 actor_buffer.drop_epochs_before(first_kept)
                 replay_buffer.drop_episodes_before(first_kept)
                 if len(actor_buffer) > 0 and len(replay_buffer) > 0:
+                    ep_critic2_losses: list[float] = []
                     ep_actor_losses, _ep_norms, ep_critic_losses = _run_joint_update_phase(
                         actor_buffer, replay_buffer, model, actor_optimizer,
                         critic, critic_optimizer, target_critic, critic2, critic_optimizer2, target_critic2,
                         episodic_actor_steps, episodic_actor_batch, episodic_critic_steps, episodic_critic_batch,
-                        episodic_tau, gamma, rng, grad_norms=episodic_epoch_grad_norms, actor_clip_norm=actor_clip_norm, critic_clip_norm=critic_clip_norm, td_steps=td_steps,
+                        episodic_tau, gamma, rng, grad_norms=episodic_epoch_grad_norms, actor_clip_norm=actor_clip_norm, critic_clip_norm=critic_clip_norm, td_steps=td_steps, critic2_losses=ep_critic2_losses,
                     )
                     critic_loss_log[-1]["critic_loss"] = sum(ep_critic_losses) / len(ep_critic_losses)  # the rollout itself did no critic update (deferred): record the update-step loss
+                    if ep_critic2_losses:
+                        critic_loss_log[-1]["critic2_loss"] = sum(ep_critic2_losses) / len(ep_critic2_losses)  # 2026-10-18
                     critic_loss_log[-1]["actor_loss"] = sum(ep_actor_losses) / len(ep_actor_losses)
                     critic_loss_log[-1]["buffer_windows"] = len(actor_buffer)
                     with open(output_dir / "critic_loss_log.json", "w") as f:
