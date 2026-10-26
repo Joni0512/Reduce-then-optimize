@@ -31,12 +31,12 @@ def _buffer_mse(entries, critics) -> list[tuple[float, float]]:
 
 def run_buffer_pretrain(critic, critic_optimizer, critic2, critic_optimizer2, actor, instances: list[str], steps: int, batch: int, reward_mode: str,
                         batch_interval: int, step_size: int, seed: int, output_dir: Path, manifest_dir: Path, max_thread_cnt: int,
-                        critic_clip_norm: float = 1.0) -> list[dict]:
+                        critic_clip_norm: float = 1.0, collect_epochs: int = 1, exploration_sigma: float | None = None) -> list[dict]:
     """Returns the per-step log (also written to output_dir/critic_pretrain_log.json)."""
     frozen1 = copy.deepcopy(critic)
     frozen2 = copy.deepcopy(critic2) if critic2 is not None else None  # only needed by the TD interface; gamma=0 makes the bootstrap term vanish
-    buffer = ReplayBuffer(capacity=5000)
-    for instance in instances:
+    buffer = ReplayBuffer(capacity=100000)  # 2026-10-26: large enough for collect_epochs x instances x windows (also at half horizon)
+    for collect_epoch, instance in [(e, i) for e in range(collect_epochs) for i in instances]:  # 2026-10-26: collect_epochs passes over the instances (with exploration_sigma noise each pass differs)
         input_path = manifest_dir / f"{instance}.json"
         inst_dir = output_dir / "critic_pretrain_collect" / instance
         inst_dir.mkdir(parents=True, exist_ok=True)
@@ -48,9 +48,10 @@ def run_buffer_pretrain(critic, critic_optimizer, critic2, critic_optimizer2, ac
             config, cleared, imitation_solution_path=input_path, model=actor,
             critic=critic, critic_optimizer=critic_optimizer, target_critic=frozen1, critic2=critic2, critic_optimizer2=critic_optimizer2, target_critic2=frozen2,
             replay_buffer=buffer, replay_batch_size=batch, critic_target_mode="td_bootstrap", gamma=0.0, defer_critic_updates=True, critic_clip_norm=critic_clip_norm,
+            exploration_sigma=exploration_sigma,
         )
         pipeline.solve_pdptw(cleared, mode="eval", train_critic=True, reward_mode=reward_mode)
-        print(f"[buffer pretrain] collected {instance}: {len(buffer) - start} windows, sum r = {sum(e.reward for e in buffer.entries[start:]):.0f}")
+        print(f"[buffer pretrain] epoch {collect_epoch} collected {instance}: {len(buffer) - start} windows, sum r = {sum(e.reward for e in buffer.entries[start:]):.0f}")
 
     entries = list(buffer.entries)
     mean_target = sum(e.reward for e in entries) / len(entries)
