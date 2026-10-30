@@ -33,7 +33,9 @@ SHARD=${3:-0}
 NSHARDS=${4:-1}
 STAGING_OUT="staging_bi${BI}_ss${SS}_shard${SHARD}"
 FINAL_BASE="outputs/eval_rh_no_learning_bi${BI}_ss${SS}"
-TIMEOUT_SECONDS=1800
+# 2026-10-30: timeout and instance list overridable (user asked to raise the 30 min cap so the label data become complete: the first pass left 9/4/3/1 instances out at 40/10, 100/25, 120/30, 200/50)
+TIMEOUT_SECONDS=${TIMEOUT_SECONDS:-1800}
+INSTANCES=${INSTANCES_OVERRIDE:-$INSTANCES}
 
 total=$(echo $INSTANCES | wc -w)
 count=0
