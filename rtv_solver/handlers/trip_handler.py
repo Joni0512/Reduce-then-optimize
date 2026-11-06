@@ -15,7 +15,7 @@ from rtv_solver.structure.vehicle import Vehicle
 from rtv_solver.handlers.vehicle_handler import VehicleHandler
 from rtv_solver.handlers.network_handler import NetworkHandler
 from rtv_solver.pipeline.request_graph_pruner import RequestGraphPruner
-from rtv_solver.pipeline.request_pruner import RequestPruner  # 2026-07-14: request-only pruner, runs before RequestGraphPruner
+from rtv_solver.pipeline.request_pruner import RequestPruner, time_rule_filter_requests  # 2026-07-14: request-only pruner, runs before RequestGraphPruner; 2026-11-05: + no-learning time-rule filter
 
 
 from rtv_solver.util.logger import BASIC_LOGGER, DATA_LOGGER
@@ -116,6 +116,29 @@ class TripHandler:
                 f"({self.request_pruning_stats['num_force_kept_active']} force-kept as active, "
                 f"{self.request_pruning_stats['num_force_kept_urgent']} force-kept as urgent, "
                 f"{self.request_pruning_stats['num_pruned']} pruned)"
+            )
+
+        # 2026-11-05: no-learning request filter (request_pruner.time_rule_filter_requests), same place and
+        # same deferral semantics as the RequestPruner above (filtered requests stay in the caller's state,
+        # they are not rejected). Exclusive with USE_REQUEST_PRUNER so the two never stack.
+        if self.config.USE_REQUEST_TIME_RULE_FILTER:
+            if self.config.USE_REQUEST_PRUNER:
+                raise ValueError("USE_REQUEST_TIME_RULE_FILTER and USE_REQUEST_PRUNER are mutually exclusive.")
+            if self.current_time is None:
+                raise ValueError(
+                    "USE_REQUEST_TIME_RULE_FILTER is enabled but no current_time was provided to TripHandler."
+                )
+            self.requests, self.request_pruning_stats = time_rule_filter_requests(
+                requests=self.requests,
+                current_time=self.current_time,
+                step_size=self.config.STEP_SIZE,
+                active_request_ids=set(self.active_requests.keys()),
+            )
+            console_logger.info(
+                f"Request time-rule filter: kept {self.request_pruning_stats['num_kept_total']}/"
+                f"{self.request_pruning_stats['num_requests_total']} requests "
+                f"({self.request_pruning_stats['num_force_kept_active']} active, "
+                f"{self.request_pruning_stats['num_pruned']} deferred)"
             )
 
         # Request graph pruning:

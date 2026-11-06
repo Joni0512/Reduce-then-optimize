@@ -8,8 +8,10 @@ Run: ./venv/bin/python3 scripts/analysis/rho_total_limit_sweep.py [--instances l
 (L=0 means "no limit".) Output: outputs/rho_total_limit_sweep_C<C>_c<card>_bi<bi>_ss<ss>.csv
 """
 import argparse
+import glob
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -31,16 +33,22 @@ def main():
     ap.add_argument("--bi", default="40")
     ap.add_argument("--ss", default="10")
     ap.add_argument("--L", type=int, nargs="+", default=[2, 4, 6, 8, 10, 12, 0])
+    ap.add_argument("--pair_t", type=float, default=0.0, help="2026-10-22: >0 switches the Pair Pruner (GNNv1 rgnn_mixed_c2_pw2_v1_final) on with this threshold; 0 = no pruner")
+    ap.add_argument("--tag", default="", help="2026-10-22: CSV name suffix so that instance groups can run in parallel without overwriting each other")
     a = ap.parse_args()
+    pair_part = f"_pair{a.pair_t}" if a.pair_t > 0 else ""  # 2026-10-22: CSV name carries the Pair Pruner threshold
     rows = []
     for stem in a.instances:
         n_req = len(json.load(open(REPO / "solutions/li_lim/manifests" / f"{stem}.json"))["requests"])
         f = R.make_copy(stem, a.C, f"_c{a.card}_bi{a.bi}_ss{a.ss}_tl")
         for L in a.L:
-            out = SCRATCH / f"out_tl_{stem}_C{a.C}_L{L}_c{a.card}_bi{a.bi}_ss{a.ss}"
+            pair = f"_pair{a.pair_t}" if a.pair_t > 0 else ""
+            out = SCRATCH / f"out_tl_{stem}_C{a.C}_L{L}_c{a.card}_bi{a.bi}_ss{a.ss}{pair}"
             cmd = [sys.executable, "rtv_solver/main.py", "--mode", "offline", "--input_file", str(f), "--input_dir", str(f.parent) + "/",
-                   "--imitation_solution_file", str(f), "--use_request_graph_pruner", "False", "--max_cardinality", a.card,
+                   "--imitation_solution_file", str(f), "--use_request_graph_pruner", "True" if a.pair_t > 0 else "False", "--max_cardinality", a.card,
                    "--batch_interval", a.bi, "--step_size", a.ss, "--output_dir", str(out)]
+            if a.pair_t > 0:
+                cmd += ["--request_graph_model_path", str(REPO / "outputs/models_v2/rgnn_mixed_c2_pw2_v1_final/rgnn_mixed_c2_pw2_v1_final_best_val_f3.pt"), "--request_graph_threshold", str(a.pair_t)]
             if L > 0:
                 cmd += ["--max_requests_per_vehicle", str(L)]
             t0 = time.time()
@@ -50,11 +58,17 @@ def main():
             except subprocess.TimeoutExpired:
                 res, status = None, "timeout"
             served, max_load, max_per_veh = res if res else (None, None, None)
+            kept = total = None
+            if a.pair_t > 0:  # 2026-10-22: pruning rate of the Pair Pruner = allowed / candidate request pairs summed over all windows (log line of trip_handler)
+                logs = glob.glob(str(out / "run_offline_*" / "*" / "main.log"))
+                if logs:
+                    pairs = re.findall(r"Allowed request pairs: (\d+) / (\d+) candidate pairs", open(logs[0], errors="ignore").read())
+                    kept, total = sum(int(x) for x, _ in pairs), sum(int(y) for _, y in pairs)
             rows.append(dict(instance=stem, requests=n_req, C=a.C, L=(L if L > 0 else "none"), status=status, served=served,
                              service_rate=(100 * served / n_req if served is not None else None), max_on_board=max_load,
-                             max_served_by_one_vehicle=max_per_veh, seconds=round(time.time() - t0, 1)))
+                             max_served_by_one_vehicle=max_per_veh, pairs_kept=kept, pairs_total=total, seconds=round(time.time() - t0, 1)))
             print(rows[-1], flush=True)
-            pd.DataFrame(rows).to_csv(REPO / f"outputs/rho_total_limit_sweep_C{a.C}_c{a.card}_bi{a.bi}_ss{a.ss}.csv", index=False)
+            pd.DataFrame(rows).to_csv(REPO / f"outputs/rho_total_limit_sweep_C{a.C}_c{a.card}_bi{a.bi}_ss{a.ss}{pair_part}{a.tag}.csv", index=False)
     with pd.option_context("display.width", 200, "display.float_format", "{:.1f}".format):
         print(pd.DataFrame(rows).to_string(index=False))
 

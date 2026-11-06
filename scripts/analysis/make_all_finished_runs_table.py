@@ -158,7 +158,8 @@ for _alr, _clr, _seed, _bv, _be, _te, _val in ((0.0016, 0.002, 301, 0.7043653300
                                                 (0.0008, 0.002, 301, 0.6243172986014273, 20, 0.6604950498180242, {5: 0.5317, 10: 0.5636, 15: 0.6156, 20: 0.6243}),
                                                 (0.0032, 0.004, 301, 0.7306801559520761, 20, 0.7508564751134735, {5: 0.6286, 10: 0.67, 15: 0.7111, 20: 0.7307}),
                                                 (0.0008, 0.002, 302, 0.7112384150563951, 20, 0.7326930577997294, {5: 0.6739, 10: 0.7024, 15: 0.6462, 20: 0.7112}),
-                                                (0.0008, 0.004, 301, 0.7044442863421777, 10, 0.703174412448059, {5: 0.6157, 10: 0.7044, 15: 0.7001, 20: 0.6568})):
+                                                (0.0008, 0.004, 301, 0.7044442863421777, 10, 0.703174412448059, {5: 0.6157, 10: 0.7044, 15: 0.7001, 20: 0.6568}),
+                                                (0.0008, 0.004, 302, 0.686971519457646, 20, 0.7398455446254188, {5: 0.6332, 10: 0.6763, 15: 0.6869, 20: 0.687})):
     ROWS.append(dict(method="new (episodic)", where="cluster grid", actor_lr=_alr, critic_lr=_clr, seed=_seed, epochs=20, best_val=_bv, best_epoch=_be, test=_te, val=_val,
                      note="learning-rate grid cell (see actor_lr / critic_lr columns)"))
 # 2026-10-20/21: cosine learning-rate annealing (actor + critics, final factor 0.1): new episodic buffer (episodic_cos_D_s*) and the OLD buffered method (buffered_cos_D_s*)
@@ -171,6 +172,23 @@ for d in sorted(SWEEP_DIR.glob("buffered_cos_D_s*")):
 # 2026-10-21: 30-epoch episodic 2-step run, seed 302 (cluster job 227265; result.json values pasted by the user)
 ROWS.append(dict(method="new (episodic, 2-step TD)", where="cluster 227265", actor_lr=0.0031923396291543868, critic_lr=0.002, seed=302, epochs=30, best_val=0.6806870492109115, best_epoch=10,
                  test=0.707893325941174, val={5: 0.605, 10: 0.6807, 15: 0.6527, 20: 0.6524, 25: 0.6543, 30: 0.6436}, note="30 epochs"))
+# 2026-10-22: 30-epoch episodic 1-step run, seed 302 (cluster job 227267, 23:17 h; result.json values pasted by the user)
+ROWS.append(dict(method="new (episodic)", where="cluster 227267", actor_lr=0.0031923396291543868, critic_lr=0.002, seed=302, epochs=30, best_val=0.7176937306127096, best_epoch=10,
+                 test=0.7421774441468609, val={5: 0.6656, 10: 0.7177, 15: 0.6874, 20: 0.7112, 25: 0.6742, 30: 0.6351}, note="30 epochs"))
+# 2026-10-23: episodic scheme with the "collect everything first" pretrain (all 38 instances once + 380 critic steps) and a 380-episode buffer (10 epochs, FIFO)
+for d in sorted(list(SWEEP_DIR.glob("episodic_allpre_buf380_D_s*")) + list(SWEEP_DIR.glob("episodic_allpre_buf380_clr0p004_s*"))):  # + critic_lr 0.004 runs (see critic_lr column)
+    if (d / "result.json").exists():
+        ROWS.append(_from_result(d, "new (episodic, all-instance pretrain, buffer 380 ep)", "local" if d.name.endswith("301") else "cluster", "config D, pretrain on all 38 instances (380 steps), buffer 380 episodes"))
+# 2026-10-26: cluster seeds 302-304 of the all-instance pretrain / buffer 380 variant (result.json values pasted by the user; jobs 228437-228439)
+for _seed, _bv, _be, _te, _val, _job in ((302, 0.7046620564045648, 20, 0.7228533875518708, {5: 0.646, 10: 0.6701, 15: 0.6593, 20: 0.7047}, 228437),
+                                          (303, 0.7305626543473381, 15, 0.7504126469165315, {5: 0.5813, 10: 0.6961, 15: 0.7306, 20: 0.7154}, 228438),
+                                          (304, 0.726200328220306, 15, 0.7502032249247521, {5: 0.6786, 10: 0.6357, 15: 0.7262, 20: 0.6808}, 228439)):
+    ROWS.append(dict(method="new (episodic, all-instance pretrain, buffer 380 ep)", where=f"cluster {_job}", actor_lr=0.0031923396291543868, critic_lr=0.002, seed=_seed, epochs=20,
+                     best_val=_bv, best_epoch=_be, test=_te, val=_val, note="config D, pretrain on all 38 instances (380 steps), buffer 380 episodes"))
+# 2026-10-29: half-horizon runs batch_interval=60/step_size=30 (RHO reference bi120/ss30: val 0.7963, test 0.8116, means of 3 runs), episodic scheme, pretrain = 10 collected epochs (sigma 1.0) + 2000 critic steps (batch 20), buffer 380 episodes; seeds 301,306-309 local (result.json)
+for d in sorted(SWEEP_DIR.glob("hh_bi60ss30_allpre10ep_s*")):
+    if (d / "result.json").exists():
+        ROWS.append(_from_result(d, "new (episodic, half horizon bi60/ss30)", "local", "batch_interval=60/step_size=30 (not 200/100), pretrain on all 38 instances: 10 collected epochs sigma 1.0 + 2000 critic steps, buffer 380 episodes"))
 for d in sorted(SWEEP_DIR.glob("abl_*_s*")):
     if (d / "result.json").exists():
         j = _j.load(open(d / "result.json"))
@@ -255,7 +273,7 @@ for (i, j), cell in tbl.get_celld().items():
         cell.set_text_props(weight="bold")
     elif table[i - 1][0].startswith("new"):
         cell.set_facecolor("#eaf3fb")
-ax.set_title("All finished runs, one row per run (n=1 per row); twin critic, no warmstart, pickup_slack, batch_interval=200, step_size=100; "
+ax.set_title("All finished runs, one row per run (n=1 per row); twin critic, no warmstart, pickup_slack, batch_interval=200, step_size=100 unless the Note says otherwise; "
              "Note column starts with: scheme | pretrain | TD steps | reward; Ep. = number of epochs (blue = new methods; * = test rate recomputed from the saved checkpoint)", fontsize=9)
 out = OUT / "all_finished_runs_table"
 fig.savefig(out.with_suffix(".png"), dpi=150, bbox_inches="tight")

@@ -375,6 +375,8 @@ def run_srl_training_loop(
     episodic_critic_steps: int = 1,
     episodic_critic_batch: int = 20,
     episodic_tau: float = 0.005,
+    pretrain_collect_epochs: int = 1,  # 2026-10-26: passes over the pretrain instances while collecting (with pretrain_exploration_sigma noise each pass differs)
+    pretrain_exploration_sigma: float | None = None,
     td_steps: int = 1,  # 2026-10-18: 1 = single-step TD target (default), 2 = two-step target (see td_target_builder.py)
     lr_schedule: str = "none",  # 2026-10-20: learning-rate annealing of actor AND both critics over the epochs: "none" (default, constant), "cosine" or "linear" down to base * lr_final_factor
     lr_final_factor: float = 0.1,
@@ -474,6 +476,7 @@ def run_srl_training_loop(
             list(TRAIN_INSTANCES) if pretrain_instances == ["all"] else list(pretrain_instances or []),  # 2026-10-22: ["all"] = every training instance once
             pretrain_steps, pretrain_batch, reward_mode,
             batch_interval, step_size, seed, output_dir, MANIFEST_DIR, _MAX_THREAD_CNT, critic_clip_norm=critic_clip_norm,
+            collect_epochs=pretrain_collect_epochs, exploration_sigma=pretrain_exploration_sigma,
         )
     for epoch in range(critic_pretrain_epochs if pretrain_mode == "per_episode" else 0):
         for instance in TRAIN_INSTANCES:
@@ -515,7 +518,7 @@ def run_srl_training_loop(
     target_critic2 = copy.deepcopy(critic2) if use_twin_critic else None
     # 2026-10-12: joint mode keeps ~joint_buffer_epochs epochs of critic transitions (~370 windows per epoch -> 400 as upper estimate)
     grad_norm_log: list[dict] = []  # 2026-10-14: per-epoch actor gradient-norm statistics (buffered / buffered_joint modes)
-    replay_buffer = ReplayBuffer(capacity=max(2000, 15 * episodic_buffer_episodes) if episodic else (joint_buffer_epochs * 400 if joint else replay_capacity))  # 2026-10-17: episodic never evicts by capacity (episodes are dropped explicitly)
+    replay_buffer = ReplayBuffer(capacity=max(2000, 40 * episodic_buffer_episodes) if episodic else (joint_buffer_epochs * 400 if joint else replay_capacity))  # 2026-10-17: episodic never evicts by capacity (episodes are dropped explicitly)
     actor_buffer = ActorTransitionBuffer(capacity=actor_buffer_capacity, compress=joint or episodic) if buffered else None  # 2026-10-06; compress: 2026-10-12 (+ episodic 2026-10-17: needs the episode tag)
     episode_counter = 0  # 2026-10-17: episodic mode - global episode index (1, 2, ... over all epochs), used as the FIFO tag of both buffers
 

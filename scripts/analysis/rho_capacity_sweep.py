@@ -25,7 +25,7 @@ from pathlib import Path
 import pandas as pd
 
 REPO = Path(__file__).resolve().parents[2]
-SCRATCH = Path("/private/tmp/claude-501/-Users-joni-Desktop-Masterarbeit-Reduce-then-optimize/a8e50c2f-fe60-45b6-b4de-3217ebb7c3f1/scratchpad/cap_sweep")
+SCRATCH = Path(__import__("os").environ.get("RHO_SCRATCH", "/private/tmp/claude-501/-Users-joni-Desktop-Masterarbeit-Reduce-then-optimize/a8e50c2f-fe60-45b6-b4de-3217ebb7c3f1/scratchpad/cap_sweep"))  # 2026-11-01: RHO_SCRATCH env override so the script also runs on the cluster (default = old local path)
 CAPS = [2, 3, 4, 6, 7, 10, 12, 20, 160]
 TIMEOUT_S = 1800
 
@@ -72,6 +72,7 @@ def main():
     ap.add_argument("--card", default="3")
     ap.add_argument("--bi", default="400")
     ap.add_argument("--ss", default="80")
+    ap.add_argument("--tag", default="", help="2026-10-21: suffix for the CSV name so that several instance groups can run in parallel without overwriting each other")
     a = ap.parse_args()
 
     rows = []
@@ -94,7 +95,7 @@ def main():
             rows.append(dict(instance=stem, requests=n_req, C=cap, status=status, served=served, service_rate=(100 * served / n_req if served is not None else None),
                              max_on_board=max_load, max_served_by_one_vehicle=max_per_veh, seconds=round(dt, 1)))
             print(rows[-1], flush=True)
-            pd.DataFrame(rows).to_csv(REPO / f"outputs/rho_capacity_sweep_c{a.card}_bi{a.bi}_ss{a.ss}.csv", index=False)
+            pd.DataFrame(rows).to_csv(REPO / f"outputs/rho_capacity_sweep_c{a.card}_bi{a.bi}_ss{a.ss}{a.tag}.csv", index=False)
     with pd.option_context("display.width", 200, "display.float_format", "{:.1f}".format):
         print(pd.DataFrame(rows).to_string(index=False))
 

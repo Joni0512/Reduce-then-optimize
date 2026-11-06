@@ -173,6 +173,8 @@ def build_instance_arrays(
     geographic: bool = False,
     manifest_dir: Path = MANIFEST_DIR,
     log_path: Path | None = None,
+    label_mode: str = "assigned",
+    step_size: float | None = None,
 ) -> dict | None:
     """
     Replays one instance's rolling-horizon log window by window and returns
@@ -201,6 +203,30 @@ def build_instance_arrays(
     if not log_path.exists():
         print(f"  [skip] no rolling-horizon log for {instance_name}: {log_path}")
         return None
+
+    # 2026-11-05: label_mode (default "assigned" = unchanged behaviour: 1.0 if the request got a
+    # vehicle in this window). Reason: on NYC at batch_interval=3600/step_size=1800 that label is
+    # 94-97 % positive (at 1800/900 99.4 %, 900/450 95.6-96.5 %), i.e. almost nothing to prune.
+    # "pickup_before_next_resolve": 1.0 only if the request was assigned in this window AND its pickup
+    # (scheduled_time of the pickup stop in the run's final/result_driver_runs.json) is earlier than
+    # timestamp + step_size, i.e. it is actually driven before the next re-solve; requests assigned now
+    # but picked up later (about 52 % at 3600/1800) get 0 = could be deferred to the next window.
+    # Assigned requests without a pickup stop in the final plan get 0. Needs step_size.
+    if label_mode not in ("assigned", "pickup_before_next_resolve"):
+        raise ValueError(f"unknown label_mode: {label_mode}")
+    pickup_time: dict[int, float] = {}
+    if label_mode == "pickup_before_next_resolve":
+        if step_size is None:
+            raise ValueError("label_mode='pickup_before_next_resolve' needs step_size")
+        final_path = log_path.parent / "final" / "result_driver_runs.json"
+        final_runs = json.load(open(final_path))
+        final_runs = final_runs["driver_runs"] if isinstance(final_runs, dict) else final_runs
+        pickup_time = {
+            int(stop["booking_id"]): stop["scheduled_time"]
+            for driver_run in final_runs
+            for stop in driver_run["manifest"]
+            if stop["action"] == "pickup" and int(stop["booking_id"]) >= 0
+        }
 
     request_lookup, num_vehicles = _load_instance_data(instance_name, config, manifest_dir=manifest_dir)
 
@@ -279,7 +305,15 @@ def build_instance_arrays(
                 all_node_ids.append(int(node_id))
                 all_window_index.append(window_index)
                 all_timestamp.append(float(timestamp))
-                all_labels.append(1.0 if node_id in assigned_ids else 0.0)
+                if label_mode == "assigned":
+                    all_labels.append(1.0 if node_id in assigned_ids else 0.0)
+                else:  # "pickup_before_next_resolve", see the comment at the top of this function
+                    picked_up_before_next = (
+                        node_id in assigned_ids
+                        and node_id in pickup_time
+                        and pickup_time[node_id] < timestamp + step_size
+                    )
+                    all_labels.append(1.0 if picked_up_before_next else 0.0)
 
     if len(all_node_ids) == 0:
         return None

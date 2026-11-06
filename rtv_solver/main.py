@@ -207,6 +207,13 @@ if __name__ == "__main__":
         default="False",
         help="Enable MLP-based request-only pruning before trip generation."
     )
+    # 2026-11-05: no-learning request filter, see Config.USE_REQUEST_TIME_RULE_FILTER.
+    parser.add_argument(
+        "--use_request_time_rule_filter",
+        type=str,
+        default="False",
+        help="Only pass requests to trip generation that are already assigned or whose pickup window opens before current_time + step_size; the others are deferred. Exclusive with --use_request_pruner."
+    )
     # parser for new imitation scoring rule (26.7)
     parser.add_argument(
         "--imitation_scoring_rule",

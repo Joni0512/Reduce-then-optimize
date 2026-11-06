@@ -136,7 +136,8 @@ def make_latex_table(results, out_path):
     lines[-1] = r"\bottomrule"
     lines += [
         r"\end{tabular}",
-        rf"\caption{{Class-1-only Pair Pruner (GNN v1\_final) threshold sweep under RHO without learning (myopic rolling horizon, no SIL training): service rate (6-instance set) and total wall-clock runtime, mean $\pm$ 1 std over 5 seeds ({seeds_str}).}}",
+        # 2026-10-31: caption said "Class-1-only" (copy-paste from the class-1 script); this table is the class-2-only sweep. Runtime = sum over the 6 instances of (last - first timestamp of main.log), in minutes.
+        rf"\caption{{Class-2-only Pair Pruner (GNN v1\_final) threshold sweep under RHO without learning (myopic rolling horizon, no SIL training): service rate (6-instance set) and total wall-clock runtime (minutes, sum over the 6 instances), mean $\pm$ 1 std over 5 seeds ({seeds_str}).}}",
         r"\label{tab:rh_class2only_pairpruner_v1final_multiseed_sweep}",
         r"\end{table}",
     ]

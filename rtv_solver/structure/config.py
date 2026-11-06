@@ -101,6 +101,12 @@ class Config:
     # NYC's real WGS84 lat/lon. Must match how the loaded checkpoint was
     # trained (True for a NYC-trained request pruner, False for Li&Lim).
     REQUEST_PRUNER_GEOGRAPHIC: bool = False
+    # 2026-11-05: no-learning request filter (request_pruner.time_rule_filter_requests): only requests that
+    # are already assigned (active) or whose pickup window opens before current_time + STEP_SIZE go to
+    # trip generation, the rest are deferred to the next window. Honest baseline for any learned
+    # request pruner with the label "pickup_before_next_resolve" (which turned out to be ~this rule).
+    # Mutually exclusive with USE_REQUEST_PRUNER.
+    USE_REQUEST_TIME_RULE_FILTER: bool = False
     LARGEST_TSP: int = 8
     SHARE_COST_FACTOR: float = 10
     REBALANCING: bool = False
@@ -296,6 +302,10 @@ class Config:
             ),
             REQUEST_PRUNER_GEOGRAPHIC=cls.str_to_bool(
                 getattr(args, "request_pruner_geographic", "False")
+            ),
+            # 2026-11-05: see USE_REQUEST_TIME_RULE_FILTER in the dataclass fields.
+            USE_REQUEST_TIME_RULE_FILTER=cls.str_to_bool(
+                getattr(args, "use_request_time_rule_filter", "False")
             ),
             EXTRA_VALIDATION_FILES=getattr(args, "extra_validation_files", "") or "",
             EXTRA_TRAINING_FILES=getattr(args, "extra_training_files", "") or "",

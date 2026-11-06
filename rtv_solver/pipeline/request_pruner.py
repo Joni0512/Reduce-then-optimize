@@ -353,3 +353,38 @@ class RequestPruner:
         ).to(self.device)
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.eval()
+
+
+def time_rule_filter_requests(
+    requests: list,
+    current_time: float,
+    step_size: float,
+    active_request_ids: set | None = None,
+) -> tuple[list, dict]:
+    """
+    2026-11-05: no-learning request filter. Keeps a request iff it is already assigned (active, same
+    force-keep as RequestPruner, a hard invariant for KEEP_ACTIVE / the manifest consistency check) or its
+    pickup window opens before the next re-solve (earliest_pickup_time < current_time + step_size).
+    All other requests cannot be picked up before the next window anyway; they are NOT rejected, only not
+    passed to trip generation this window (they stay in the caller's request state, same as RequestPruner).
+    Urgent requests need no extra rule: urgent means latest_pickup_time - current_time <= step_size, and
+    latest >= earliest, so such a request either opens before t + step_size (kept) or sits exactly on the edge.
+    Reason / what this approximates: with label "pickup before next re-solve" the NYC request-pruner
+    dataset at batch_interval=3600/step_size=1800 is ~48 % rows with earliest_pickup_time >= t + step_size,
+    all of them negative; a learned MLP (val AUC 0.968) only reproduced this rule (single feature AUC 0.967).
+    """
+    active_request_ids = active_request_ids or set()
+    horizon = current_time + step_size
+    kept = [
+        req for req in requests
+        if req.id in active_request_ids or req.earliest_pickup_time < horizon
+    ]
+    stats = {
+        "num_requests_total": len(requests),
+        "num_force_kept_active": sum(1 for req in requests if req.id in active_request_ids),
+        "num_kept_total": len(kept),
+        "num_pruned": len(requests) - len(kept),
+        "retention": len(kept) / len(requests) if requests else 1.0,
+        "step_size": step_size,
+    }
+    return kept, stats

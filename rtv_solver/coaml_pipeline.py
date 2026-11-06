@@ -104,6 +104,7 @@ class COAMLPipeline():
             defer_critic_updates: bool = False,
             actor_clip_norm: float = 1.0,
             critic_clip_norm: float = 1.0,
+            exploration_sigma: float | None = None,  # 2026-10-26: Gaussian noise std added to the scores before the ILP selects (collection phase of the buffer pretrain only; None = deterministic, old behavior)
             td_steps: int = 1,  # 2026-10-18: 1 = single-step TD target (default), 2 = two-step target r_t + g*r_{t+1} + g^2*Q'(s_{t+2}), see td_target_builder.py
         ):
         """
@@ -287,6 +288,7 @@ class COAMLPipeline():
         self.gamma = gamma
         self.use_stale_td_target = use_stale_td_target
         self.td_steps = td_steps  # 2026-10-18
+        self.exploration_sigma = exploration_sigma  # 2026-10-26
         # 2026-09-14: RHO-outcome-advantage method (see chat/srl deck's
         # "Training Signal Design" slide, Option 2) - when set, solve_iteration()
         # appends the raw (gradient-attached, NOT detached) score of every
@@ -1261,6 +1263,13 @@ class COAMLPipeline():
                     ilp_feature_scores = feature_scores + torch.randn_like(feature_scores) * self.outcome_advantage_sigma
                     if reject_action_scores.numel() > 0:
                         ilp_reject_action_scores = reject_action_scores + torch.randn_like(reject_action_scores) * self.outcome_advantage_sigma
+
+                if self.exploration_sigma is not None:
+                    # 2026-10-26: exploration noise for the multi-epoch buffer pretrain (user request, see chat) - the executed decisions of a frozen random actor are
+                    # deterministic, so without noise every collected epoch would be an exact copy; the loss/critic input is unaffected (it only sees the resulting windows)
+                    ilp_feature_scores = ilp_feature_scores + torch.randn_like(ilp_feature_scores) * self.exploration_sigma
+                    if ilp_reject_action_scores.numel() > 0:
+                        ilp_reject_action_scores = ilp_reject_action_scores + torch.randn_like(ilp_reject_action_scores) * self.exploration_sigma
 
                 ilp_model, x_t, x_r, x_reject = self.coaml_optimizer.solve_ilp(
                     ilp_feature_scores,
