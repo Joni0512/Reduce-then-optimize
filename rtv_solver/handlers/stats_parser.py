@@ -250,8 +250,12 @@ class StatsParser:
         self.stats = Stats()
         self.violations = []
         
+        # 2026-11-11: optional per-vehicle start location {run_id: loc} (main.py, distributed vehicle starts / 2 depots);
+        # without it every route starts at the depot as before.
+        start_locs = payload.get("vehicle_start_locs") or {}
         for driver_run in driver_runs:
-            self._simulate_driver_run(depot, driver_run)
+            run_id = int(driver_run[PayloadKeys.DRIVER_STATE][PayloadKeys.DRIVER_STATE_RUN_ID])
+            self._simulate_driver_run(depot, driver_run, start_locs.get(run_id))
 
         self._compute_request_metrics()
 
@@ -287,7 +291,7 @@ class StatsParser:
         NetworkHandler.init_from_payload(payload=payload, server_url=server_url)
         self._network_initialized = True
 
-    def _simulate_driver_run(self, depot: dict, driver_run: dict) -> None:
+    def _simulate_driver_run(self, depot: dict, driver_run: dict, start_loc: dict = None) -> None:
         """
         Simulate a single driver run and update the stats accordingly.
         """
@@ -298,7 +302,11 @@ class StatsParser:
         max_am_capacity = int(state[PayloadKeys.DRIVER_STATE_AM_CAP])
         max_wc_capacity = int(state[PayloadKeys.DRIVER_STATE_WC_CAP])
 
-        current_node = self._node_from_depot(depot)
+        # 2026-11-11: route starts at the vehicle's own start location if given (needs a node_id in the matrix), else depot
+        if start_loc is not None and start_loc.get("node_id") is not None:
+            current_node = Node(start_loc["lat"], start_loc["lon"], start_loc["node_id"])
+        else:
+            current_node = self._node_from_depot(depot)
         # TODO FIXME this is the start time of its operations but might not be the actual trip start of the driver run
         current_time = state[PayloadKeys.DRIVER_STATE_START_TIME]
         current_load_am = 0

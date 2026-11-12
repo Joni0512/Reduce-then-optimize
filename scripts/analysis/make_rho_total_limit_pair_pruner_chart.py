@@ -11,6 +11,7 @@ summed over all windows). RHO is not bit-deterministic: +-1 request (about 2 pp)
 Run: ./venv/bin/python3 scripts/analysis/make_rho_total_limit_pair_pruner_chart.py
 Output (figures_export/LiLim Dataset/): rho_total_limit_pair_pruner_C2_c2_bi40_ss10.{png,pdf}, ..._per_instance.{png,pdf}, ..._table.tex
 """
+import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -21,7 +22,15 @@ import pandas as pd
 OUT = Path("figures_export/LiLim Dataset")
 OUT.mkdir(parents=True, exist_ok=True)
 ORDER = ["2", "4", "6", "8", "10", "12", "16", "20", "none"]
-S = "outputs/rho_total_limit_sweep_C2_c2_bi40_ss10"
+# 2026-11-06: window as arguments (was hard-wired to batch_interval=40/step_size=10) so the 100/25 Pair Pruner data (outputs/..._bi100_ss25_pair0.5_class1/2.csv) can be plotted;
+# default 40/10 reproduces the old output unchanged. For other windows the baseline is the single file outputs/rho_total_limit_sweep_C2_c2_bi<bi>_ss<ss>.csv (all 14 instances).
+ap = argparse.ArgumentParser()
+ap.add_argument("--bi", default="40")
+ap.add_argument("--ss", default="10")
+ARGS = ap.parse_args()
+BI, SS = ARGS.bi, ARGS.ss
+TAG = f"bi{BI}_ss{SS}"
+S = f"outputs/rho_total_limit_sweep_C2_c2_{TAG}"
 
 
 def load(files):
@@ -33,7 +42,7 @@ def load(files):
     return d
 
 
-base = load([S + s for s in (".csv", "_class1.csv", "_class2.csv", "_L16_20_class1.csv", "_L16_20_class2.csv")])
+base = load([S + s for s in (".csv", "_class1.csv", "_class2.csv", "_L16_20_class1.csv", "_L16_20_class2.csv") if Path(S + s).exists()])  # 2026-11-06: only existing files (40/10 has class/L16_20 extras)
 pair = load([S + "_pair0.5_class1.csv", S + "_pair0.5_class2.csv"])
 m = base.merge(pair, on=["instance", "L"], suffixes=("_b", "_p"))
 m["diff"] = m["rate_p"] - m["rate_b"]
@@ -60,14 +69,14 @@ def main():
         for sp in ("top", "right"):
             a.spines[sp].set_visible(False)
     ax[0].set_ylabel("Service rate (served / requests)", fontsize=10.5)
-    ax[0].legend(loc="lower right", fontsize=8.5, frameon=False)
+    ax[0].legend(loc="center right", fontsize=8.5, frameon=False)  # 2026-11-06: was "lower right", overlapped the pp-difference numbers at the bottom
     kept = pair["pairs_kept"].sum() / pair["pairs_total"].sum() * 100
-    fig.suptitle(f"RHO: damage of the Pair Pruner vs. total requests per vehicle L (C=2 on board, cardinality 2, batch_interval=40/step_size=10); Pair Pruner keeps {kept:.0f} % of the candidate pairs", fontsize=11.5)
+    fig.suptitle(f"RHO: damage of the Pair Pruner vs. total requests per vehicle L (C=2 on board, cardinality 2, batch_interval={BI}/step_size={SS}); Pair Pruner keeps {kept:.0f} % of the candidate pairs", fontsize=11.5)
     fig.text(0.5, 0.012, "Li&Lim, RHO offline, max_cardinality=2, 1 run per cell (+-1 request noise = about 2 pp), equal weight per instance; Pair Pruner GNNv1 rgnn_mixed_c2_pw2_v1_final, threshold 0.5;\n"
-             "sources: outputs/rho_total_limit_sweep_C2_c2_bi40_ss10*.csv (baseline), ..._pair0.5_class1.csv / _class2.csv (Pair Pruner)", ha="center", fontsize=7.4, color="#666666")
+             f"sources: {S}*.csv (baseline), ..._pair0.5_class1.csv / _class2.csv (Pair Pruner)", ha="center", fontsize=7.4, color="#666666")
     fig.tight_layout(rect=(0, 0.05, 1, 0.93))
     for ext in ("png", "pdf"):
-        fig.savefig(OUT / f"rho_total_limit_pair_pruner_C2_c2_bi40_ss10.{ext}", dpi=200)
+        fig.savefig(OUT / f"rho_total_limit_pair_pruner_C2_c2_{TAG}.{ext}", dpi=200)
     plt.close(fig)
 
     insts = sorted(m.instance.unique(), key=lambda s: (int([c for c in s if c.isdigit()][0]), s))
@@ -92,11 +101,11 @@ def main():
     for a in axes[-1, :]:
         if a.get_visible():
             a.set_xlabel("Total limit L per vehicle", fontsize=9)
-    fig.suptitle("RHO: service rate per instance, baseline vs. Pair Pruner (t=0.5), vs. total limit L (C=2 on board, cardinality 2, batch_interval=40/step_size=10)", fontsize=11.5)
-    fig.text(0.5, 0.008, "Li&Lim, RHO offline, 1 run per cell (+-1 request noise = about 2 pp); sources: outputs/rho_total_limit_sweep_C2_c2_bi40_ss10*.csv", ha="center", fontsize=7.6, color="#666666")
+    fig.suptitle(f"RHO: service rate per instance, baseline vs. Pair Pruner (t=0.5), vs. total limit L (C=2 on board, cardinality 2, batch_interval={BI}/step_size={SS})", fontsize=11.5)
+    fig.text(0.5, 0.008, f"Li&Lim, RHO offline, 1 run per cell (+-1 request noise = about 2 pp); sources: {S}*.csv", ha="center", fontsize=7.6, color="#666666")
     fig.tight_layout(rect=(0, 0.03, 1, 0.95))
     for ext in ("png", "pdf"):
-        fig.savefig(OUT / f"rho_total_limit_pair_pruner_C2_c2_bi40_ss10_per_instance.{ext}", dpi=170)
+        fig.savefig(OUT / f"rho_total_limit_pair_pruner_C2_c2_{TAG}_per_instance.{ext}", dpi=170)
     plt.close(fig)
 
     head = " & ".join([f"$L{{=}}{c}$" if c != "none" else "No limit" for c in ORDER])
@@ -109,10 +118,10 @@ def main():
         if block != "Class 2 (7 instances)":
             lines.append(r"\midrule")
     tex = ("\\begin{table}[h]\n\\centering\n\\small\n"
-           "\\caption{RHO with and without the Pair Pruner (GNNv1, threshold 0.5), cardinality 2, vehicle capacity fixed to $C{=}2$, \\texttt{batch\\_interval}=40, \\texttt{step\\_size}=10: mean service rate (\\%) "
+           "\\caption{RHO with and without the Pair Pruner (GNNv1, threshold 0.5), cardinality 2, vehicle capacity fixed to $C{=}2$, \\texttt{batch\\_interval}=" + BI + ", \\texttt{step\\_size}=" + SS + ": mean service rate (\\%) "
            "over instances as a function of the total limit $L$ of requests per vehicle. One run per cell, $\\pm$1 request noise, equal weight per instance.}\n"
            "\\begin{tabular}{l" + "c" * len(ORDER) + "}\n\\toprule\n & " + head + " \\\\\n\\midrule\n" + "\n".join(lines) + "\n\\bottomrule\n\\end{tabular}\n\\end{table}\n")
-    (OUT / "rho_total_limit_pair_pruner_C2_c2_bi40_ss10_table.tex").write_text(tex)
+    (OUT / f"rho_total_limit_pair_pruner_C2_c2_{TAG}_table.tex").write_text(tex)
 
     print("cells compared:", len(m), "| pair pruner keeps %.1f %% of candidate pairs overall" % kept)
     for block, s in (("ALL", m), ("Class 1", m[m.cls_b == "Class 1"]), ("Class 2", m[m.cls_b == "Class 2"])):

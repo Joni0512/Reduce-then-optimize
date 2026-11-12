@@ -6,8 +6,9 @@ keep_active False, max_cardinality 3, lite split (34 train / 12 val files, 623 v
 Left: best validation service rate (pooled over the 12 val files; best epoch in brackets). Right: training time (sacct Elapsed, incl. post-training check).
 Sources: sil_training_bi{200_ss100,400_ss200}_c3_mixedclass_lite_{baseline,pair_t0.5,reqpruner_t0.X}_seed42.log (line "Best val service rate"),
 sacct Elapsed: bi200/ss100 jobs 5673889 (baseline), 5673905-5673908 (Request-only t0.1-0.4); bi400/ss200 jobs 5673909 (baseline), 5673925-5673928 (Request-only), 5673910 (Pair-only).
-bi200/ss100 Pair-only (job 5673890) FAILED after 7:45 h with "Disk quota exceeded" -> no valid result, therefore not shown (rerun pending).
-Values read from the cluster logs/sacct output pasted by the user on 2026-11-04.
+bi200/ss100 Pair-only: first job 5673890 FAILED after 7:45 h with "Disk quota exceeded" (no valid result); the rerun, job 5707345, COMPLETED in 10:28:23 h,
+"Best val service rate = 0.6822 at epoch 4" (log sil_training_bi200_ss100_c3_mixedclass_lite_pair_t0.5_seed42.log; added 2026-11-06, values pasted by the user).
+Other values read from the cluster logs/sacct output pasted by the user on 2026-11-04.
 
 Run: ./venv/bin/python3 scripts/analysis/make_c3lite_request_only_bi200ss100_bi400ss200_chart.py
 Output: figures_export/Request Pruner SIL/c3lite_bi200ss100_request_only.{png,pdf}, c3lite_bi400ss200_request_only.{png,pdf}
@@ -37,10 +38,11 @@ WINDOWS = {
             "Request-only\nt=0.2": (76.40, 4, hms(1, 15, 57, 5), CR),   # job 5673906
             "Request-only\nt=0.3": (76.73, 3, hms(1, 19, 57, 16), CR),  # job 5673907
             "Request-only\nt=0.4": (77.37, 5, hms(1, 20, 32, 7), CR),   # job 5673908
+            "Pair-only\nt=0.5":    (68.22, 4, hms(0, 10, 28, 23), CP),  # job 5707345 (rerun; first job 5673890 died: disk quota), 10:28:23, 2026-11-06
         },
-        ylim_acc=(74, 79), ylim_h=(0, 56), ymin_note="74 %",
-        jobs="5673889, 5673905-5673908",
-        note="Pair-only t=0.5 not shown: job 5673890 FAILED after 7:45 h (disk quota exceeded), rerun pending.",
+        ylim_acc=(64, 80), ylim_h=(0, 56), ymin_note="64 %",  # 2026-11-06: lower limit 74 -> 64 so the Pair-only bar (68.22 %) fits
+        jobs="5673889, 5673905-5673908, 5707345",
+        note="Pair-only t=0.5: rerun job 5707345 (the first job 5673890 failed after 7:45 h, disk quota exceeded).",
         file="c3lite_bi200ss100_request_only",
     ),
     "bi400ss200": dict(

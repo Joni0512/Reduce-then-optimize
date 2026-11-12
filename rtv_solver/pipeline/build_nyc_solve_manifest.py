@@ -63,6 +63,13 @@ def main():
     parser.add_argument("--request-ids-file", type=str, default=None,
                          help="optional CSV with a 'request_id' column - if set, sample only "
                               "from these IDs (e.g. the holdout split, never seen in training).")
+    # 2026-11-08: precomputed road travel-time matrix (OSMnx free-flow, SF LODES instance).
+    # Haversine at 6 m/s gave ~2x the road times there (median 23.4 vs 11.4 min) and ignores
+    # bridges/bay crossings. Must be built in this script's node order (0 = depot = mean pickup,
+    # 1+2i pickup, 2+2i dropoff, requests sorted by request_id). Unset = previous behaviour.
+    parser.add_argument("--travel-time-npy", type=str, default=None,
+                        help="optional (2n+1)x(2n+1) .npy travel-time matrix in seconds; replaces "
+                             "the haversine matrix and the dropoff-window travel times")
     args = parser.parse_args()
 
     requests_csv = RH_ROOT / args.requests_csv
@@ -79,9 +86,21 @@ def main():
     reqs["t_sec"] = reqs["time"].apply(parse_time_to_seconds)
     reqs["t_sec"] -= reqs["t_sec"].min()
 
-    travel_time_s = haversine_m(
-        reqs["pickup_lat"], reqs["pickup_lon"], reqs["dropoff_lat"], reqs["dropoff_lon"]
-    ) / ASSUMED_SPEED_MPS
+    road_matrix = None
+    if args.travel_time_npy:
+        # 2026-11-08: the matrix rows follow the full CSV sorted by request_id, so it only lines up
+        # when the sample is the whole file (sample + sort is then a no-op on the order).
+        if args.n_requests != len(reqs_all):
+            parser.error(f"--travel-time-npy needs --n-requests == {len(reqs_all)} (rows in the CSV)")
+        road_matrix = np.load(args.travel_time_npy)
+        if road_matrix.shape != (2 * len(reqs) + 1, 2 * len(reqs) + 1):
+            parser.error(f"matrix shape {road_matrix.shape} != ({2 * len(reqs) + 1}, {2 * len(reqs) + 1})")
+        idx = np.arange(len(reqs))
+        travel_time_s = road_matrix[1 + 2 * idx, 2 + 2 * idx].astype(float)
+    else:
+        travel_time_s = haversine_m(
+            reqs["pickup_lat"], reqs["pickup_lon"], reqs["dropoff_lat"], reqs["dropoff_lon"]
+        ) / ASSUMED_SPEED_MPS
 
     requests_out = []
     max_dropoff_window_end = 0
@@ -146,7 +165,10 @@ def main():
         lons[1 + 2 * i] = row["pickup_lon"]
         lats[2 + 2 * i] = row["dropoff_lat"]
         lons[2 + 2 * i] = row["dropoff_lon"]
-    matrix = haversine_m(lats[:, None], lons[:, None], lats[None, :], lons[None, :]) / ASSUMED_SPEED_MPS
+    if road_matrix is not None:
+        matrix = road_matrix.astype(float)  # 2026-11-08: road matrix replaces haversine (see --travel-time-npy)
+    else:
+        matrix = haversine_m(lats[:, None], lons[:, None], lats[None, :], lons[None, :]) / ASSUMED_SPEED_MPS
 
     manifest = {
         "requests": requests_out,

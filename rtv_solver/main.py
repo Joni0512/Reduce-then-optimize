@@ -344,6 +344,14 @@ if __name__ == "__main__":
         else:
             payload = data
 
+        # 2026-11-11: remember each vehicle's start location from the INPUT payload (state.loc) for StatsParser, which
+        # otherwise starts every route at the depot -> AssertionError (negative waiting) for manifests with distributed
+        # vehicle starts (scripts/sf/make_distributed_vehicle_starts.py; user request "verteilte Starts / 2 Depots").
+        # The solved driver_runs' state.loc is the end-of-horizon position, so it cannot be used for this.
+        vehicle_start_locs = {int(dr[PayloadKeys.DRIVER_STATE][PayloadKeys.DRIVER_STATE_RUN_ID]):
+                              copy.deepcopy(dr[PayloadKeys.DRIVER_STATE].get(PayloadKeys.DRIVER_STATE_LOC))
+                              for dr in payload[PayloadKeys.DRIVERS]}
+
         # required to run data from other sources without the backend server
         if data.get(PayloadKeys.TIME_MATRIX) is not None:
             payload[PayloadKeys.TIME_MATRIX] = data[PayloadKeys.TIME_MATRIX]
@@ -423,7 +431,8 @@ if __name__ == "__main__":
             PayloadKeys.DEPOT: payload[PayloadKeys.DEPOT],
             PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
             PayloadKeys.DRIVERS: updated_driver_runs,
-            PayloadKeys.TIME_MATRIX: tt_matrix
+            PayloadKeys.TIME_MATRIX: tt_matrix,
+            "vehicle_start_locs": vehicle_start_locs,  # 2026-11-11: per-vehicle route start for StatsParser (see above)
         }
         stats_evaluator = StatsParser(config, payload=stats_payload)
         total_time = time.time() - start_time

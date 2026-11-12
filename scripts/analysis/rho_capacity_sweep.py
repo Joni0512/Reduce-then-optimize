@@ -27,7 +27,8 @@ import pandas as pd
 REPO = Path(__file__).resolve().parents[2]
 SCRATCH = Path(__import__("os").environ.get("RHO_SCRATCH", "/private/tmp/claude-501/-Users-joni-Desktop-Masterarbeit-Reduce-then-optimize/a8e50c2f-fe60-45b6-b4de-3217ebb7c3f1/scratchpad/cap_sweep"))  # 2026-11-01: RHO_SCRATCH env override so the script also runs on the cluster (default = old local path)
 CAPS = [2, 3, 4, 6, 7, 10, 12, 20, 160]
-TIMEOUT_S = 1800
+# 2026-11-09: per-instance limit now 2 h (user decision: 30 min was too short for lr208/lrc208 with cardinality 3 and C>=4); RHO_TIMEOUT_S env overrides, default stays 1800 for the old scripts.
+TIMEOUT_S = int(__import__("os").environ.get("RHO_TIMEOUT_S", 1800))
 
 
 def make_copy(stem, cap, tag=""):

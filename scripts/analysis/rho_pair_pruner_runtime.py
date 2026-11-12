@@ -54,22 +54,30 @@ def main():
     ap.add_argument("--reps", type=int, default=2)
     ap.add_argument("--instances", nargs="+", default=INSTANCES)
     ap.add_argument("--variants", nargs="+", default=["base", "pair"], help="2026-11-01: run order per instance, e.g. base pair0.5 req0.5 comb0.5_0.5 (default = old behaviour: base pair)")
-    ap.add_argument("--req_ckpt", default=REQ_CKPT, help="2026-11-01: Request Pruner checkpoint (must be trained for batch_interval=40/step_size=10)")
+    ap.add_argument("--req_ckpt", default=REQ_CKPT, help="2026-11-01: Request Pruner checkpoint (must be trained for the SAME --bi/--ss window; default = the 40/10 one)")
+    # 2026-11-06: window and total limit as arguments (were hard-wired to 40/10 and no limit) so the same comparison can run for 100/25, 120/30, 200/50 (and 40/10 at L=16).
+    # Defaults (bi 40, ss 10, L 0 = no limit) keep the old behaviour and the old CSV name.
+    ap.add_argument("--bi", type=int, default=40, help="2026-11-06: batch_interval")
+    ap.add_argument("--ss", type=int, default=10, help="2026-11-06: step_size")
+    ap.add_argument("--L", type=int, default=0, help="2026-11-06: max requests per vehicle in total (--max_requests_per_vehicle); 0 = no limit")
     ap.add_argument("--rep_start", type=int, default=0, help="2026-10-26: resume support - first repetition index to run")
     ap.add_argument("--tag", default="", help="2026-10-26: CSV name suffix so that a resumed run does not overwrite the first file")
     a = ap.parse_args()
     args_req_ckpt = str(REPO / a.req_ckpt) if not os.path.isabs(a.req_ckpt) else a.req_ckpt
     rows = []
-    out_csv = REPO / f"outputs/rho_pair_pruner_runtime_C2_c2_bi40_ss10{a.tag}.csv"
+    win = "" if (a.bi, a.ss, a.L) == (40, 10, 0) else f"_bi{a.bi}_ss{a.ss}" + (f"_L{a.L}" if a.L else "")  # 2026-11-06: old name kept for 40/10 without limit
+    out_csv = REPO / f"outputs/rho_pair_pruner_runtime_C2_c2_bi40_ss10{a.tag}.csv" if not win else REPO / f"outputs/rho_pair_pruner_runtime_C2_c2{win}{a.tag}.csv"
     for rep in range(a.rep_start, a.reps):
         for stem in a.instances:
             f = R.make_copy(stem, 2, "_rt")
             for variant in a.variants:
                 pair_t, req_t = parse_variant(variant)
-                out = SCRATCH / f"out_rt_{stem}_{variant}_rep{rep}"
+                out = SCRATCH / f"out_rt{win}_{stem}_{variant}_rep{rep}"  # 2026-11-06: window in the scratch name so parallel jobs/windows never collide
                 cmd = [sys.executable, "rtv_solver/main.py", "--mode", "offline", "--input_file", str(f), "--input_dir", str(f.parent) + "/",
                        "--imitation_solution_file", str(f), "--use_request_graph_pruner", "True" if pair_t is not None else "False",
-                       "--max_cardinality", "2", "--batch_interval", "40", "--step_size", "10", "--output_dir", str(out)]
+                       "--max_cardinality", "2", "--batch_interval", str(a.bi), "--step_size", str(a.ss), "--output_dir", str(out)]
+                if a.L:  # 2026-11-06: total limit of requests per vehicle (same flag as rho_total_limit_sweep.py)
+                    cmd += ["--max_requests_per_vehicle", str(a.L)]
                 if pair_t is not None:
                     cmd += ["--request_graph_model_path", str(PAIR_CKPT), "--request_graph_threshold", str(pair_t)]
                 if req_t is not None:  # 2026-11-01: min_retention_fraction 0.3 = main.py default, same as in the SIL runs
