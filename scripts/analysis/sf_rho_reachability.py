@@ -46,6 +46,8 @@ DIRS_VSTART = ["outputs/outputs/new_tests/sf_lodes_smoke/bi900_ss450_seed42_cap2
                "outputs/outputs/new_tests/sf_lodes_vstart/bi900_ss450_seed42_v50_cap2_twodepots_notimerule"]
 START_ORDER = {"depot": 0, "random_pickup_nodes": 1, "two_depots": 2}
 START_LABEL = {"depot": "1 depot (SF)", "random_pickup_nodes": "random pickup locations", "two_depots": "2 depots (SF + East Bay)"}
+# 2026-11-12: fleet-size ablation (cluster, filter off, max_cardinality=2, batch_interval=900/step_size=450), user request
+DIRS_FLEET = [f"outputs/new_tests/sf_lodes_fleet_ablation/bi900_ss450_mc2_v{v}_notimerule" for v in (100, 150, 200, 250, 300)]
 BLUE, ORANGE, GRAY, INK, MUTED, GRID = "#2a78d6", "#eb6834", "#b9b8b2", "#0b0b0b", "#52514e", "#e4e3df"
 
 
@@ -59,7 +61,12 @@ def analyse(d):
     reqs = p["requests"]
     # 2026-11-11: vehicle start node from the INPUT manifest (state.loc), not always the depot (distributed starts);
     # the final driver_runs' state.loc has moved on during the run.
-    inp = json.loads((ROOT / cfg["INPUT_FILE"]).read_text())
+    # 2026-11-12: the fleet-ablation manifests (v150/v250/v300) were built on the cluster only, as copies of the v50
+    # depot-start manifest (submit_sf_lodes_rho_fleet_ablation_*.sbatch) -> if the input file is missing locally, all
+    # vehicles start at the depot (true for those runs by construction).
+    inp_path = ROOT / cfg["INPUT_FILE"]
+    inp = json.loads(inp_path.read_text()) if inp_path.exists() else {
+        "driver_runs": [{"state": {"run_id": dr["state"]["run_id"], "loc": {"node_id": depot}}} for dr in p["driver_runs"]]}
     start = {int(dr["state"]["run_id"]): int(dr["state"]["loc"]["node_id"]) for dr in inp["driver_runs"]}
     distributed = any(n != depot for n in start.values())
     start_mode = inp.get("vehicle_start_info", {}).get("mode", "depot")  # 2026-11-11
@@ -258,5 +265,94 @@ def vstart_chart():
         print({k: v for k, v in r.items() if k != "source"})
 
 
+def fleet_charts():
+    """2026-11-12: location hypothesis for the fleet ablation (user request "1 + 2 + Karte"):
+    (1) served share by depot->pickup travel time per fleet size, (2) served / rejected reachable / rejected
+    unreachable per fleet size. Output: figures_export/SF/sf_rho_fleet_ablation_{by_distance,reachability}.{png,pdf,csv}"""
+    res = sorted([analyse(d) for d in DIRS_FLEET], key=lambda r: r["vehicles"])
+    bins = [0, 600, 900, 1200, 1500, 1800, 10_000]
+    bin_labels = ["< 10 min", "10-15 min", "15-20 min", "20-25 min", "25-30 min", "> 30 min"]
+    # sequential (fleet size = magnitude): one hue light -> dark
+    colors = ["#9ec5f0", "#6aa6e6", "#2a78d6", "#1d5aa6", "#123c70"]
+    nb = len(bins) - 1
+    xb = np.concatenate([[0.0], np.arange(nb) + 1.4])
+    wb = 0.8 / len(res)
+    out_rows = []
+    fig, ax = plt.subplots(figsize=(13, 5.4))
+    for j, (r, color) in enumerate(zip(res, colors)):
+        dt = np.array([x["depot_tt"] for x in r["rows"]])
+        sv = np.array([x["served"] for x in r["rows"]])
+        unr = np.array([x["unreachable"] for x in r["rows"]])
+        idx = np.digitize(dt, bins) - 1
+        rates = [sv.mean()] + [sv[idx == i].mean() for i in range(nb)]
+        counts = [len(sv)] + [int((idx == i).sum()) for i in range(nb)]
+        n_unr = int(((~sv) & unr).sum())
+        out_rows.append({"vehicles": r["vehicles"], "served": int(sv.sum()), "rejected_reachable": int(len(sv) - sv.sum() - n_unr),
+                         "rejected_unreachable": n_unr,
+                         **{f"rate_{b}": round(float(v), 4) for b, v in zip(bin_labels, rates[1:])},
+                         **{f"unreachable_{b}": int(((~sv) & unr & (idx == i)).sum()) for i, b in enumerate(bin_labels)},
+                         "source": r["source"]})
+        pos = xb + (j - (len(res) - 1) / 2) * (wb + 0.005)
+        ax.bar(pos, rates, width=wb, color=color, edgecolor="white", linewidth=1, label=f"{r['vehicles']} vehicles")
+        for p_, v in zip(pos, rates):
+            ax.text(p_, v + 0.01, f"{v:.0%}", ha="center", va="bottom", fontsize=6.5, color=INK)
+    ax.set_xticks(xb, [f"{b}\n(n={c})" for b, c in zip(["All requests"] + bin_labels, counts)])
+    ax.axvline(0.7, color=GRID, linewidth=1.5)
+    ax.set_xlabel("Overall  |  by free-flow travel time depot -> pickup", color=MUTED)
+    ax.set_ylim(0, 1.08)
+    ax.set_ylabel("Service rate", color=MUTED)
+    ax.grid(axis="y", color=GRID)
+    ax.set_axisbelow(True)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    ax.legend(frameon=False, fontsize=8.5, loc="upper right")
+    ax.set_title("RHO on SF seed 42, fleet size: service rate by distance of the pickup from the depot", fontsize=11, loc="left", color=INK)
+    fig.text(0.01, 0.01, "batch_interval=900/step_size=450, time-rule filter off, max_cardinality=2, capacity 2, single depot (SF), "
+             "keep_active=False, solver seed 42; LRZ cluster", fontsize=7.5, color=MUTED)
+    fig.tight_layout(rect=(0, 0.03, 1, 1))
+    base = ROOT / "figures_export" / "SF" / "sf_rho_fleet_ablation"
+    for ext in ("png", "pdf"):
+        fig.savefig(f"{base}_by_distance.{ext}", dpi=200)
+    plt.close(fig)
+    with open(f"{base}_reachability.csv", "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(out_rows[0]))
+        w.writeheader()
+        w.writerows(out_rows)
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    x = np.arange(len(out_rows))
+    bottom = np.zeros(len(out_rows))
+    for key, color, lab in (("served", BLUE, "served"), ("rejected_reachable", GRAY, "rejected, reachable (optimistic bound)"),
+                            ("rejected_unreachable", ORANGE, "rejected, no vehicle could reach it in time")):
+        vals = np.array([s_[key] for s_ in out_rows], dtype=float)
+        ax.bar(x, vals, bottom=bottom, width=0.6, color=color, edgecolor="white", linewidth=2, label=lab)
+        for xi, b, v in zip(x, bottom, vals):
+            if v >= 30:
+                ax.text(xi, b + v / 2, f"{int(v)}", ha="center", va="center", fontsize=9, color="white" if color != GRAY else INK)
+        bottom += vals
+    ax.set_xticks(x, [f"{s_['vehicles']} vehicles" for s_ in out_rows])
+    ax.set_ylim(0, 1000)
+    ax.set_ylabel("Requests (of 1000)", color=MUTED)
+    ax.grid(axis="y", color=GRID)
+    ax.set_axisbelow(True)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    ax.legend(frameon=False, fontsize=8.5, loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=3)
+    ax.set_title("RHO on SF seed 42, fleet size: why requests are rejected", fontsize=11, loc="left", color=INK)
+    fig.text(0.01, 0.01, "batch_interval=900/step_size=450, time-rule filter off, max_cardinality=2, capacity 2, single depot, solver seed 42.\n"
+             "Reachability: nearest vehicle (last stop by the time the request first reaches trip generation), ignoring its other commitments",
+             fontsize=6.5, color=MUTED)
+    fig.tight_layout(rect=(0, 0.05, 1, 1))
+    for ext in ("png", "pdf"):
+        fig.savefig(f"{base}_reachability.{ext}", dpi=200)
+    plt.close(fig)
+    for r in out_rows:
+        print({k: v for k, v in r.items() if k != "source"})
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    if "--fleet" in sys.argv:  # 2026-11-12: only the fleet-ablation charts
+        fleet_charts()
+    else:
+        main()
