@@ -11,6 +11,8 @@ consistency check below: every vehicle's first stop must be reachable from its s
 Reachability / distance bins = scripts/analysis/sf_rho_reachability.analyse().
 Output: figures_export/SF/sf_rho_nodepot_startseeds_{service,reachability,map}.{png,pdf} + _table.csv
 2026-11-14: + starts drawn from the pickups of instance seed 1 / seed 2 (oracle check, job 5734394).
+2026-11-14: + starts uniform over the road nodes of the request counties, matrix extended by OSM routing (job 5734857,
+  scripts/sf/make_uniform_road_starts.py, submit_sf_lodes_rho_nodepot_v150_uniformroad.sbatch).
 """
 import csv
 import glob
@@ -34,19 +36,24 @@ RUNS = [("depot start + return", "outputs/new_tests/sf_lodes_fleet_ablation/bi90
        [("random start, no return", f"outputs/new_tests/sf_lodes_nodepot/bi900_ss450_mc2_v150_notimerule_noreturn_randomstart_s{s}", s)
         for s in SEEDS] + \
        [(f"start from seed {src}, no return", f"outputs/new_tests/sf_lodes_nodepot/bi900_ss450_mc2_v150_notimerule_noreturn_fromseed{src}_s{s}", s)
-        for src in (1, 2) for s in SEEDS]  # 2026-11-14: oracle check, starts from another instance (job 5734394)
+        for src in (1, 2) for s in SEEDS] + \
+       [("uniform road start, no return", f"outputs/new_tests/sf_lodes_nodepot/bi900_ss450_mc2_v150_notimerule_noreturn_uniformroad_s{s}", s)
+        for s in SEEDS]  # 2026-11-14: oracle check (job 5734394) + demand-independent uniform starts (job 5734857)
 BINS = [0, 600, 900, 1200, 1500, 1800, 10_000]
 BIN_LABELS = ["< 10 min", "10-15 min", "15-20 min", "20-25 min", "25-30 min", "> 30 min"]
 GROUP_COLOR = {"depot start + return": "#2a78d6", "depot start, no return": "#eb6834", "random start, no return": "#1baf7a",
-               "start from seed 1, no return": "#eda100", "start from seed 2, no return": "#e87ba4"}  # 2026-11-14: + foreign starts
+               "start from seed 1, no return": "#eda100", "start from seed 2, no return": "#e87ba4",
+               "uniform road start, no return": "#8a5cd1"}  # 2026-11-14: + uniform road starts  # 2026-11-14: + foreign starts
 GROUP_LEGEND = {"random start, no return": "random start from seed 42 = own requests (oracle), no return",
                 "start from seed 1, no return": "start from seed-1 pickups (snapped), no return",
-                "start from seed 2, no return": "start from seed-2 pickups (snapped), no return"}
+                "start from seed 2, no return": "start from seed-2 pickups (snapped), no return",
+                "uniform road start, no return": "start uniform over road nodes of the request counties (independent of demand), no return"}
 INK, MUTED, GRID, GRAY, BLUE, ORANGE = "#0b0b0b", "#52514e", "#e4e3df", "#b9b8b2", "#2a78d6", "#eb6834"
 FOOT = ("150 vehicles, batch_interval=900/step_size=450, time-rule filter off, max_cardinality=2, capacity 2, keep_active=False, "
         "solver seed 42; LRZ cluster serial_std.\nRandom start: each vehicle starts at the pickup of a request of this instance "
         "drawn uniformly without replacement (start seeds 42-46). Seed 1/2: pickups of another instance (same generator), "
-        "snapped to the nearest seed-42 node (median ~0.2 km, max 1.7-7.1 km).")
+        "snapped to the nearest seed-42 node (median ~0.2 km, max 1.7-7.1 km).\nUniform road start: 150 OSM road nodes drawn uniformly from the 80,232 nodes inside SF/Alameda/San Mateo/Marin, "
+        "added to the matrix by free-flow OSM routing (2151 nodes).")
 
 
 def load(label, d, seed):
@@ -110,31 +117,33 @@ def main():
         vals = np.array([[r[k] for k in keys] for r in gr])
         mean = vals.mean(0)
         pos = xb + (j - (len(groups) - 1) / 2) * (wb + 0.01)
-        lab = GROUP_LEGEND.get(g, g) + (f" (mean of {len(gr)} start seeds, whisker min-max)" if len(gr) > 1 else "")
+        lab = GROUP_LEGEND.get(g, g) + (f" ({len(gr)} start seeds)" if len(gr) > 1 else "")  # 2026-11-14: shorter, legend was clipped
         ax.bar(pos, mean, width=wb, color=GROUP_COLOR[g], edgecolor="white", linewidth=1, label=lab)
         if len(gr) > 1:
             ax.vlines(pos, vals.min(0), vals.max(0), color=INK, linewidth=1)
         for p_, v, top in zip(pos, mean, vals.max(0)):
-            ax.text(p_, top + 0.012, f"{v:.0%}" if p_ > 0.5 else f"{v:.1%}", ha="center", va="bottom", fontsize=6, color=INK)
+            # 2026-11-14: overall labels (x < 0.5) rotated, 6 neighbouring labels overlapped
+            ax.text(p_, top + 0.012, f"{v:.0%}" if p_ > 0.5 else f"{v:.1%}", ha="center", va="bottom", fontsize=6, color=INK,
+                    rotation=0 if p_ > 0.5 else 90)
     r0 = loaded[0][1]
     idx = np.digitize([x["depot_tt"] for x in r0["rows"]], BINS) - 1
     counts = [len(idx)] + [int((idx == i).sum()) for i in range(len(BIN_LABELS))]
     ax.set_xticks(xb, [f"{b}\n(n={c})" for b, c in zip(["All requests"] + BIN_LABELS, counts)])
     ax.axvline(0.7, color=GRID, linewidth=1.5)
     ax.set_xlabel("Overall  |  by free-flow travel time from the (former) depot to the pickup", color=MUTED)
-    ax.set_ylim(0, 1.1)
+    ax.set_ylim(0, 1.12)
     ax.set_ylabel("Service rate", color=MUTED)
     style(ax)
     ax.legend(frameon=False, fontsize=8.5, loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=2)  # 2026-11-14: below the axes, lower left covered bars
     ax.set_title("RHO on SF seed 42: depot vs. random vehicle starts", fontsize=11, loc="left", color=INK)
-    fig.text(0.01, 0.01, FOOT, fontsize=7, color=MUTED)
+    fig.text(0.01, 0.01, FOOT + " Multi-seed groups: bar = mean, whisker = min-max over start seeds.", fontsize=7, color=MUTED)
     fig.tight_layout(rect=(0, 0.06, 1, 1))
     for ext in ("png", "pdf"):
         fig.savefig(f"{OUT}_service.{ext}", dpi=200)
     plt.close(fig)
 
     # --- chart 2: why requests are rejected, every run ---
-    fig, ax = plt.subplots(figsize=(17, 5.4))  # 2026-11-14: 17 runs
+    fig, ax = plt.subplots(figsize=(20, 5.6))  # 2026-11-14: 22 runs
     x = np.arange(len(rows))
     bottom = np.zeros(len(rows))
     for key, color, lab in (("served", BLUE, "served"), ("rejected_reachable", GRAY, "rejected, reachable (optimistic bound)"),
@@ -147,7 +156,8 @@ def main():
         bottom += vals
     short = {"depot start + return": "depot\n+ return", "depot start, no return": "depot\nno return",
              "random start, no return": "own req.\n(oracle)", "start from seed 1, no return": "from\nseed 1",
-             "start from seed 2, no return": "from\nseed 2"}  # 2026-11-14: short labels for 17 bars
+             "start from seed 2, no return": "from\nseed 2",
+             "uniform road start, no return": "uniform\nroad"}  # 2026-11-14: short labels for 17 bars
     ax.set_xticks(x, [short[r["setup"]] + (f"\ns{r['start_seed']}" if r["start_seed"] != "" else "") for r in rows], fontsize=7.5)
     ax.set_ylim(0, 1000)
     ax.set_ylabel("Requests (of 1000)", color=MUTED)
@@ -170,8 +180,10 @@ def main():
     roads_f = ROOT / "dataset" / "lodes_sf" / "osm" / "major_roads_segments.npy"
     roads = np.load(roads_f) if roads_f.exists() else None
     panels = [(loaded[1], "depot start, no return"), (loaded[2], "start at own requests (oracle), start seed 42"),
-              (loaded[7], "start from seed-1 pickups (snapped), start seed 42")]  # 2026-11-14: + foreign-start panel
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6.6), sharex=True, sharey=True)
+              (loaded[7], "start from seed-1 pickups (snapped), start seed 42"),
+              (loaded[17], "start uniform over road nodes, start seed 42")]  # 2026-11-14: + foreign-start + uniform panels
+    fig, axes = plt.subplots(2, 2, figsize=(15, 13), sharex=True, sharey=True)
+    axes = axes.ravel()
     for ax, ((row, r), title) in zip(axes, panels):
         if roads is not None:
             ax.add_collection(LineCollection(roads.reshape(-1, 2, 2), colors="#d8d7d2", linewidths=0.4, zorder=0))
@@ -203,7 +215,7 @@ def main():
     axes[0].set_ylim(lats.min() - 0.03, lats.max() + 0.03)
     fig.suptitle("RHO on SF seed 42: pickups served / rejected, depot vs. random vehicle starts", fontsize=12, x=0.01, ha="left", color=INK)
     fig.text(0.01, 0.01, FOOT, fontsize=6.5, color=MUTED)
-    fig.tight_layout(rect=(0, 0.05, 1, 0.95))
+    fig.tight_layout(rect=(0, 0.04, 1, 0.96), h_pad=3)  # 2026-11-14: lower titles overlapped upper x-axis
     for ext in ("png", "pdf"):
         fig.savefig(f"{OUT}_map.{ext}", dpi=200)
     plt.close(fig)
