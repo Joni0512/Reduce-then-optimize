@@ -199,9 +199,18 @@ class Vehicle:
             return am_used, wc_used, am_capacity, wc_capacity
         return 0, 0, self.am_capacity, self.wc_capacity
     
-    def get_remaining_capacities(self):
+    def get_remaining_capacities(self, per_type: bool = False):
         """return remaining caps normalized"""
         am_used, wc_used, am_cap, wc_cap = self.get_capacities()
+        # 2026-11-17: per_type=True fixes the zero-division guard below, which returned (0, 0, 0, 0) for ALL four values as
+        # soon as ONE capacity type is 0 - i.e. always for Li&Lim (am 200, wc 0) and SF (am 2, wc 0), so every capacity
+        # feature of feat_builder(_new).py was constant 0 (found in the SF feature check, user go "ja mit schalter").
+        # Default False keeps the old behaviour so existing SIL/SRL checkpoints (trained on all-zero inputs, whose
+        # first-layer weights for these inputs never got a gradient) stay exactly reproducible.
+        if per_type:
+            remaining_am_cap = (am_cap - am_used) / am_cap if am_cap > 0 else 0.0
+            remaining_wc_cap = (wc_cap - wc_used) / wc_cap if wc_cap > 0 else 0.0
+            return am_cap, wc_cap, remaining_am_cap, remaining_wc_cap
         # add check that we do not divide by 0
         if am_cap == 0:
             return 0, 0, 0, 0

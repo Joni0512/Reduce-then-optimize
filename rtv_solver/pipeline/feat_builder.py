@@ -114,6 +114,20 @@ class FeatureBuilder:
     # mirrors v2's ENABLE_PICKUP_SLACK_FEATURE so the pre-this-change v1 feature
     # set (84/82-dim) stays reproducible for comparison.
     ENABLE_PICKUP_SLACK_FEATURE = True
+    # 2026-11-17: True = capacity features from Vehicle.get_remaining_capacities(per_type=True). The default (False)
+    # keeps the old behaviour, where wc_capacity == 0 (Li&Lim, SF) made all 6 capacity features constant 0
+    # (SF feature check 2026-11-17). Feature count/order unchanged, so FEATURE_SIZE is not affected; old checkpoints
+    # must keep False (their weights for these inputs never got a gradient). New runs opt in at import time.
+    FIX_CAPACITY_FEATURES = False
+    # 2026-11-17: True = tc_norm_travel_time_to_first_pickup and tc_norm_detour_time divided by BATCH_INTERVAL [s]
+    # instead of max_distance [m] (unit error: seconds/meters, ~1000x larger on SF than on Li&Lim). Default False
+    # keeps the old features for existing checkpoints; new runs opt in at import time.
+    FIX_TIME_NORMALIZATION = False
+    # 2026-11-17: True = raw-second trip-cost features divided by BATCH_INTERVAL, tc_sharing_efficiency_factor capped
+    # at SHARING_FACTOR_CAP, s_total_vehicles = 1.0 (see _state_features/_trip_cost_features). Default False keeps
+    # the old features for existing checkpoints; new runs opt in at import time.
+    FIX_FEATURE_SCALING = False
+    SHARING_FACTOR_CAP = 10.0
     _BASE_FEATURE_SIZE = 82
     _TRIP_COMPOSITION_FEATURE_SIZE = 2
     _PICKUP_SLACK_FEATURE_SIZE = 1
@@ -182,6 +196,13 @@ class FeatureBuilder:
         requests_by_id = {r.id: r for r in requests}
         features: List[FeatureVector] = []
 
+        # 2026-11-18: per-call caches (profiling SF seed 1, bi900/ss450, 150 vehicles, 8584 candidate rows: 98 % of the
+        # feature time was _vehicle_features recomputing 151 geodesic distances per ROW, 1.3 M calls; user go
+        # "Ja, umsetzen"). Both only depend on (vehicle, vehicles, current_time) resp. (vehicles, current_time), which
+        # are fixed within one call -> identical values, computed once per call instead of once per row.
+        state_features = self._state_features(current_time, vehicles)
+        vehicle_features_cache: Dict[int, FeatureVector] = {}
+
         for tc in trip_costs:
             trip = trips[tc.trip_no]
             vehicle = vehicles.get(tc.vehicle_id)
@@ -191,10 +212,15 @@ class FeatureBuilder:
             ]
 
             fv: FeatureVector = {}
-            fv.update(self._state_features(current_time, vehicles))             # 6 items
+            fv.update(state_features)                                           # 6 items (2026-11-18: cached per call)
             if self.ENABLE_TRIP_COMPOSITION_FEATURES:
                 fv.update(self._trip_features(trip, vehicle))                   # 2 items
-            fv.update(self._vehicle_features(vehicle, vehicles, current_time))  # 11 items
+            if vehicle is None:
+                fv.update(self._vehicle_features(vehicle, vehicles, current_time))  # 11 items (defaults)
+            else:
+                if vehicle.id not in vehicle_features_cache:  # 2026-11-18: cached per call, see above
+                    vehicle_features_cache[vehicle.id] = self._vehicle_features(vehicle, vehicles, current_time)
+                fv.update(vehicle_features_cache[vehicle.id])                   # 11 items
             fv.update(self._trip_cost_features(tc, current_time))               # 17 items
             fv.update(self._future_requests_features(trip_requests, current_time)) # 49 items
             if self.ENABLE_PICKUP_SLACK_FEATURE:
@@ -343,7 +369,7 @@ class FeatureBuilder:
         total_norm_interval_remaining_boarded_time = 0.0
         total_norm_step_remaining_boarded_time = 0.0
         for vid, vehicle in vehicles.items():
-            _, _, remaining_am_cap, remaining_wc_cap = vehicle.get_remaining_capacities()
+            _, _, remaining_am_cap, remaining_wc_cap = vehicle.get_remaining_capacities(per_type=self.FIX_CAPACITY_FEATURES)  # 2026-11-17: see FIX_CAPACITY_FEATURES
             total_remaining_am_caps += remaining_am_cap
             total_remaining_wc_caps += remaining_wc_cap
 
@@ -366,6 +392,10 @@ class FeatureBuilder:
         sf.s_total_vehicles = self.total_vehicle_count
         sf.s_avg_remaining_interval_boarded_time = avg_interval_boarded_time
         sf.s_avg_remaining_step_boarded_time =  avg_step_boarded_time
+        # 2026-11-17: FIX_FEATURE_SCALING - raw fleet size (SF 150, constant within a data set, no information but a
+        # large input for an MLP without input normalisation) replaced by the constant 1.0
+        if self.FIX_FEATURE_SCALING:
+            sf.s_total_vehicles = 1.0
 
         return asdict(sf)
 
@@ -433,7 +463,7 @@ class FeatureBuilder:
                 avg_vehicle_distance = 0.0
                 norm_vehicle_count_in_proximity = 0.0
 
-            am_cap, wc_cap, norm_remaining_am_cap, norm_remaining_wc_cap = vehicle.get_remaining_capacities()
+            am_cap, wc_cap, norm_remaining_am_cap, norm_remaining_wc_cap = vehicle.get_remaining_capacities(per_type=self.FIX_CAPACITY_FEATURES)  # 2026-11-17: see FIX_CAPACITY_FEATURES
 
             remaining_boarded_time = vehicle.get_remaining_boarded_time(current_time)
             norm_interval_remaining_boarded_time = max(0.0, (remaining_boarded_time - current_time) / self.config.BATCH_INTERVAL)
@@ -489,7 +519,9 @@ class FeatureBuilder:
         # Use veh_travel_time which is pre-calculated in vehicle_handler, meaning for current time to get to the next stop
         if plan.veh_travel_time is not None:
             features.tc_travel_time_to_first_pickup = float(plan.veh_travel_time)
-            max_travel_time = self.max_distance  # Cost is in time units
+            # 2026-11-17: FIX_TIME_NORMALIZATION -> divide by BATCH_INTERVAL (seconds); the old denominator max_distance
+            # is in METERS, so the feature was seconds/meters (SF feature check, user go "b mit schalter").
+            max_travel_time = self.config.BATCH_INTERVAL if self.FIX_TIME_NORMALIZATION else self.max_distance  # Cost is in time units
             features.tc_norm_travel_time_to_first_pickup = (plan.veh_travel_time / max_travel_time)
         
         # DETOUR TIME        
@@ -511,7 +543,8 @@ class FeatureBuilder:
             features.tc_detour_time = float(plan.detour_time)
             # A more consistent normalization would use a time-based reference, 
             # for example the batch interval, total operating time, or a maximum travel-time value derived from the travel-time matrix.
-            features.tc_norm_detour_time = plan.detour_time / self.max_distance
+            features.tc_norm_detour_time = plan.detour_time / (
+                self.config.BATCH_INTERVAL if self.FIX_TIME_NORMALIZATION else self.max_distance)  # 2026-11-17: see FIX_TIME_NORMALIZATION
 
         # IDLING TIME
         # Time vehicle waits after arriving before pickup is allowed
@@ -537,6 +570,17 @@ class FeatureBuilder:
         total_wc_demand = sum(trip.wc_capacity for trip in plan.trips)
         features.tc_total_am_demand = float(total_am_demand)
         features.tc_total_wc_demand = float(total_wc_demand)
+        # 2026-11-17: FIX_FEATURE_SCALING (applied last, so the derived ratios above still use raw seconds):
+        # the 5 raw-second features in units of BATCH_INTERVAL (SF p99 up to ~2900 s, 14-37x Li&Lim) and the sharing
+        # factor capped at SHARING_FACTOR_CAP (SF max 690, p99 12) - SF feature check, user go "2-4 mit Schalter"
+        if self.FIX_FEATURE_SCALING:
+            bi = float(self.config.BATCH_INTERVAL)
+            features.tc_travel_time_to_first_pickup /= bi
+            features.tc_total_direct_travel_time /= bi
+            features.tc_actual_travel_time /= bi
+            features.tc_total_dwell_time /= bi
+            features.tc_detour_time /= bi
+            features.tc_sharing_efficiency_factor = min(features.tc_sharing_efficiency_factor, self.SHARING_FACTOR_CAP)
 
         # TODO add remaining times in relation to the current_time for current dropoffs or remeinaing pickup times (basically potential for later detours)
 
