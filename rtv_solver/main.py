@@ -71,6 +71,11 @@ if __name__ == "__main__":
     parser.add_argument('--max_cardinality', type=int,      default=3, help='Maximum trips to be shared when creating trips in one batch_interval')
     # 2026-10-21: total cap of requests per vehicle over the whole run (None = off); see Config.MAX_REQUESTS_PER_VEHICLE
     parser.add_argument('--max_requests_per_vehicle', type=int, default=None, help='Maximum number of requests one vehicle may serve in total (completed + on board + newly assigned); default: no limit')
+    # 2026-11-18: logging only, see Config.LOG_CANDIDATE_INSERTIONS
+    parser.add_argument('--log_candidate_insertions', type=str, default='False', help='True: log all feasible (request, vehicle) single-request insertions per ILP solve into assignment_data.jsonl (record "CandidateInsertions"); default False')
+    # 2026-11-19: no-learning (request, vehicle) edge filter, see Config.USE_VEHICLE_COST_RATIO_FILTER
+    parser.add_argument('--use_vehicle_cost_ratio_filter', type=str, default='False', help='True: per request keep only vehicles whose added_cost <= --vehicle_cost_ratio x added_cost of the best vehicle (single-request trip costs, before shared trips); default False')
+    parser.add_argument('--vehicle_cost_ratio', type=float, default=3.0, help='Ratio rho of the vehicle cost-ratio filter (see --use_vehicle_cost_ratio_filter); default 3.0')
     parser.add_argument('--largest_tsp', type=int,          default=16, help='Largest TSP to be solved when constructing RTVs') # incl existing passengers
     parser.add_argument('--step_size', type=int,            default=100, help='Step size in seconds for rolling horizon')
     parser.add_argument('--batch_interval', type=int,       default=400, help='Batch interval in seconds - NOTE if batch_interval value is too small, we might miss requests if the vehicle_trip to the pickup is longer than the batch interval size') # (TODO fix this so this does not have as much impact)
@@ -213,6 +218,13 @@ if __name__ == "__main__":
         type=str,
         default="False",
         help="Only pass requests to trip generation that are already assigned or whose pickup window opens before current_time + step_size; the others are deferred. Exclusive with --use_request_pruner."
+    )
+    # 2026-11-18: time rule without the force-keep of assigned requests, see Config.TIME_RULE_DEFER_ACTIVE.
+    parser.add_argument(
+        "--time_rule_defer_active",
+        type=str,
+        default="False",
+        help="With --use_request_time_rule_filter True: also defer already assigned (not yet boarded) requests whose pickup window opens at or after current_time + step_size. Requires --keep_active False."
     )
     # parser for new imitation scoring rule (26.7)
     parser.add_argument(

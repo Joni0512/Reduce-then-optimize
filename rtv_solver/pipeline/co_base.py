@@ -75,9 +75,41 @@ class CO(ABC):
     def solve_ilp() -> tuple[gp.Model, dict[int, gp.Var], dict[int, gp.Var]]:
         raise NotImplementedError
 
-    @abstractmethod 
+    @abstractmethod
     def run() -> AssignmentResult:
         raise NotImplementedError
+
+    def _log_candidate_insertions(self, requests: list[Request], request_assignment: dict) -> None:
+        """
+        2026-11-18: one "CandidateInsertions" record per ILP solve with every FEASIBLE single-request insertion (request x vehicle), chosen or not.
+        Only the single-request trips (tc.trip_no == the request's own single trip); cost entries of shared trips that merely contain the request are skipped.
+        Infeasible request/vehicle pairs do not exist here at all (create_trip_cost returns None for them).
+        Columns: request_id, vehicle_id, added_cost (= TripCost.cost = new optimal route cost - cost of the vehicle's current route), direct_time (own pickup->dropoff time of the request),
+        veh_to_pickup (travel time from the vehicle's current/next node to the pickup, NetworkHandler.travel_time; None if not available), veh_to_first_stop (plan.veh_travel_time, to the first
+        stop of the NEW sequence), sequence_len (stops of the new sequence), time_at_vehicle_node (simulation time at the vehicle's next node), latest_pickup (request's latest pickup time),
+        chosen (1 = this request is assigned to this vehicle in the ILP solution, incl. via a shared trip).
+        """
+        from rtv_solver.handlers.network_handler import NetworkHandler  # local import: avoid import cycles at module load
+        columns = ["request_id", "vehicle_id", "added_cost", "direct_time", "veh_to_pickup", "veh_to_first_stop", "sequence_len", "time_at_vehicle_node", "latest_pickup", "chosen"]
+        candidates = []
+        for request in requests:
+            trip_no = self.single_trip_map.get(request.id)
+            if trip_no is None:
+                continue
+            trip = self.trips[trip_no]
+            for index in self.trip_to_vehicle_cost_map.get(trip_no, []):
+                tc = self.trip_costs[index]
+                if tc.trip_no != trip_no or tc.plan is None:
+                    continue
+                plan = tc.plan
+                try:
+                    veh_to_pickup = NetworkHandler.travel_time(plan.next_immediate_node, trip.origin)
+                except Exception:
+                    veh_to_pickup = None
+                direct = plan.direct_trip_times[0] if plan.direct_trip_times else trip.cost
+                candidates.append([request.id, tc.vehicle_id, tc.cost, direct, veh_to_pickup, plan.veh_travel_time, len(plan.sequence),
+                                   plan.time_at_next_immediate_node, trip.latest_pick_up_time, 1 if request_assignment.get(request.id) == tc.vehicle_id else 0])
+        data_logger.info("CandidateInsertions", extra={"columns": columns, "candidates": candidates})
 
     def transform_solution_to_assignment(
         self,
@@ -187,6 +219,10 @@ class CO(ABC):
 
                 if not found_assignment:
                     unassigned_trip_count += 1
+
+            # 2026-11-18: optional logging of ALL feasible single-request insertions (see Config.LOG_CANDIDATE_INSERTIONS); no effect on the assignment
+            if getattr(self.config, "LOG_CANDIDATE_INSERTIONS", False):
+                self._log_candidate_insertions(requests, request_assignment)
         else:
             unassigned_trip_count = request_count
             self._handle_infeasibility(model)

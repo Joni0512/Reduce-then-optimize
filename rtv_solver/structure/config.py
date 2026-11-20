@@ -63,6 +63,18 @@ class Config:
     # CO_TripCostMinimization.solve_ilp (offline/online RTV path); the COAML pipeline's own solve_ilp calls do not pass the
     # per-vehicle base counts and therefore ignore it.
     MAX_REQUESTS_PER_VEHICLE: Optional[int] = None
+    # 2026-11-18: logging only (no effect on any decision): write one "CandidateInsertions" record per ILP solve into assignment_data.jsonl with
+    # every feasible (request, vehicle) single-request insertion (added_cost, direct time, vehicle->pickup time, chosen flag). Reason: analysis
+    # of an RHO heuristic ("how far is the request from the vehicle, how much longer does the trip get") needs the NOT chosen candidates too;
+    # the existing "TripMetrics" record only covers the chosen trips. Default off so existing runs/log sizes stay unchanged.
+    LOG_CANDIDATE_INSERTIONS: bool = False
+    # 2026-11-19: no-learning (request, vehicle) edge filter in TripHandler.run, applied to the SINGLE-request trip costs right before the shared trips are built:
+    # keep a vehicle for a request only if added_cost <= VEHICLE_COST_RATIO * added_cost of the BEST vehicle for that request (so the best vehicle is always kept
+    # and no request loses all options). Active (already assigned) requests are never filtered (KEEP_ACTIVE would otherwise risk an infeasible ILP).
+    # Reason: analysis of the logged candidate insertions (analyze_candidate_insertions.py) showed that the extra trip time separates chosen from non-chosen
+    # pairs; user asked to test this directly in RHO (without a Request Pruner), rho=3 first. Default off = old behaviour.
+    USE_VEHICLE_COST_RATIO_FILTER: bool = False
+    VEHICLE_COST_RATIO: float = 3.0
     USE_REQUEST_GRAPH_PRUNER: bool = False #new
     # 2026-07-07: default now points at the best v2 GNN checkpoint (pos_weight=10,
     # threshold=0.5 chosen by val F3 - see outputs/models_v2_gnnv2/best_config_by_model_val_f3.csv).
@@ -107,6 +119,13 @@ class Config:
     # request pruner with the label "pickup_before_next_resolve" (which turned out to be ~this rule).
     # Mutually exclusive with USE_REQUEST_PRUNER.
     USE_REQUEST_TIME_RULE_FILTER: bool = False
+    # 2026-11-18: variant of the time rule WITHOUT the force-keep of already assigned (active, not yet boarded)
+    # requests: they are deferred like all others when earliest_pickup_time >= current_time + STEP_SIZE and drop out of
+    # the manifest this window (they come back via offline_rtv_solver's selection once nobody holds them). Reason: the
+    # user pointed out assigned != picked up, so an assignment may still be moved to a later window. Only valid with
+    # KEEP_ACTIVE=False (the manifest consistency check then lets active requests be discarded); main.py/trip_handler.py
+    # raise if combined with KEEP_ACTIVE=True. Only has an effect together with USE_REQUEST_TIME_RULE_FILTER.
+    TIME_RULE_DEFER_ACTIVE: bool = False
     LARGEST_TSP: int = 8
     SHARE_COST_FACTOR: float = 10
     REBALANCING: bool = False
@@ -307,6 +326,10 @@ class Config:
             USE_REQUEST_TIME_RULE_FILTER=cls.str_to_bool(
                 getattr(args, "use_request_time_rule_filter", "False")
             ),
+            # 2026-11-18: see TIME_RULE_DEFER_ACTIVE in the dataclass fields.
+            TIME_RULE_DEFER_ACTIVE=cls.str_to_bool(
+                getattr(args, "time_rule_defer_active", "False")
+            ),
             EXTRA_VALIDATION_FILES=getattr(args, "extra_validation_files", "") or "",
             EXTRA_TRAINING_FILES=getattr(args, "extra_training_files", "") or "",
             OVERRIDE_TRAINING_FILES=getattr(args, "override_training_files", "") or "",
@@ -319,6 +342,9 @@ class Config:
             ILP_PENALTY = args.ilp_penalty,
             MAX_CARDINALITY = args.max_cardinality,
             MAX_REQUESTS_PER_VEHICLE = getattr(args, "max_requests_per_vehicle", None),  # 2026-10-21: see field comment
+            LOG_CANDIDATE_INSERTIONS = cls.str_to_bool(getattr(args, "log_candidate_insertions", "False") or "False"),  # 2026-11-18: see field comment
+            USE_VEHICLE_COST_RATIO_FILTER = cls.str_to_bool(getattr(args, "use_vehicle_cost_ratio_filter", "False") or "False"),  # 2026-11-19: see field comment
+            VEHICLE_COST_RATIO = float(getattr(args, "vehicle_cost_ratio", 3.0)),  # 2026-11-19: see field comment
             LARGEST_TSP = args.largest_tsp,
             SHARE_COST_FACTOR = args.share_cost_factor,
             REBALANCING = cls.str_to_bool(args.rebalancing),

@@ -160,6 +160,7 @@ class RequestPruner:
         self.device = torch.device(device)
 
         self.model = None
+        self.cand_impute_values = None  # 2026-11-19: train medians of the first three cand_ columns, from the checkpoint (see needs_candidate_features)
         self.feature_names: list[str] | None = None
         self.feature_mean: np.ndarray | None = None
         self.feature_std: np.ndarray | None = None
@@ -170,8 +171,12 @@ class RequestPruner:
         current_time: float,
         num_vehicles: int,
         active_request_ids: set | None = None,
+        candidate_features: dict | None = None,
     ) -> tuple[list, dict]:
         """
+        2026-11-19: candidate_features = {request_id: [min_veh_to_pickup, min_added_cost, min_cost_ratio, n_feasible_vehicles]} (TripHandler._candidate_features_from_single_costs);
+        required (else ValueError) if the checkpoint was trained with "cand_" features, ignored otherwise (old checkpoints behave exactly as before).
+
         Main function.
 
         Input:
@@ -281,6 +286,10 @@ class RequestPruner:
         num_active_requests = float(len(requests))
         requests_per_vehicle = len(requests) / num_vehicles
 
+        uses_cand = any(name.startswith("cand_") for name in self.feature_names)  # 2026-11-19
+        if uses_cand and (candidate_features is None or self.cand_impute_values is None):
+            raise ValueError("RequestPruner checkpoint uses cand_ features: candidate_features must be passed and the checkpoint needs cand_impute_values.")
+
         feature_rows = []
         for req in candidates:
             base_values = node_id_to_base_features[req.id].tolist()
@@ -289,7 +298,8 @@ class RequestPruner:
                 current_time - req.earliest_pickup_time,  # time_since_earliest_pickup
             ]
             context_values = [num_active_requests, requests_per_vehicle]
-            feature_rows.append(base_values + urgency_values + context_values)
+            cand_values = self._cand_row(req.id, candidate_features) if uses_cand else []  # 2026-11-19: appended after the 13 base columns (= checkpoint feature_names order)
+            feature_rows.append(base_values + urgency_values + context_values + cand_values)
 
         features = np.array(feature_rows, dtype=np.float32)
         features_norm = (features - self.feature_mean) / self.feature_std
@@ -336,11 +346,29 @@ class RequestPruner:
         }
         return kept_requests, stats
 
+    def needs_candidate_features(self) -> bool:
+        """
+        2026-11-19: True if the checkpoint was trained with the vehicle-related candidate features (feature names starting with "cand_", appended after the 13 base columns,
+        see request_pruner_dataset_builder_cand.CAND_FEATURE_NAMES). The caller must then pass candidate_features to filter_requests (TripHandler computes them from the single-trip costs).
+        """
+        self._load_model_if_needed()
+        return any(name.startswith("cand_") for name in self.feature_names)
+
+    def _cand_row(self, request_id, candidate_features: dict) -> list:
+        """2026-11-19: [cand_min_veh_to_pickup, cand_min_added_cost, cand_min_cost_ratio, cand_n_feasible_vehicles] of one request; NaN / no feasible vehicle -> TRAIN median (checkpoint) and n = 0,
+        exactly like the imputation of the training sweep (sweep_request_pruner_cand.py)."""
+        imp = self.cand_impute_values
+        row = candidate_features.get(request_id)
+        if row is None:
+            return [float(imp[0]), float(imp[1]), float(imp[2]), 0.0]
+        return [float(row[i]) if row[i] == row[i] else float(imp[i]) for i in range(3)] + [float(row[3])]
+
     def _load_model_if_needed(self) -> None:
         if self.model is not None:
             return
 
         checkpoint = torch.load(self.model_path, map_location=self.device, weights_only=False)
+        self.cand_impute_values = checkpoint.get("cand_impute_values")  # 2026-11-19: only present in checkpoints trained with cand_ features (see needs_candidate_features)
         self.feature_names = checkpoint["feature_names"]
         self.feature_mean = np.array(checkpoint["feature_mean"], dtype=np.float32)
         self.feature_std = np.array(checkpoint["feature_std"], dtype=np.float32)
@@ -360,8 +388,13 @@ def time_rule_filter_requests(
     current_time: float,
     step_size: float,
     active_request_ids: set | None = None,
+    defer_active: bool = False,
 ) -> tuple[list, dict]:
     """
+    2026-11-18: defer_active=True drops the force-keep of active requests: keep iff earliest_pickup_time <
+    current_time + step_size, assigned or not (assigned != picked up, so the assignment may still move to a later
+    window). Default False = the behaviour below. Needs KEEP_ACTIVE=False (checked by the caller).
+
     2026-11-05: no-learning request filter. Keeps a request iff it is already assigned (active, same
     force-keep as RequestPruner, a hard invariant for KEEP_ACTIVE / the manifest consistency check) or its
     pickup window opens before the next re-solve (earliest_pickup_time < current_time + step_size).
@@ -377,11 +410,15 @@ def time_rule_filter_requests(
     horizon = current_time + step_size
     kept = [
         req for req in requests
-        if req.id in active_request_ids or req.earliest_pickup_time < horizon
+        if (req.id in active_request_ids and not defer_active) or req.earliest_pickup_time < horizon
     ]
     stats = {
         "num_requests_total": len(requests),
-        "num_force_kept_active": sum(1 for req in requests if req.id in active_request_ids),
+        # 2026-11-18: with defer_active nothing is force-kept; the count of active requests is still logged (num_active_total)
+        "num_force_kept_active": 0 if defer_active else sum(1 for req in requests if req.id in active_request_ids),
+        "num_active_total": sum(1 for req in requests if req.id in active_request_ids),
+        "num_active_deferred": sum(1 for req in requests
+                                   if req.id in active_request_ids and req.earliest_pickup_time >= horizon) if defer_active else 0,
         "num_kept_total": len(kept),
         "num_pruned": len(requests) - len(kept),
         "retention": len(kept) / len(requests) if requests else 1.0,

@@ -55,6 +55,7 @@ class TripHandler:
         self.allowed_request_pairs = None
         self.request_graph_pruning_stats = None
         self.request_pruning_stats = None  # 2026-07-14: request-only pruner stats, see run()
+        self._deferred_request_pruner = None  # 2026-11-19: pruner that needs the single-trip costs (cand features), applied inside run() after them
 
         self.trips: list[Trip] = []     # basically collects all the tripCost objects for the feasible trips that are generated
         self.ondemand_only_trip_map = {}    # {request_id: trip_id}
@@ -103,20 +104,27 @@ class TripHandler:
             # it wasn't urgent, and the downstream KEEP_ACTIVE consistency
             # check crashed with ManifestConsistencyError since that request
             # never got a chance to be constrained into the ILP at all.
-            self.requests, self.request_pruning_stats = request_pruner.filter_requests(
-                requests=self.requests,
-                current_time=self.current_time,
-                num_vehicles=len(self.vehicles),
-                active_request_ids=set(self.active_requests.keys()),
-            )
+            # 2026-11-19: a pruner trained WITH the vehicle-related candidate features (checkpoint feature names start with "cand_", see
+            # request_pruner_dataset_builder_cand.py) needs the single-request trip costs of this window, which only exist after
+            # generate_ondemand_only_trips + generate_trip_costs -> its filtering is deferred to that point (inside the try block below,
+            # _apply_deferred_request_pruner). All other pruners keep the old behaviour (filter here, before any trip is built).
+            if request_pruner.needs_candidate_features():
+                self._deferred_request_pruner = request_pruner
+            else:
+                self.requests, self.request_pruning_stats = request_pruner.filter_requests(
+                    requests=self.requests,
+                    current_time=self.current_time,
+                    num_vehicles=len(self.vehicles),
+                    active_request_ids=set(self.active_requests.keys()),
+                )
 
-            console_logger.info(
-                f"Request pruner: kept {self.request_pruning_stats['num_kept_total']}/"
-                f"{self.request_pruning_stats['num_requests_total']} requests "
-                f"({self.request_pruning_stats['num_force_kept_active']} force-kept as active, "
-                f"{self.request_pruning_stats['num_force_kept_urgent']} force-kept as urgent, "
-                f"{self.request_pruning_stats['num_pruned']} pruned)"
-            )
+                console_logger.info(
+                    f"Request pruner: kept {self.request_pruning_stats['num_kept_total']}/"
+                    f"{self.request_pruning_stats['num_requests_total']} requests "
+                    f"({self.request_pruning_stats['num_force_kept_active']} force-kept as active, "
+                    f"{self.request_pruning_stats['num_force_kept_urgent']} force-kept as urgent, "
+                    f"{self.request_pruning_stats['num_pruned']} pruned)"
+                )
 
         # 2026-11-05: no-learning request filter (request_pruner.time_rule_filter_requests), same place and
         # same deferral semantics as the RequestPruner above (filtered requests stay in the caller's state,
@@ -128,17 +136,26 @@ class TripHandler:
                 raise ValueError(
                     "USE_REQUEST_TIME_RULE_FILTER is enabled but no current_time was provided to TripHandler."
                 )
+            # 2026-11-18: TIME_RULE_DEFER_ACTIVE only works with KEEP_ACTIVE=False (manifest consistency check, see Config)
+            if self.config.TIME_RULE_DEFER_ACTIVE and self.config.KEEP_ACTIVE:
+                raise ValueError("TIME_RULE_DEFER_ACTIVE requires KEEP_ACTIVE=False.")
             self.requests, self.request_pruning_stats = time_rule_filter_requests(
                 requests=self.requests,
                 current_time=self.current_time,
                 step_size=self.config.STEP_SIZE,
                 active_request_ids=set(self.active_requests.keys()),
+                defer_active=self.config.TIME_RULE_DEFER_ACTIVE,
             )
+            # 2026-11-18: the log line keeps its format (rho_window_times.py parses "kept a/b requests"); the extra
+            # fields only add info for the defer_active variant
             console_logger.info(
                 f"Request time-rule filter: kept {self.request_pruning_stats['num_kept_total']}/"
                 f"{self.request_pruning_stats['num_requests_total']} requests "
                 f"({self.request_pruning_stats['num_force_kept_active']} active, "
                 f"{self.request_pruning_stats['num_pruned']} deferred)"
+                + (f" [defer_active: {self.request_pruning_stats['num_active_deferred']} of "
+                   f"{self.request_pruning_stats['num_active_total']} assigned requests deferred]"
+                   if self.config.TIME_RULE_DEFER_ACTIVE else "")
             )
 
         # Request graph pruning:
@@ -171,6 +188,12 @@ class TripHandler:
         try:
             self.generate_ondemand_only_trips(self.requests, self.iteration)
             self.generate_trip_costs(self.vehicles, self.config.MAX_THREAD_CNT, 0)
+            # 2026-11-19: Request Pruner with vehicle-related candidate features: filter now that the single-trip costs exist, drop the pruned requests' trips/costs
+            if self._deferred_request_pruner is not None:
+                self._apply_deferred_request_pruner()
+            # 2026-11-19: optional no-learning (request, vehicle) edge filter on the single-trip costs, before the shared trips are built (see Config.USE_VEHICLE_COST_RATIO_FILTER)
+            if self.config.USE_VEHICLE_COST_RATIO_FILTER:
+                self._filter_vehicle_edges_by_cost_ratio(self.config.VEHICLE_COST_RATIO)
             self.generate_shared_trips(
                     self.vehicles,
                     self.config.MAX_CARDINALITY,
@@ -547,6 +570,98 @@ class TripHandler:
         time_spent = time.time() - self.starting_time
         if time_spent > self.config.RTV_TIMEOUT:
             raise RTVTimeoutError("RTV generation timed out: {0:.3f}s > {1}s".format(time_spent, self.config.RTV_TIMEOUT))
+
+    def _candidate_features_from_single_costs(self) -> dict:
+        """
+        2026-11-19: per request {request_id: [min_veh_to_pickup, min_added_cost, min_cost_ratio, n_feasible_vehicles]} over the feasible single-request trip costs, computed exactly like the
+        training data (request_pruner_dataset_builder_cand._candidates_per_window from the "CandidateInsertions" log of co_base._log_candidate_insertions): veh_to_pickup =
+        NetworkHandler.travel_time(plan.next_immediate_node, trip.origin), added_cost = TripCost.cost, ratio = added_cost / max(veh_to_pickup, 1.0). Requests without any feasible vehicle are absent.
+        """
+        single = {trip_no: request_id for request_id, trip_no in self.ondemand_only_trip_map.items()}
+        per_req: dict = {}
+        for tc in TripHandler.trip_costs:
+            request_id = single.get(tc.trip_no)
+            if request_id is None or tc.plan is None:
+                continue
+            try:
+                pick = float(NetworkHandler.travel_time(tc.plan.next_immediate_node, self.trips[tc.trip_no].origin))
+            except Exception:
+                pick = float("nan")
+            added = float(tc.cost)
+            ratio = added / max(pick, 1.0) if pick == pick else float("nan")
+            per_req.setdefault(request_id, []).append((pick, added, ratio))
+        out = {}
+        for request_id, vals in per_req.items():
+            picks = [v[0] for v in vals if v[0] == v[0]]
+            ratios = [v[2] for v in vals if v[2] == v[2]]
+            out[request_id] = [min(picks) if picks else float("nan"), min(v[1] for v in vals), min(ratios) if ratios else float("nan"), float(len(vals))]
+        return out
+
+    def _apply_deferred_request_pruner(self):
+        """
+        2026-11-19: apply the Request Pruner that was trained with the candidate features. Runs after generate_ondemand_only_trips + generate_trip_costs (single trips only exist at this point):
+        score the requests with the candidate features, keep force-kept (active / urgent) + model-kept requests, then remove the pruned requests' trips and costs. Trips are renumbered to
+        0..n-1 (self.trips is indexed by Trip.number, see _get_new_trip_no) and the TripCost.trip_no values and the mappings are updated. Pruned requests are NOT rejected (same semantics as before):
+        they stay in the caller's request state; the solver passes trip_handler.requests (= the kept ones) to the optimizer.
+        """
+        pruner = self._deferred_request_pruner
+        candidate_features = self._candidate_features_from_single_costs()
+        self.requests, self.request_pruning_stats = pruner.filter_requests(
+            requests=self.requests,
+            current_time=self.current_time,
+            num_vehicles=len(self.vehicles),
+            active_request_ids=set(self.active_requests.keys()),
+            candidate_features=candidate_features,
+        )
+        console_logger.info(
+            f"Request pruner: kept {self.request_pruning_stats['num_kept_total']}/"
+            f"{self.request_pruning_stats['num_requests_total']} requests "
+            f"({self.request_pruning_stats['num_force_kept_active']} force-kept as active, "
+            f"{self.request_pruning_stats['num_force_kept_urgent']} force-kept as urgent, "
+            f"{self.request_pruning_stats['num_pruned']} pruned)"
+        )
+        kept_ids = {req.id for req in self.requests}
+        old_to_new = {}
+        new_trips = []
+        for trip in self.trips:  # at this point only the single-request trips exist
+            if trip.request_id in kept_ids:
+                old_to_new[trip.number] = len(new_trips)
+                new_trips.append(trip)
+        for new_no, trip in enumerate(new_trips):
+            trip.number = new_no
+        self.trips = new_trips
+        self.ondemand_only_trip_map = {trip.request_id: trip.number for trip in new_trips}
+        new_costs = []
+        for tc in TripHandler.trip_costs:
+            if tc.trip_no in old_to_new:
+                tc.trip_no = old_to_new[tc.trip_no]
+                new_costs.append(tc)
+        TripHandler.trip_costs = new_costs
+        self._rebuild_mappings()
+
+    def _filter_vehicle_edges_by_cost_ratio(self, ratio: float):
+        """
+        2026-11-19: per (non-active) request keep only the vehicles whose single-trip added cost is <= ratio * added cost of the BEST vehicle for that request.
+        The best vehicle is always kept, so no request loses all options; active (already assigned) requests are not touched (KEEP_ACTIVE, infeasible-ILP risk).
+        Only the single-request trip costs exist at this point (called before generate_shared_trips); the cost list and the mappings are rebuilt afterwards,
+        so the shared trips are only built over the remaining (request, vehicle) pairs. Added cost = TripCost.cost (new route cost - current route cost).
+        """
+        single_trip_ids = {trip_no: request_id for request_id, trip_no in self.ondemand_only_trip_map.items()}
+        best = {}
+        for tc in TripHandler.trip_costs:
+            if tc.trip_no in single_trip_ids:
+                best[tc.trip_no] = min(best.get(tc.trip_no, float("inf")), tc.cost)
+        kept = []
+        for tc in TripHandler.trip_costs:
+            request_id = single_trip_ids.get(tc.trip_no)
+            if request_id is None or request_id in self.active_requests or tc.cost <= ratio * best[tc.trip_no] + 1e-9:
+                kept.append(tc)
+        console_logger.info(
+            f"Vehicle cost-ratio filter (rho={ratio}): kept {len(kept)}/{len(TripHandler.trip_costs)} single-trip costs "
+            f"({len(TripHandler.trip_costs) - len(kept)} (request, vehicle) pairs removed)"
+        )
+        TripHandler.trip_costs = kept
+        self._rebuild_mappings()
 
     def _rebuild_mappings(self):
         """Rebuild vehicle/trip cost mappings from whatever trip_costs exist (used after a partial timeout)."""
