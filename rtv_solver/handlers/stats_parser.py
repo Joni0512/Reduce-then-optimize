@@ -216,6 +216,18 @@ class StatsParser:
     - `config.DWELL_PICKUP` and `config.DWELL_ALIGHT` are currently only fallback values used when a manifest stop does not carry explicit dwell/service-end values.
     - Long-term, manifests should always contain explicit dwell/service timings for each stop, so stats evaluation is decoupled from external config defaults.
     """
+
+    @staticmethod
+    def vehicle_start_locs_from_payload(payload: dict) -> dict:
+        """2026-11-18: {run_id: state.loc} of the INPUT payload, i.e. each vehicle's route start, for the optional
+        "vehicle_start_locs" key of evaluate(). Same construction as main.py (2026-11-11); used by the COAML/SIL/SRL
+        stats calls, which lacked it and hit 'Waiting before service cannot be negative' with distributed vehicle starts
+        (SF uniform road-node starts, SRL smoke run 2026-11-18). For depot starts the loc is the depot -> unchanged stats."""
+        import copy
+        return {int(dr[PayloadKeys.DRIVER_STATE][PayloadKeys.DRIVER_STATE_RUN_ID]):
+                copy.deepcopy(dr[PayloadKeys.DRIVER_STATE].get(PayloadKeys.DRIVER_STATE_LOC))
+                for dr in payload[PayloadKeys.DRIVERS]}
+
     def __init__(self, config: Config | None = None, payload: dict | None = None):
         self.config = config
         self._network_initialized = False

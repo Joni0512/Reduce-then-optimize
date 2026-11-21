@@ -61,6 +61,7 @@ def _service_rate(config: Config, cleared_payload: dict, driver_runs: list) -> f
         PayloadKeys.REQUESTS: cleared_payload[PayloadKeys.REQUESTS],
         PayloadKeys.DRIVERS: driver_runs,
         PayloadKeys.TIME_MATRIX: cleared_payload.get(PayloadKeys.TIME_MATRIX, None),
+        "vehicle_start_locs": StatsParser.vehicle_start_locs_from_payload(cleared_payload),  # 2026-11-18: route starts (distributed vehicle starts), see StatsParser
     }
     _, episode_stats, _ = StatsParser(config, payload=stats_payload).evaluate(stats_payload)
     num_requests = len(all_requests)

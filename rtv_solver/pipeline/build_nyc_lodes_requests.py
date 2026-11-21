@@ -125,6 +125,10 @@ def main():
                         help="comma list of GEOID prefixes to drop for both ends, e.g. island tracts")
     parser.add_argument("--n-requests", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=42)
+    # 2026-11-18: disjoint instances (user: 10 train / 4 val / 4 test SF instances, "Disjunkt ziehen"). The jobs
+    # drawn for these seeds are re-drawn here (same inputs + same RNG call -> identical draw) and removed from the
+    # pool before this seed draws, so no LODES job appears in two instances. Unset = old behaviour, unchanged.
+    parser.add_argument("--exclude-seeds", default="", help="comma-separated seeds whose jobs must not be drawn again")
     parser.add_argument("--snap-radius-m", type=float, default=500.0,
                         help="drop blocks further than this from the nearest map node")
     parser.add_argument("--start", default="06:00:00")
@@ -183,7 +187,35 @@ def main():
     # Each job is one unit, so OD pairs are drawn in proportion to S000, without replacement.
     rng = np.random.default_rng(args.seed)
     job_rows = np.repeat(np.arange(len(od)), od["S000"].values)
-    chosen = rng.choice(job_rows, size=args.n_requests, replace=False)
+    exclude_seeds = [int(x) for x in split(args.exclude_seeds)]
+    if not exclude_seeds:
+        chosen = rng.choice(job_rows, size=args.n_requests, replace=False)
+    else:
+        # 2026-11-18: positions in job_rows = individual jobs. Generator.choice(array) draws the same positions as
+        # Generator.choice(len(array)), so re-drawing an excluded seed reproduces exactly the jobs it chose
+        # (checked against the original CSVs of seeds 1/2/42 when this was added).
+        # 2026-11-18 (fix, same day): a seed that was itself drawn WITH --exclude-seeds cannot be reproduced by a plain
+        # re-draw (its pool was restricted). Its drawn job positions are therefore stored in <csv>.jobs.npy and read
+        # back here; only seeds without that file are re-drawn, and only if their meta.json shows no exclusion.
+        jobs_dir = (args.out.parent if args.out is not None else ROOT / "dataset/lodes_nyc")
+        tag = f"{args.start[:2]}{args.end[:2]}"
+        used = set()
+        for s_ex in exclude_seeds:
+            if s_ex == args.seed:
+                parser.error(f"--exclude-seeds contains the seed itself ({s_ex})")
+            stem = jobs_dir / f"requests_lodes{args.n_requests}_{tag}_seed{s_ex}"
+            jobs_file = stem.with_suffix(".jobs.npy")
+            if jobs_file.exists():
+                used.update(np.load(jobs_file).tolist())
+                continue
+            meta_file = stem.with_suffix(".meta.json")
+            if meta_file.exists() and json.loads(meta_file.read_text()).get("exclude_seeds"):
+                parser.error(f"seed {s_ex} was drawn with --exclude-seeds but {jobs_file} is missing")
+            used.update(np.random.default_rng(s_ex).choice(len(job_rows), size=args.n_requests, replace=False).tolist())
+        pool = np.setdiff1d(np.arange(len(job_rows)), np.fromiter(used, dtype=np.int64))
+        chosen_pos = rng.choice(pool, size=args.n_requests, replace=False)
+        chosen = job_rows[chosen_pos]
+        print(f"excluded {len(used)} jobs of seeds {exclude_seeds}; pool {len(pool)} of {len(job_rows)} jobs")
 
     start, end = hms_to_seconds(args.start), hms_to_seconds(args.end)
     # Drawn independently of the OD row and sorted afterwards; ids follow departure time.
@@ -213,9 +245,12 @@ def main():
         "start": args.start, "end": args.end,
         "work_geoid_prefixes": work_prefixes, "home_geoid_prefixes": home_prefixes,
         "exclude_geoid_prefixes": exclude_prefixes,
+        "exclude_seeds": exclude_seeds,  # 2026-11-18
         "jobs_total": total_jobs, "jobs_on_map": jobs_on_map, "jobs_usable": jobs_usable,
     }
     args.out.with_suffix(".meta.json").write_text(json.dumps(meta, indent=2))
+    if exclude_seeds:  # 2026-11-18: drawn job positions, needed to exclude this seed later (see above)
+        np.save(args.out.with_suffix(".jobs.npy"), np.sort(chosen_pos))
     print(f"Wrote {len(out_df)} requests -> {args.out}")
     print(f"Jobs: {total_jobs} total, {jobs_on_map} on map, {jobs_usable} usable after same-node removal")
 

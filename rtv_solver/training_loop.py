@@ -96,6 +96,7 @@ def _save_validation_results(cfg: Config, payload: dict, driver_runs: list):
         PayloadKeys.REQUESTS: payload[PayloadKeys.REQUESTS],
         PayloadKeys.DRIVERS: driver_runs,
         PayloadKeys.TIME_MATRIX: payload.get(PayloadKeys.TIME_MATRIX),
+        "vehicle_start_locs": StatsParser.vehicle_start_locs_from_payload(payload),  # 2026-11-18: route starts (distributed vehicle starts), see StatsParser
     }
     evaluator = StatsParser(cfg, payload=stats_payload)
     feasible, stats, violations = evaluator.evaluate(stats_payload)
@@ -382,6 +383,7 @@ class COAMLTrainingLoop:
                 PayloadKeys.REQUESTS: self.val_payload[PayloadKeys.REQUESTS],
                 PayloadKeys.DRIVERS: val_driver_runs,
                 PayloadKeys.TIME_MATRIX: self.val_payload.get(PayloadKeys.TIME_MATRIX),
+                "vehicle_start_locs": StatsParser.vehicle_start_locs_from_payload(self.val_payload),  # 2026-11-18: route starts (distributed vehicle starts), see StatsParser
             }
             evaluator = StatsParser(val_cfg, payload=val_stats_payload)
             _, val_stats, val_violations = evaluator.evaluate(val_stats_payload)

@@ -100,6 +100,7 @@ def _instance_service_rate(config: Config, cleared_payload: dict, driver_runs: l
         PayloadKeys.REQUESTS: cleared_payload[PayloadKeys.REQUESTS],
         PayloadKeys.DRIVERS: driver_runs,
         PayloadKeys.TIME_MATRIX: cleared_payload.get(PayloadKeys.TIME_MATRIX, None),
+        "vehicle_start_locs": StatsParser.vehicle_start_locs_from_payload(cleared_payload),  # 2026-11-18: route starts (distributed vehicle starts), see StatsParser
     }
     _, episode_stats, _ = StatsParser(config, payload=stats_payload).evaluate(stats_payload)
     num_requests = len(all_requests)
@@ -377,6 +378,10 @@ def run_srl_training_loop(
     episodic_tau: float = 0.005,
     pretrain_collect_epochs: int = 1,  # 2026-10-26: passes over the pretrain instances while collecting (with pretrain_exploration_sigma noise each pass differs)
     pretrain_exploration_sigma: float | None = None,
+    # 2026-11-18: with pretrain_mode="buffer", afterwards also run this many epochs of the old per-episode pretrain (frozen random-init actor,
+    # target r_t, 1 critic step per episode) - user request for SF ("10 Episoden Critic-Training mit frozen Actor", target "r_t wie Vortraining").
+    # 0 (default) = old behavior (buffer mode runs no per-episode pretrain).
+    per_episode_after_buffer_epochs: int = 0,
     td_steps: int = 1,  # 2026-10-18: 1 = single-step TD target (default), 2 = two-step target (see td_target_builder.py)
     lr_schedule: str = "none",  # 2026-10-20: learning-rate annealing of actor AND both critics over the epochs: "none" (default, constant), "cosine" or "linear" down to base * lr_final_factor
     lr_final_factor: float = 0.1,
@@ -478,7 +483,7 @@ def run_srl_training_loop(
             batch_interval, step_size, seed, output_dir, MANIFEST_DIR, _MAX_THREAD_CNT, critic_clip_norm=critic_clip_norm,
             collect_epochs=pretrain_collect_epochs, exploration_sigma=pretrain_exploration_sigma,
         )
-    for epoch in range(critic_pretrain_epochs if pretrain_mode == "per_episode" else 0):
+    for epoch in range(critic_pretrain_epochs if pretrain_mode == "per_episode" else per_episode_after_buffer_epochs):  # 2026-11-18: was "else 0", see per_episode_after_buffer_epochs
         for instance in TRAIN_INSTANCES:
             input_path = MANIFEST_DIR / f"{instance}.json"
             inst_out_dir = pretrain_dir / instance
