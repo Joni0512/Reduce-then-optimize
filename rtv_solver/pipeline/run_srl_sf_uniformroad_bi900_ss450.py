@@ -62,11 +62,19 @@ def main() -> None:
     # 2026-11-18: buffer critic pretrain (all 10 train instances, 3 collect passes with sigma 0.2 noise, 500 steps, batch 20),
     # then 1 epoch of the old per-episode pretrain (frozen actor, target r_t) = 10 episodes per critic (user request)
     p.add_argument("--buffer_pretrain", action="store_true")
+    # 2026-11-22: no critic pretraining at all, main training starts directly with a randomly initialized critic
+    # (user: "kein Critic-Pretraining, sondern gleich 10 Epochen Haupttraining", wants a faster run)
+    p.add_argument("--no_pretrain", action="store_true")
     a = p.parse_args()
+    if a.no_pretrain and (a.buffer_pretrain or a.pretrain_only):
+        p.error("--no_pretrain cannot be combined with --buffer_pretrain / --pretrain_only")  # 2026-11-22
 
     epochs = 1 if a.smoke else (0 if a.pretrain_only else a.epochs)
-    pretrain = 0 if a.smoke else trial.CRITIC_PRETRAIN_EPOCHS
-    run_id = (f"sf_uniformroad_bi900_ss450_mc2_v150_featfix_split10_{'bufpre_' if a.buffer_pretrain else ''}"
+    pretrain = 0 if (a.smoke or a.no_pretrain) else trial.CRITIC_PRETRAIN_EPOCHS  # 2026-11-22: + no_pretrain
+    # 2026-11-22: num_samples tag only when != 20 (default), so existing run dirs keep their names and the num_samples=10 run
+    # (user: "num_samples 20 -> 10", seed 42) does not overwrite the dir of the still running num_samples=20 job 5743969
+    ns_tag = "" if trial.NUM_SAMPLES == 20 else f"ns{trial.NUM_SAMPLES}_"
+    run_id = (f"sf_uniformroad_bi900_ss450_mc2_v150_featfix_split10_{'bufpre_' if a.buffer_pretrain else ''}{'nopre_' if a.no_pretrain else ''}{ns_tag}"
               f"{'smoke' if a.smoke else ('pretrainonly' if a.pretrain_only else f'ep{epochs}')}_s{a.seed}")  # 2026-11-18: split10 / bufpre tags
     output_dir = loop.REPO_ROOT / "outputs" / "srl_sf_lodes" / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -98,6 +106,7 @@ def main() -> None:
         "buffer_pretrain": (dict(collect_epochs=3, exploration_sigma=0.2, steps=500, batch=20, per_episode_after_buffer_epochs=1)
                             if a.buffer_pretrain else None),  # 2026-11-18
         "actor_lr": ACTOR_LR, "critic_lr": trial.CRITIC_LR,
+        "num_samples": trial.NUM_SAMPLES,  # 2026-11-22: recorded explicitly (SRL_NUM_SAMPLES env, ns10 run)
         "seed": a.seed, "best_epoch": result.best_epoch, "best_val_service_rate": result.best_val_service_rate,
         "val_curve": result.val_curve, "overfit_curve": result.overfit_curve, "wall_s": round(wall, 1),
     }
