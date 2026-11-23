@@ -170,8 +170,11 @@ def _run_actor_update_phase(
     rng: random.Random,
     grad_norms: list[float] | None = None,
     max_norm: float = 1.0,  # 2026-10-15: actor clipping threshold (default = original 1.0)
+    score_trace: list[dict] | None = None,  # 2026-11-23: optional per-step trip-score statistics (logging only, None = old behaviour)
 ) -> tuple[list[float], list[float]]:
     """
+    2026-11-23: optional `score_trace` gets one dict per step with the trip-score statistics (share > 0, mean, max; averaged over the
+    batch's windows) of the actor BEFORE that step, plus pre-clip grad norm and weight norm after the step - logging only, see chat (NYC collapse).
     2026-10-14: optional `grad_norms` list collects the actor gradient norm BEFORE clipping of every step (clip_grad_norm_ returns it) - pure logging, no effect on training.
     2026-10-06: update phase of the "collect, then update" actor scheme (see chat,
     project_srl_minibatch_update_plan). Random permutation of all buffered windows
@@ -187,6 +190,7 @@ def _run_actor_update_phase(
     for batch in actor_buffer.epoch_batches(batch_size, rng):
         actor_optimizer.zero_grad(set_to_none=True)
         batch_loss = 0.0
+        step_theta_stats: list[tuple[float, float, float]] = []  # 2026-11-23: per-window trip-score stats of this step (logging only)
         for transition in batch:
             # all instance pipelines of a run share ONE actor object; re-pointing guards the
             # rare case where a pipeline was built before the shared model existed.
@@ -194,6 +198,8 @@ def _run_actor_update_phase(
             loss = transition.pipeline.compute_srl_actor_loss_for_transition(transition)
             (loss / len(batch)).backward()
             batch_loss += loss.item() / len(batch)
+            if score_trace is not None and getattr(transition.pipeline, "last_theta_stats", None) is not None:
+                step_theta_stats.append(transition.pipeline.last_theta_stats)
         gn = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
         if grad_norms is not None:
             grad_norms.append(float(gn))  # 2026-10-14: pre-clip norm (logging only)
@@ -201,6 +207,15 @@ def _run_actor_update_phase(
         with torch.no_grad():
             weight_norms.append(torch.sqrt(sum(p.pow(2).sum() for p in model.parameters())).item())
         batch_losses.append(batch_loss)
+        if score_trace is not None and step_theta_stats:  # 2026-11-23: scores are those BEFORE this step
+            n_w = len(step_theta_stats)
+            score_trace.append({
+                "step": len(score_trace) + 1, "windows": n_w,
+                "share_pos": sum(s[0] for s in step_theta_stats) / n_w,
+                "mean_score": sum(s[1] for s in step_theta_stats) / n_w,
+                "max_score": max(s[2] for s in step_theta_stats),
+                "grad_norm_preclip": float(gn), "weight_norm_after": weight_norms[-1], "batch_loss": batch_loss,
+            })
     return batch_losses, weight_norms
 
 
@@ -522,6 +537,7 @@ def run_srl_training_loop(
     # copied from the now-pretrained critic2.
     target_critic2 = copy.deepcopy(critic2) if use_twin_critic else None
     # 2026-10-12: joint mode keeps ~joint_buffer_epochs epochs of critic transitions (~370 windows per epoch -> 400 as upper estimate)
+    score_trace_log: list[dict] = []  # 2026-11-23: per-epoch, per-step trip-score statistics (buffered mode only), written to score_trace_log.json
     grad_norm_log: list[dict] = []  # 2026-10-14: per-epoch actor gradient-norm statistics (buffered / buffered_joint modes)
     replay_buffer = ReplayBuffer(capacity=max(2000, 40 * episodic_buffer_episodes) if episodic else (joint_buffer_epochs * 400 if joint else replay_capacity))  # 2026-10-17: episodic never evicts by capacity (episodes are dropped explicitly)
     actor_buffer = ActorTransitionBuffer(capacity=actor_buffer_capacity, compress=joint or episodic) if buffered else None  # 2026-10-06; compress: 2026-10-12 (+ episodic 2026-10-17: needs the episode tag)
@@ -664,8 +680,12 @@ def run_srl_training_loop(
                 )
             elif num_windows > 0 and model is not None:
                 epoch_grad_norms = []
-                batch_losses, weight_norms = _run_actor_update_phase(actor_buffer, model, actor_optimizer, actor_batch_size, rng, grad_norms=epoch_grad_norms, max_norm=actor_clip_norm)
+                epoch_score_trace: list[dict] = []  # 2026-11-23: per-step trip-score statistics of this epoch (logging only)
+                batch_losses, weight_norms = _run_actor_update_phase(actor_buffer, model, actor_optimizer, actor_batch_size, rng, grad_norms=epoch_grad_norms, max_norm=actor_clip_norm, score_trace=epoch_score_trace)
                 _log_grad_norms(epoch_num, epoch_grad_norms, grad_norm_log, output_dir, reward_mode, actor_clip_norm)
+                score_trace_log.append({"epoch": epoch_num, "steps": epoch_score_trace})  # 2026-11-23
+                with open(output_dir / "score_trace_log.json", "w") as _f:
+                    json.dump(score_trace_log, _f, indent=1)
                 if weight_norm_trace is not None:
                     weight_norm_trace.append({"epoch": epoch_num, "instance": "actor_update_phase", "norms": weight_norms})
                 print(

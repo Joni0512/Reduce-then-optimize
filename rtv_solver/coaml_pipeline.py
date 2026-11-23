@@ -1903,6 +1903,14 @@ class COAMLPipeline():
         Returns the scalar loss (also stored in self.last_loss); caller does backward().
         """
         theta = self._score(transition.feature_tensor, transition.trip_costs, transition.reject_vehicle_ids)
+        # 2026-11-23: logging only (see chat, NYC 900/450 actor collapse): sign statistics of the TRIP scores (rows before the reject
+        # rows) of the actor as it is BEFORE this update step; read by srl_training_loop._run_actor_update_phase. No effect on theta/loss.
+        with torch.no_grad():
+            _trip_theta = theta.detach().flatten()[:len(transition.trip_costs)]
+            self.last_theta_stats = (
+                (float((_trip_theta > 0).float().mean()), float(_trip_theta.mean()), float(_trip_theta.max()))
+                if _trip_theta.numel() > 0 else None
+            )
         self._compute_srl_actor_loss(
             theta=theta,
             trip_costs=transition.trip_costs,
